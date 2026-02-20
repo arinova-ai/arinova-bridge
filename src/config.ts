@@ -48,13 +48,12 @@ export function loadConfig(): BridgeConfig {
   const serverUrl =
     process.env.ARINOVA_SERVER_URL ??
     file?.arinova?.serverUrl ??
-    "";
+    "wss://api.chat.arinova.ai";
   const botToken =
     process.env.ARINOVA_BOT_TOKEN ??
     file?.arinova?.botToken ??
     "";
 
-  if (!serverUrl) throw new Error("ARINOVA_SERVER_URL is required (env or config file)");
   if (!botToken) throw new Error("ARINOVA_BOT_TOKEN is required (env or config file)");
 
   const defaultProvider = (
@@ -82,10 +81,11 @@ export function loadConfig(): BridgeConfig {
     file?.providers?.["openai-api"]?.codexPath ??
     file?.providers?.["openai-oauth"]?.codexPath;
 
-  const defaultCwd =
+  const rawCwd =
     process.env.DEFAULT_CWD ??
     file?.defaults?.cwd ??
     path.join(homedir(), "projects");
+  const defaultCwd = rawCwd.replace(/^~/, homedir());
 
   const maxSessions = parseInt(
     process.env.MAX_SESSIONS ?? String(file?.defaults?.maxSessions ?? 5),

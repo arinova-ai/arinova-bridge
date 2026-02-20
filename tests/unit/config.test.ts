@@ -33,9 +33,11 @@ describe("loadConfig", () => {
     process.env = { ...originalEnv };
   });
 
-  it("throws if serverUrl is missing", () => {
+  it("uses default serverUrl when not configured", () => {
     mockReadConfigFile.mockReturnValue(null);
-    expect(() => loadConfig()).toThrow("ARINOVA_SERVER_URL is required");
+    process.env.ARINOVA_BOT_TOKEN = "test-token";
+    const config = loadConfig();
+    expect(config.arinova.serverUrl).toBe("wss://api.chat.arinova.ai");
   });
 
   it("throws if botToken is missing", () => {

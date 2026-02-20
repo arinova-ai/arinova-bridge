@@ -1,184 +1,166 @@
 #!/usr/bin/env node
 
-import readline from "node:readline";
+import fs from "node:fs";
+import { homedir } from "node:os";
+import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
 import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile } from "./config-file.js";
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+type ProviderId = "anthropic-api" | "anthropic-oauth" | "openai-api" | "openai-oauth";
 
-function ask(question: string, defaultValue = ""): Promise<string> {
-  const prompt = defaultValue ? `${question} [${defaultValue}]: ` : `${question}: `;
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      resolve(answer.trim() || defaultValue);
-    });
-  });
+const PROVIDER_CHOICES: Array<{ name: string; value: ProviderId; description: string }> = [
+  { name: "Anthropic API", value: "anthropic-api", description: "Claude Code SDK, API 計費" },
+  { name: "Anthropic OAuth", value: "anthropic-oauth", description: "claude CLI, Max/Pro 訂閱" },
+  { name: "OpenAI API", value: "openai-api", description: "codex CLI + API key" },
+  { name: "OpenAI OAuth", value: "openai-oauth", description: "codex CLI + OAuth" },
+];
+
+function maskToken(token: string): string {
+  if (token.length <= 12) return "****";
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
 }
 
-function askSecret(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(`${question}: `, (answer) => {
-      resolve(answer.trim());
-    });
-  });
-}
-
-async function askToggle(
-  label: string,
-  defaultEnabled: boolean,
-): Promise<boolean> {
-  const hint = defaultEnabled ? "[Y/n]" : "[y/N]";
-  const answer = await ask(`  Enable ${label}? ${hint}`, defaultEnabled ? "y" : "n");
-  return answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
-}
-
-async function main() {
+async function runSetup(): Promise<boolean> {
   console.log("\n=== Arinova Bridge Setup ===\n");
 
   const existing = readConfigFile();
   if (existing) {
     console.log(`Found existing config at ${getConfigPath()}`);
-    const overwrite = await ask("Overwrite? [y/N]", "n");
-    if (overwrite.toLowerCase() !== "y") {
+    const overwrite = await confirm({ message: "Overwrite?", default: false });
+    if (!overwrite) {
       console.log("Setup cancelled.");
-      rl.close();
-      return;
+      return true;
     }
     console.log();
   }
 
-  // Step 1: Arinova Server Connection
-  console.log("Step 1: Arinova Server Connection");
-  const serverUrl = await ask("  Server URL", existing?.arinova?.serverUrl ?? "ws://localhost:3501");
-  const botToken = await askSecret("  Bot Token");
-  if (!botToken) {
-    console.error("Bot token is required.");
-    rl.close();
-    process.exit(1);
-  }
-  console.log();
+  // Step 1: Bot Token
+  const existingToken = existing?.arinova?.botToken;
+  const botToken = await password({
+    message: existingToken
+      ? `Bot Token (current: ${maskToken(existingToken)})`
+      : "Bot Token",
+    mask: "*",
+    validate: (val) => {
+      if (!val && !existingToken) return "Bot token is required";
+      return true;
+    },
+  }) || existingToken!;
 
-  // Step 2: Configure Providers
-  console.log("Step 2: Configure Providers");
-  const enableAnthropicApi = await askToggle(
-    "Anthropic API Key (Claude Code SDK, API 計費)",
-    existing?.providers?.["anthropic-api"]?.enabled ?? false,
-  );
-  const enableAnthropicOauth = await askToggle(
-    "Anthropic OAuth (claude CLI, Max/Pro 訂閱)",
-    existing?.providers?.["anthropic-oauth"]?.enabled ?? true,
-  );
-  const enableOpenaiApi = await askToggle(
-    "OpenAI API Key (codex CLI + API key)",
-    existing?.providers?.["openai-api"]?.enabled ?? false,
-  );
-  const enableOpenaiOauth = await askToggle(
-    "OpenAI OAuth (codex CLI + OAuth)",
-    existing?.providers?.["openai-oauth"]?.enabled ?? false,
-  );
-  console.log();
+  // Step 2: Provider Selection
+  const enabledProviders = await checkbox<ProviderId>({
+    message: "Enable providers (space to toggle, enter to confirm)",
+    choices: PROVIDER_CHOICES.map((p) => ({
+      name: `${p.name}  (${p.description})`,
+      value: p.value,
+      checked: existing?.providers?.[p.value]?.enabled ?? (p.value === "anthropic-oauth"),
+    })),
+    validate: (selected) => {
+      if (selected.length === 0) return "At least one provider must be enabled";
+      return true;
+    },
+  });
 
-  // Step 3: Provider Details
+  // Step 3: API Key Prompts (only for API providers)
   const config: ConfigFile = {
     version: 1,
-    arinova: { serverUrl, botToken },
-    defaultProvider: "anthropic-oauth",
+    arinova: { botToken },
+    defaultProvider: enabledProviders[0],
     providers: {},
     defaults: {},
   };
 
-  if (enableAnthropicApi) {
-    console.log("Step 3a: Anthropic API Details");
-    const apiKey = await askSecret("  API Key (sk-ant-...)");
-    const defaultModel = await ask("  Default model", "sonnet");
-    config.providers["anthropic-api"] = {
-      enabled: true,
-      apiKey: apiKey || undefined,
-      defaultModel: defaultModel || undefined,
-    };
-    console.log();
+  for (const id of enabledProviders) {
+    if (id === "anthropic-api") {
+      const apiKey = await password({
+        message: "Anthropic API Key (sk-ant-...)",
+        mask: "*",
+      });
+      const defaultModel = await input({
+        message: "Default model",
+        default: existing?.providers?.["anthropic-api"]?.defaultModel ?? "sonnet",
+      });
+      config.providers["anthropic-api"] = {
+        enabled: true,
+        apiKey: apiKey || undefined,
+        defaultModel: defaultModel || undefined,
+      };
+    } else if (id === "anthropic-oauth") {
+      config.providers["anthropic-oauth"] = { enabled: true };
+    } else if (id === "openai-api") {
+      const apiKey = await password({
+        message: "OpenAI API Key (sk-...)",
+        mask: "*",
+      });
+      config.providers["openai-api"] = {
+        enabled: true,
+        apiKey: apiKey || undefined,
+      };
+    } else if (id === "openai-oauth") {
+      config.providers["openai-oauth"] = { enabled: true };
+    }
   }
 
-  if (enableAnthropicOauth) {
-    console.log("Step 3b: Anthropic OAuth Details");
-    const claudePath = await ask("  Path to claude binary", "claude");
-    config.providers["anthropic-oauth"] = {
-      enabled: true,
-      claudePath: claudePath !== "claude" ? claudePath : undefined,
-    };
-    console.log();
+  // Step 4: Default Provider
+  if (enabledProviders.length > 1) {
+    const defaultProvider = await select<string>({
+      message: "Default provider",
+      choices: enabledProviders.map((id) => {
+        const info = PROVIDER_CHOICES.find((p) => p.value === id)!;
+        return { name: `${info.name}  (${info.description})`, value: id };
+      }),
+      default: existing?.defaultProvider && enabledProviders.includes(existing.defaultProvider as ProviderId)
+        ? existing.defaultProvider
+        : enabledProviders[0],
+    });
+    config.defaultProvider = defaultProvider;
   }
 
-  if (enableOpenaiApi) {
-    console.log("Step 3c: OpenAI API Details");
-    const apiKey = await askSecret("  API Key (sk-...)");
-    const codexPath = await ask("  Path to codex binary", "codex");
-    config.providers["openai-api"] = {
-      enabled: true,
-      apiKey: apiKey || undefined,
-      codexPath: codexPath !== "codex" ? codexPath : undefined,
-    };
-    console.log();
-  }
-
-  if (enableOpenaiOauth) {
-    console.log("Step 3d: OpenAI OAuth Details");
-    const codexPath = await ask("  Path to codex binary", "codex");
-    config.providers["openai-oauth"] = {
-      enabled: true,
-      codexPath: codexPath !== "codex" ? codexPath : undefined,
-    };
-    console.log();
-  }
-
-  // Step 4: Defaults
-  console.log("Step 4: Defaults");
-
-  // Determine default provider
-  const enabledProviders: string[] = [];
-  if (enableAnthropicApi) enabledProviders.push("anthropic-api");
-  if (enableAnthropicOauth) enabledProviders.push("anthropic-oauth");
-  if (enableOpenaiApi) enabledProviders.push("openai-api");
-  if (enableOpenaiOauth) enabledProviders.push("openai-oauth");
-
-  if (enabledProviders.length === 0) {
-    console.error("At least one provider must be enabled.");
-    rl.close();
-    process.exit(1);
-  }
-
-  const defaultProvider = await ask(
-    `  Default provider (${enabledProviders.join(" / ")})`,
-    enabledProviders[0],
-  );
-  if (!enabledProviders.includes(defaultProvider)) {
-    console.error(`Invalid provider: ${defaultProvider}`);
-    rl.close();
-    process.exit(1);
-  }
-  config.defaultProvider = defaultProvider;
-
-  const defaultCwd = await ask("  Default working directory", "~/projects");
+  // Step 5: Working Directory
+  const defaultCwd = await input({
+    message: "Default working directory",
+    default: existing?.defaults?.cwd ?? "~/projects",
+  });
   config.defaults.cwd = defaultCwd;
 
-  console.log();
+  // Step 6: Confirmation Summary
+  console.log("\n──────────────────────────────────────");
+  console.log("  Token:     " + maskToken(config.arinova.botToken));
+  console.log("  Providers: " + enabledProviders.join(", "));
+  console.log("  Default:   " + config.defaultProvider);
+  console.log("  CWD:       " + config.defaults.cwd);
+  console.log("──────────────────────────────────────\n");
 
-  // Write config
+  const confirmed = await confirm({ message: "Save this configuration?", default: true });
+  if (!confirmed) {
+    console.log("\nRestarting setup...\n");
+    return false;
+  }
+
+  // Step 7: Ensure working directory exists
+  const resolvedCwd = defaultCwd.replace(/^~/, homedir());
+  if (!fs.existsSync(resolvedCwd)) {
+    fs.mkdirSync(resolvedCwd, { recursive: true });
+    console.log(`\n✓ Created directory: ${resolvedCwd}`);
+  }
+
+  // Step 8: Write config
   writeConfigFile(config);
-  console.log(`✓ Saved to ${getConfigPath()}`);
-  console.log();
-  console.log("You can now start the bridge with:");
+  console.log(`\n✓ Saved to ${getConfigPath()}`);
+  console.log("\nYou can now start the bridge with:");
   console.log("  npm start");
   console.log("  # or");
   console.log("  npx arinova-bridge");
+  return true;
+}
 
-  rl.close();
+async function main() {
+  let done = false;
+  while (!done) {
+    done = await runSetup();
+  }
 }
 
 main().catch((err) => {
   console.error("Setup failed:", err);
-  rl.close();
   process.exit(1);
 });

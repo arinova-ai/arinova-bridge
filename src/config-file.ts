@@ -8,7 +8,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 export interface ConfigFile {
   version: number;
   arinova: {
-    serverUrl: string;
+    serverUrl?: string;
     botToken: string;
   };
   defaultProvider: string;
