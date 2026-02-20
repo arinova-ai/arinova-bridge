@@ -278,11 +278,13 @@ export class CommandHandler {
       return;
     }
 
-    const model = arg.toLowerCase();
-    if (supported && !supported.includes(model)) {
-      this.reply(ctx, `不支援的模型: ${model}\n可用: ${supported.join(" / ")}`);
+    // Case-insensitive match, but use the original casing from supported list
+    const match = supported?.find((m) => m.toLowerCase() === arg.toLowerCase());
+    if (supported && !match) {
+      this.reply(ctx, `不支援的模型: ${arg}\n可用: ${supported.join(" / ")}`);
       return;
     }
+    const model = match ?? arg;
 
     this.modelOverrides.set(ctx.conversationId, model);
     await provider.resetSession(ctx.conversationId, {

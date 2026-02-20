@@ -3,13 +3,14 @@ import { loadConfig } from "./config.js";
 import { createProviders } from "./providers/registry.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
+import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
 
 const logger = createLogger("bridge");
 const config = loadConfig();
 
 logger.info(`Loaded config: defaultProvider=${config.defaultProvider}`);
 
-const providers = createProviders(config, logger);
+const providers = await createProviders(config, logger);
 
 if (providers.size === 0) {
   logger.error("No providers are enabled. Run `arinova-bridge setup` or check your config.");
@@ -19,6 +20,9 @@ if (providers.size === 0) {
 logger.info(`Enabled providers: ${Array.from(providers.keys()).join(", ")}`);
 
 const commandHandler = new CommandHandler(providers, config);
+
+// Start background OAuth token refresh
+const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
 
 const agent = new ArinovaAgent({
   serverUrl: config.arinova.serverUrl,
@@ -44,12 +48,16 @@ agent.onTask(async (ctx) => {
     const cwd = commandHandler.getCwdForConversation(conversationId);
     const model = commandHandler.getModelForConversation(conversationId);
 
+    let accumulated = "";
     const sendResult = await provider.sendMessage({
       conversationId,
       content,
       cwd,
       model,
-      onChunk: (text) => ctx.sendChunk(text),
+      onChunk: (text) => {
+        accumulated += text;
+        ctx.sendChunk(accumulated);
+      },
     });
 
     ctx.sendComplete(sendResult.text);
@@ -75,6 +83,7 @@ agent.on("error", (err) => {
 // Graceful shutdown
 async function shutdown() {
   logger.info("Shutting down...");
+  stopRefreshTimer();
   const shutdowns = Array.from(providers.values()).map((p) => p.shutdown());
   await Promise.allSettled(shutdowns);
   agent.disconnect();

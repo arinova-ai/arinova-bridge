@@ -5,11 +5,14 @@ import type { Logger } from "../util/logger.js";
 import { AnthropicCliProvider } from "./anthropic-cli.js";
 import { AnthropicSdkProvider } from "./anthropic-sdk.js";
 import { OpenAICliProvider } from "./openai-cli.js";
+import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
+import { refreshAccessToken } from "../oauth/minimax.js";
 
 /**
  * Map baseUrl/apiKey to the correct env var names based on provider type.
+ * For OAuth providers (no apiKey), injects token from token store.
  */
-function buildEnv(entry: ProviderEntry): Record<string, string> | undefined {
+async function buildEnv(entry: ProviderEntry, logger: Logger): Promise<Record<string, string> | undefined> {
   const env: Record<string, string> = {};
   let hasEnv = false;
 
@@ -21,6 +24,13 @@ function buildEnv(entry: ProviderEntry): Record<string, string> | undefined {
     if (entry.apiKey) {
       env.ANTHROPIC_AUTH_TOKEN = entry.apiKey;
       hasEnv = true;
+    } else {
+      // No apiKey — try OAuth token store
+      const oauthToken = await resolveOAuthToken(entry.id, logger);
+      if (oauthToken) {
+        env.ANTHROPIC_AUTH_TOKEN = oauthToken;
+        hasEnv = true;
+      }
     }
   } else if (entry.type === "openai-cli") {
     if (entry.baseUrl) {
@@ -37,13 +47,38 @@ function buildEnv(entry: ProviderEntry): Record<string, string> | undefined {
 }
 
 /**
+ * Read OAuth token for a provider, refreshing if expired.
+ * Returns the access token string or null.
+ */
+async function resolveOAuthToken(providerId: string, logger: Logger): Promise<string | null> {
+  const token = readOAuthToken(providerId);
+  if (!token) return null;
+
+  if (!isTokenExpired(token)) {
+    return token.accessToken;
+  }
+
+  // Token is expiring/expired — try refresh
+  logger.info(`registry: ${providerId} OAuth token expiring, refreshing...`);
+  try {
+    const refreshed = await refreshAccessToken(token.refreshToken);
+    writeOAuthToken(providerId, refreshed);
+    logger.info(`registry: ${providerId} OAuth token refreshed`);
+    return refreshed.accessToken;
+  } catch (err) {
+    logger.error(`registry: ${providerId} OAuth token refresh failed: ${err}`);
+    return null;
+  }
+}
+
+/**
  * Create all enabled providers from config.
  * Iterates the providers array and instantiates based on `type`.
  */
-export function createProviders(
+export async function createProviders(
   config: BridgeConfig,
   logger: Logger,
-): Map<string, Provider> {
+): Promise<Map<string, Provider>> {
   const providers = new Map<string, Provider>();
 
   for (const entry of config.providers) {
@@ -56,7 +91,7 @@ export function createProviders(
     }
 
     try {
-      const provider = createProvider(entry, config, logger);
+      const provider = await createProvider(entry, config, logger);
       if (provider) {
         providers.set(entry.id, provider);
         logger.info(`registry: ${entry.id} (${entry.type}) provider enabled`);
@@ -69,12 +104,12 @@ export function createProviders(
   return providers;
 }
 
-function createProvider(
+async function createProvider(
   entry: ProviderEntry,
   config: BridgeConfig,
   logger: Logger,
-): Provider | null {
-  const env = buildEnv(entry);
+): Promise<Provider | null> {
+  const env = await buildEnv(entry, logger);
 
   switch (entry.type) {
     case "anthropic-cli":

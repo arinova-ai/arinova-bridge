@@ -28,9 +28,29 @@ vi.mock("../../../src/providers/openai-cli.js", () => ({
   }),
 }));
 
+// Mock OAuth token store
+vi.mock("../../../src/oauth/token-store.js", () => ({
+  readOAuthToken: vi.fn(() => null),
+  writeOAuthToken: vi.fn(),
+  isTokenExpired: vi.fn(() => false),
+}));
+
+// Mock MiniMax OAuth (prevent real network calls)
+vi.mock("../../../src/oauth/minimax.js", () => ({
+  refreshAccessToken: vi.fn(async () => ({
+    accessToken: "refreshed-token",
+    refreshToken: "new-rt",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+  })),
+}));
+
 import { createProviders } from "../../../src/providers/registry.js";
+import { readOAuthToken, isTokenExpired } from "../../../src/oauth/token-store.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { ProviderEntry } from "../../../src/config-file.js";
+
+const mockReadOAuthToken = vi.mocked(readOAuthToken);
+const mockIsTokenExpired = vi.mocked(isTokenExpired);
 
 const logger = {
   info: vi.fn(),
@@ -55,15 +75,17 @@ function createConfig(providers: ProviderEntry[] = []): BridgeConfig {
 describe("createProviders", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadOAuthToken.mockReturnValue(null);
+    mockIsTokenExpired.mockReturnValue(false);
   });
 
-  it("returns empty map when no providers are configured", () => {
-    const providers = createProviders(createConfig(), logger);
+  it("returns empty map when no providers are configured", async () => {
+    const providers = await createProviders(createConfig(), logger);
     expect(providers.size).toBe(0);
   });
 
-  it("returns empty map when all providers are disabled", () => {
-    const providers = createProviders(
+  it("returns empty map when all providers are disabled", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: false },
       ]),
@@ -72,8 +94,8 @@ describe("createProviders", () => {
     expect(providers.size).toBe(0);
   });
 
-  it("creates anthropic-cli provider when enabled", () => {
-    const providers = createProviders(
+  it("creates anthropic-cli provider when enabled", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
       ]),
@@ -84,8 +106,8 @@ describe("createProviders", () => {
     expect(providers.get("anthropic-oauth")!.type).toBe("anthropic-cli");
   });
 
-  it("creates anthropic-sdk provider when enabled with API key", () => {
-    const providers = createProviders(
+  it("creates anthropic-sdk provider when enabled with API key", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true, apiKey: "sk-ant-test" },
       ]),
@@ -94,8 +116,8 @@ describe("createProviders", () => {
     expect(providers.has("anthropic-api")).toBe(true);
   });
 
-  it("skips anthropic-sdk when enabled but no API key", () => {
-    const providers = createProviders(
+  it("skips anthropic-sdk when enabled but no API key", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true },
       ]),
@@ -105,8 +127,8 @@ describe("createProviders", () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("requires apiKey"));
   });
 
-  it("creates openai-cli provider when enabled", () => {
-    const providers = createProviders(
+  it("creates openai-cli provider when enabled", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
       ]),
@@ -115,8 +137,8 @@ describe("createProviders", () => {
     expect(providers.has("openai-api")).toBe(true);
   });
 
-  it("creates openai-cli provider without API key (OAuth mode)", () => {
-    const providers = createProviders(
+  it("creates openai-cli provider without API key (OAuth mode)", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
       ]),
@@ -125,8 +147,8 @@ describe("createProviders", () => {
     expect(providers.has("openai-oauth")).toBe(true);
   });
 
-  it("creates multiple providers from array", () => {
-    const providers = createProviders(
+  it("creates multiple providers from array", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
         { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
@@ -138,13 +160,13 @@ describe("createProviders", () => {
     expect(providers.has("openai-api")).toBe(true);
   });
 
-  it("creates provider with custom baseUrl and apiKey (e.g. MiniMax)", () => {
-    const providers = createProviders(
+  it("creates provider with custom baseUrl and apiKey (e.g. MiniMax)", async () => {
+    const providers = await createProviders(
       createConfig([
         {
-          id: "minimax",
+          id: "minimax-api",
           type: "anthropic-cli",
-          displayName: "MiniMax",
+          displayName: "MiniMax API",
           enabled: true,
           apiKey: "sk-mm",
           baseUrl: "https://api.minimax.io/anthropic",
@@ -153,12 +175,31 @@ describe("createProviders", () => {
       ]),
       logger,
     );
-    expect(providers.has("minimax")).toBe(true);
-    expect(providers.get("minimax")!.id).toBe("minimax");
+    expect(providers.has("minimax-api")).toBe(true);
+    expect(providers.get("minimax-api")!.id).toBe("minimax-api");
   });
 
-  it("skips duplicate provider IDs", () => {
-    const providers = createProviders(
+  it("creates provider with custom baseUrl and apiKey (e.g. Zhipu)", async () => {
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "zhipu-api",
+          type: "anthropic-cli",
+          displayName: "Zhipu API",
+          enabled: true,
+          apiKey: "sk-zhipu",
+          baseUrl: "https://api.z.ai/api/anthropic",
+          models: ["GLM-4.7", "GLM-4.5-Air", "GLM-5"],
+        },
+      ]),
+      logger,
+    );
+    expect(providers.has("zhipu-api")).toBe(true);
+    expect(providers.get("zhipu-api")!.id).toBe("zhipu-api");
+  });
+
+  it("skips duplicate provider IDs", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth Dup", enabled: true },
@@ -169,8 +210,8 @@ describe("createProviders", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("duplicate"));
   });
 
-  it("skips unknown provider types", () => {
-    const providers = createProviders(
+  it("skips unknown provider types", async () => {
+    const providers = await createProviders(
       createConfig([
         { id: "unknown-provider", type: "unknown-type", displayName: "Unknown", enabled: true },
       ]),
@@ -180,8 +221,8 @@ describe("createProviders", () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("unknown provider type"));
   });
 
-  it("logs when providers are created", () => {
-    createProviders(
+  it("logs when providers are created", async () => {
+    await createProviders(
       createConfig([
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
       ]),
@@ -190,5 +231,54 @@ describe("createProviders", () => {
     expect(logger.info).toHaveBeenCalledWith(
       expect.stringContaining("anthropic-oauth"),
     );
+  });
+
+  it("injects OAuth token for anthropic-cli provider without apiKey", async () => {
+    mockReadOAuthToken.mockReturnValue({
+      accessToken: "oauth-access-token",
+      refreshToken: "oauth-refresh-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "minimax-oauth",
+          type: "anthropic-cli",
+          displayName: "MiniMax OAuth",
+          enabled: true,
+          baseUrl: "https://api.minimax.io/anthropic",
+        },
+      ]),
+      logger,
+    );
+
+    expect(providers.has("minimax-oauth")).toBe(true);
+    expect(mockReadOAuthToken).toHaveBeenCalledWith("minimax-oauth");
+  });
+
+  it("refreshes expired OAuth token at startup", async () => {
+    mockReadOAuthToken.mockReturnValue({
+      accessToken: "expired-token",
+      refreshToken: "valid-refresh",
+      expiresAt: Math.floor(Date.now() / 1000) - 100,
+    });
+    mockIsTokenExpired.mockReturnValue(true);
+
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "minimax-oauth",
+          type: "anthropic-cli",
+          displayName: "MiniMax OAuth",
+          enabled: true,
+          baseUrl: "https://api.minimax.io/anthropic",
+        },
+      ]),
+      logger,
+    );
+
+    expect(providers.has("minimax-oauth")).toBe(true);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("refreshed"));
   });
 });

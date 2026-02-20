@@ -4,12 +4,15 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
 import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile, type ProviderEntry } from "./config-file.js";
+import { readOAuthToken, writeOAuthToken, isTokenExpired } from "./oauth/token-store.js";
+import { performMiniMaxOAuth, type MiniMaxRegion } from "./oauth/minimax.js";
 
 interface BuiltinProvider {
   id: string;
   type: string;
   displayName: string;
   needsApiKey: boolean;
+  needsOAuth?: boolean;
   apiKeyPrompt?: string;
   baseUrl?: string;
   models?: string[];
@@ -43,6 +46,15 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     apiKeyPrompt: "OpenAI API Key (sk-...)",
   },
   {
+    id: "minimax-oauth",
+    type: "anthropic-cli",
+    displayName: "MiniMax OAuth (Coding Plan)",
+    needsApiKey: false,
+    needsOAuth: true,
+    baseUrl: "https://api.minimax.io/anthropic",
+    models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+  },
+  {
     id: "minimax-api",
     type: "anthropic-cli",
     displayName: "MiniMax API (Anthropic Compatible)",
@@ -50,6 +62,15 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     apiKeyPrompt: "MiniMax API Key",
     baseUrl: "https://api.minimax.io/anthropic",
     models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+  },
+  {
+    id: "zhipu-api",
+    type: "anthropic-cli",
+    displayName: "Zhipu API (Anthropic Compatible)",
+    needsApiKey: true,
+    apiKeyPrompt: "Zhipu API Key",
+    baseUrl: "https://api.z.ai/api/anthropic",
+    models: ["GLM-4.7", "GLM-4.5-Air", "GLM-5"],
   },
 ];
 
@@ -60,6 +81,37 @@ function maskToken(token: string): string {
 
 function getExistingEntry(existing: ConfigFile | null, id: string): ProviderEntry | undefined {
   return existing?.providers?.find((p) => p.id === id);
+}
+
+async function handleOAuthLogin(builtin: BuiltinProvider): Promise<void> {
+  // Check for existing valid token
+  const existingToken = readOAuthToken(builtin.id);
+  if (existingToken && !isTokenExpired(existingToken)) {
+    const expiresDate = new Date(existingToken.expiresAt * 1000).toLocaleString();
+    console.log(`\n${builtin.displayName}: 已有有效 token（到期: ${expiresDate}）`);
+    const relogin = await confirm({ message: "重新登入？", default: false });
+    if (!relogin) return;
+  }
+
+  // Region selection
+  const region = await select<MiniMaxRegion>({
+    message: `${builtin.displayName} Region`,
+    choices: [
+      { name: "Global (api.minimax.io)", value: "global" },
+      { name: "China (api.minimaxi.com)", value: "cn" },
+    ],
+    default: "global",
+  });
+
+  try {
+    const token = await performMiniMaxOAuth(region);
+    writeOAuthToken(builtin.id, token);
+    console.log(`\n✓ ${builtin.displayName} OAuth 登入成功`);
+  } catch (err) {
+    console.error(`\n✗ ${builtin.displayName} OAuth 登入失敗: ${err}`);
+    const skip = await confirm({ message: "跳過此 provider？", default: true });
+    if (!skip) throw err;
+  }
 }
 
 async function runSetup(): Promise<boolean> {
@@ -137,6 +189,10 @@ async function runSetup(): Promise<boolean> {
       if (apiKey) {
         entry.apiKey = apiKey;
       }
+    }
+
+    if (builtin.needsOAuth) {
+      await handleOAuthLogin(builtin);
     }
 
     providers.push(entry);

@@ -34,6 +34,7 @@ export class ClaudeProcess {
   private sessionId = "";
   private alive = false;
   private totalCostUsd = 0;
+  private stderrBuf: string[] = [];
 
   // Per-turn state
   private turnResolve: ((result: SendMessageResult) => void) | null = null;
@@ -84,6 +85,11 @@ export class ClaudeProcess {
     const env = { ...process.env, ...this.opts.env };
     delete env.CLAUDECODE;
     env.CI = "true";
+    // Strip node_modules/.bin from PATH to avoid picking up local
+    // @anthropic-ai/claude-code binary which may be an incompatible version
+    if (env.PATH) {
+      env.PATH = env.PATH.split(":").filter((p) => !p.includes("node_modules/.bin")).join(":");
+    }
 
     log.info(`claude-process: spawning args=${argv.filter(a => a !== "").join(" ")}`);
 
@@ -105,10 +111,16 @@ export class ClaudeProcess {
       }
     });
 
+    this.stderrBuf = [];
     child.stderr!.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       for (const line of text.split("\n")) {
-        if (line.trim()) log.warn(`claude-process: [stderr] ${line.trim()}`);
+        if (line.trim()) {
+          log.warn(`claude-process: [stderr] ${line.trim()}`);
+          this.stderrBuf.push(line.trim());
+          // Keep only last 20 lines
+          if (this.stderrBuf.length > 20) this.stderrBuf.shift();
+        }
       }
     });
 
@@ -125,12 +137,17 @@ export class ClaudeProcess {
     });
 
     child.on("close", (code) => {
+      const stderrTail = this.stderrBuf.join("\n");
       log.warn(`claude-process: process exited code=${code}`);
+      if (stderrTail) {
+        log.error(`claude-process: stderr output:\n${stderrTail}`);
+      }
       this.alive = false;
       this.child = null;
       this.clearTurnTimeout();
       if (this.turnReject) {
-        this.turnReject(new Error(`Claude process exited unexpectedly (code ${code})`));
+        const errDetail = stderrTail ? `\nstderr: ${stderrTail}` : "";
+        this.turnReject(new Error(`Claude process exited unexpectedly (code ${code})${errDetail}`));
         this.turnResolve = null;
         this.turnReject = null;
       }
