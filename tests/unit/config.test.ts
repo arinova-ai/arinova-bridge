@@ -15,14 +15,9 @@ describe("loadConfig", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    // Clean up env vars
     delete process.env.ARINOVA_SERVER_URL;
     delete process.env.ARINOVA_BOT_TOKEN;
     delete process.env.DEFAULT_PROVIDER;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.CLAUDE_PATH;
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.CODEX_BINARY_PATH;
     delete process.env.DEFAULT_CWD;
     delete process.env.MAX_SESSIONS;
     delete process.env.DB_PATH;
@@ -59,20 +54,19 @@ describe("loadConfig", () => {
     expect(config.arinova.botToken).toBe("test-token");
     expect(config.defaults.cwd).toBe("/tmp/test");
     expect(config.defaults.maxSessions).toBe(10);
-    // No config file → anthropic-oauth enabled by default
-    expect(config.providers["anthropic-oauth"]?.enabled).toBe(true);
+    // No config file → empty providers array
+    expect(config.providers).toEqual([]);
   });
 
-  it("loads from config file", () => {
+  it("loads providers from config file array", () => {
     mockReadConfigFile.mockReturnValue({
-      version: 1,
+      version: 2,
       arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
       defaultProvider: "openai-api",
-      providers: {
-        "anthropic-api": { enabled: true, apiKey: "sk-ant-test" },
-        "anthropic-oauth": { enabled: false },
-        "openai-api": { enabled: true, apiKey: "sk-test", codexPath: "/usr/bin/codex" },
-      },
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+        { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
+      ],
       defaults: { cwd: "/home/test", maxSessions: 3 },
     });
 
@@ -80,28 +74,27 @@ describe("loadConfig", () => {
 
     expect(config.arinova.serverUrl).toBe("ws://file:3501");
     expect(config.defaultProvider).toBe("openai-api");
-    expect(config.providers["anthropic-api"]?.enabled).toBe(true);
-    expect(config.providers["anthropic-api"]?.apiKey).toBe("sk-ant-test");
-    expect(config.providers["anthropic-oauth"]?.enabled).toBe(false);
-    expect(config.providers["openai-api"]?.enabled).toBe(true);
+    expect(config.providers).toHaveLength(2);
+    expect(config.providers[0].id).toBe("anthropic-oauth");
+    expect(config.providers[1].id).toBe("openai-api");
+    expect(config.providers[1].apiKey).toBe("sk-test");
     expect(config.defaults.cwd).toBe("/home/test");
     expect(config.defaults.maxSessions).toBe(3);
   });
 
-  it("env vars override config file", () => {
+  it("env vars override config file for non-provider fields", () => {
     mockReadConfigFile.mockReturnValue({
-      version: 1,
+      version: 2,
       arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
       defaultProvider: "anthropic-oauth",
-      providers: {
-        "anthropic-api": { enabled: true, apiKey: "sk-ant-file" },
-      },
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+      ],
       defaults: { cwd: "/home/file" },
     });
 
     process.env.ARINOVA_SERVER_URL = "ws://env:3501";
     process.env.ARINOVA_BOT_TOKEN = "env-token";
-    process.env.ANTHROPIC_API_KEY = "sk-ant-env";
     process.env.DEFAULT_CWD = "/home/env";
     process.env.DEFAULT_PROVIDER = "anthropic-api";
 
@@ -110,22 +103,16 @@ describe("loadConfig", () => {
     expect(config.arinova.serverUrl).toBe("ws://env:3501");
     expect(config.arinova.botToken).toBe("env-token");
     expect(config.defaultProvider).toBe("anthropic-api");
-    expect(config.providers["anthropic-api"]?.apiKey).toBe("sk-ant-env");
     expect(config.defaults.cwd).toBe("/home/env");
   });
 
-  it("enables providers based on credentials when no config file", () => {
+  it("resolves ~ in cwd path", () => {
     mockReadConfigFile.mockReturnValue(null);
-    process.env.ARINOVA_SERVER_URL = "ws://test:3501";
     process.env.ARINOVA_BOT_TOKEN = "test-token";
-    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.DEFAULT_CWD = "~/projects";
 
     const config = loadConfig();
-
-    expect(config.providers["anthropic-api"]?.enabled).toBe(true);
-    expect(config.providers["anthropic-oauth"]?.enabled).toBe(true);
-    expect(config.providers["openai-api"]?.enabled).toBe(true);
-    expect(config.providers["openai-oauth"]?.enabled).toBe(false);
+    expect(config.defaults.cwd).not.toContain("~");
+    expect(config.defaults.cwd).toContain("projects");
   });
 });

@@ -5,6 +5,19 @@ import { homedir } from "node:os";
 const CONFIG_DIR = path.join(homedir(), ".arinova-bridge");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
+export interface ProviderEntry {
+  id: string;
+  type: string;
+  displayName: string;
+  enabled: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  claudePath?: string;
+  codexPath?: string;
+  defaultModel?: string;
+  models?: string[];
+}
+
 export interface ConfigFile {
   version: number;
   arinova: {
@@ -12,26 +25,7 @@ export interface ConfigFile {
     botToken: string;
   };
   defaultProvider: string;
-  providers: {
-    "anthropic-api"?: {
-      enabled: boolean;
-      apiKey?: string;
-      defaultModel?: string;
-    };
-    "anthropic-oauth"?: {
-      enabled: boolean;
-      claudePath?: string;
-    };
-    "openai-api"?: {
-      enabled: boolean;
-      apiKey?: string;
-      codexPath?: string;
-    };
-    "openai-oauth"?: {
-      enabled: boolean;
-      codexPath?: string;
-    };
-  };
+  providers: ProviderEntry[];
   defaults: {
     cwd?: string;
     maxSessions?: number;

@@ -11,26 +11,35 @@ import { SessionStore } from "../claude/session-store.js";
 import type { Logger } from "../util/logger.js";
 
 export interface AnthropicCliConfig {
+  providerId: string;
+  displayName: string;
   claudePath: string;
   mcpConfigPath?: string;
   defaultCwd: string;
   maxSessions: number;
   idleTimeoutMs: number;
+  env?: Record<string, string>;
+  models?: string[];
 }
 
 /**
- * anthropic-oauth provider: spawns a persistent `claude` CLI process
- * using Consumer OAuth (Max/Pro subscription).
+ * anthropic-cli provider: spawns a persistent `claude` CLI process.
+ * Works for Anthropic OAuth, Anthropic-compatible providers (MiniMax, etc.)
  */
 export class AnthropicCliProvider implements Provider {
-  readonly id = "anthropic-oauth" as const;
-  readonly displayName = "Anthropic OAuth (Claude CLI)";
+  readonly id: string;
+  readonly type = "anthropic-cli";
+  readonly displayName: string;
 
   private store: SessionStore;
   private defaultCwd: string;
+  private models: string[] | null;
 
   constructor(config: AnthropicCliConfig, logger: Logger) {
+    this.id = config.providerId;
+    this.displayName = config.displayName;
     this.defaultCwd = config.defaultCwd;
+    this.models = config.models ?? null;
     this.store = new SessionStore(
       {
         claudePath: config.claudePath,
@@ -38,6 +47,7 @@ export class AnthropicCliProvider implements Provider {
         defaultCwd: config.defaultCwd,
         maxSessions: config.maxSessions,
         idleTimeoutMs: config.idleTimeoutMs,
+        env: config.env,
       },
       logger,
     );
@@ -124,7 +134,7 @@ export class AnthropicCliProvider implements Provider {
   }
 
   supportedModels(): string[] | null {
-    return ["opus", "sonnet", "haiku"];
+    return this.models;
   }
 
   async shutdown(): Promise<void> {

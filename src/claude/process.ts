@@ -9,6 +9,7 @@ export type ClaudeProcessOptions = {
   model?: string;
   resumeSessionId?: string;
   compact?: boolean;
+  env?: Record<string, string>;
   logger: Logger;
 };
 
@@ -80,7 +81,7 @@ export class ClaudeProcess {
       argv.push("--compact");
     }
 
-    const env = { ...process.env };
+    const env = { ...process.env, ...this.opts.env };
     delete env.CLAUDECODE;
     env.CI = "true";
 

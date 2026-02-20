@@ -2,17 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock all provider constructors using function keyword (not arrow) for new
 vi.mock("../../../src/providers/anthropic-cli.js", () => ({
-  AnthropicCliProvider: vi.fn(function (this: any) {
-    this.id = "anthropic-oauth";
-    this.displayName = "Anthropic OAuth (Claude CLI)";
+  AnthropicCliProvider: vi.fn(function (this: any, config: any) {
+    this.id = config.providerId;
+    this.type = "anthropic-cli";
+    this.displayName = config.displayName;
     this.shutdown = vi.fn(async () => {});
   }),
 }));
 
 vi.mock("../../../src/providers/anthropic-sdk.js", () => ({
-  AnthropicSdkProvider: vi.fn(function (this: any) {
-    this.id = "anthropic-api";
-    this.displayName = "Anthropic API (Claude Code SDK)";
+  AnthropicSdkProvider: vi.fn(function (this: any, config: any) {
+    this.id = config.providerId;
+    this.type = "anthropic-sdk";
+    this.displayName = config.displayName;
     this.shutdown = vi.fn(async () => {});
   }),
 }));
@@ -20,6 +22,7 @@ vi.mock("../../../src/providers/anthropic-sdk.js", () => ({
 vi.mock("../../../src/providers/openai-cli.js", () => ({
   OpenAICliProvider: vi.fn(function (this: any, config: any) {
     this.id = config.providerId;
+    this.type = "openai-cli";
     this.displayName = config.displayName;
     this.shutdown = vi.fn(async () => {});
   }),
@@ -27,6 +30,7 @@ vi.mock("../../../src/providers/openai-cli.js", () => ({
 
 import { createProviders } from "../../../src/providers/registry.js";
 import type { BridgeConfig } from "../../../src/config.js";
+import type { ProviderEntry } from "../../../src/config-file.js";
 
 const logger = {
   info: vi.fn(),
@@ -34,17 +38,11 @@ const logger = {
   error: vi.fn(),
 };
 
-function createConfig(providerOverrides: BridgeConfig["providers"] = {}): BridgeConfig {
+function createConfig(providers: ProviderEntry[] = []): BridgeConfig {
   return {
     arinova: { serverUrl: "ws://test", botToken: "tok" },
     defaultProvider: "anthropic-oauth",
-    providers: {
-      "anthropic-api": { enabled: false },
-      "anthropic-oauth": { enabled: false },
-      "openai-api": { enabled: false },
-      "openai-oauth": { enabled: false },
-      ...providerOverrides,
-    },
+    providers,
     defaults: {
       cwd: "/default",
       maxSessions: 5,
@@ -59,58 +57,80 @@ describe("createProviders", () => {
     vi.clearAllMocks();
   });
 
-  it("returns empty map when no providers are enabled", () => {
+  it("returns empty map when no providers are configured", () => {
     const providers = createProviders(createConfig(), logger);
     expect(providers.size).toBe(0);
   });
 
-  it("creates anthropic-oauth provider when enabled", () => {
+  it("returns empty map when all providers are disabled", () => {
     const providers = createProviders(
-      createConfig({ "anthropic-oauth": { enabled: true, claudePath: "claude" } }),
+      createConfig([
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: false },
+      ]),
+      logger,
+    );
+    expect(providers.size).toBe(0);
+  });
+
+  it("creates anthropic-cli provider when enabled", () => {
+    const providers = createProviders(
+      createConfig([
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+      ]),
       logger,
     );
     expect(providers.has("anthropic-oauth")).toBe(true);
     expect(providers.get("anthropic-oauth")!.id).toBe("anthropic-oauth");
+    expect(providers.get("anthropic-oauth")!.type).toBe("anthropic-cli");
   });
 
-  it("creates anthropic-api provider when enabled with API key", () => {
+  it("creates anthropic-sdk provider when enabled with API key", () => {
     const providers = createProviders(
-      createConfig({ "anthropic-api": { enabled: true, apiKey: "sk-ant-test" } }),
+      createConfig([
+        { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true, apiKey: "sk-ant-test" },
+      ]),
       logger,
     );
     expect(providers.has("anthropic-api")).toBe(true);
   });
 
-  it("skips anthropic-api when enabled but no API key", () => {
+  it("skips anthropic-sdk when enabled but no API key", () => {
     const providers = createProviders(
-      createConfig({ "anthropic-api": { enabled: true } }),
+      createConfig([
+        { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true },
+      ]),
       logger,
     );
     expect(providers.has("anthropic-api")).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("requires apiKey"));
   });
 
-  it("creates openai-api provider when enabled", () => {
+  it("creates openai-cli provider when enabled", () => {
     const providers = createProviders(
-      createConfig({ "openai-api": { enabled: true, apiKey: "sk-test" } }),
+      createConfig([
+        { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
+      ]),
       logger,
     );
     expect(providers.has("openai-api")).toBe(true);
   });
 
-  it("creates openai-oauth provider when enabled", () => {
+  it("creates openai-cli provider without API key (OAuth mode)", () => {
     const providers = createProviders(
-      createConfig({ "openai-oauth": { enabled: true } }),
+      createConfig([
+        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
+      ]),
       logger,
     );
     expect(providers.has("openai-oauth")).toBe(true);
   });
 
-  it("creates multiple providers", () => {
+  it("creates multiple providers from array", () => {
     const providers = createProviders(
-      createConfig({
-        "anthropic-oauth": { enabled: true },
-        "openai-api": { enabled: true, apiKey: "sk-test" },
-      }),
+      createConfig([
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+        { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
+      ]),
       logger,
     );
     expect(providers.size).toBe(2);
@@ -118,9 +138,53 @@ describe("createProviders", () => {
     expect(providers.has("openai-api")).toBe(true);
   });
 
+  it("creates provider with custom baseUrl and apiKey (e.g. MiniMax)", () => {
+    const providers = createProviders(
+      createConfig([
+        {
+          id: "minimax",
+          type: "anthropic-cli",
+          displayName: "MiniMax",
+          enabled: true,
+          apiKey: "sk-mm",
+          baseUrl: "https://api.minimax.io/anthropic",
+          models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+        },
+      ]),
+      logger,
+    );
+    expect(providers.has("minimax")).toBe(true);
+    expect(providers.get("minimax")!.id).toBe("minimax");
+  });
+
+  it("skips duplicate provider IDs", () => {
+    const providers = createProviders(
+      createConfig([
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth Dup", enabled: true },
+      ]),
+      logger,
+    );
+    expect(providers.size).toBe(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("duplicate"));
+  });
+
+  it("skips unknown provider types", () => {
+    const providers = createProviders(
+      createConfig([
+        { id: "unknown-provider", type: "unknown-type", displayName: "Unknown", enabled: true },
+      ]),
+      logger,
+    );
+    expect(providers.has("unknown-provider")).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("unknown provider type"));
+  });
+
   it("logs when providers are created", () => {
     createProviders(
-      createConfig({ "anthropic-oauth": { enabled: true } }),
+      createConfig([
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+      ]),
       logger,
     );
     expect(logger.info).toHaveBeenCalledWith(

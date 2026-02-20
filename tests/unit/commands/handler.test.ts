@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CommandHandler } from "../../../src/commands/handler.js";
-import type { Provider, ProviderId } from "../../../src/providers/types.js";
+import type { Provider } from "../../../src/providers/types.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { CommandContext } from "../../../src/commands/types.js";
 
-function createMockProvider(id: ProviderId, displayName: string): Provider {
+function createMockProvider(id: string, type: string, displayName: string): Provider {
   return {
     id,
+    type,
     displayName,
     sendMessage: vi.fn(async () => ({ text: "ok" })),
     interrupt: vi.fn(),
@@ -36,14 +37,14 @@ function createMockProvider(id: ProviderId, displayName: string): Provider {
   };
 }
 
-function createMockConfig(defaultProvider: ProviderId = "anthropic-oauth"): BridgeConfig {
+function createMockConfig(defaultProvider = "anthropic-oauth"): BridgeConfig {
   return {
     arinova: { serverUrl: "ws://test", botToken: "tok" },
     defaultProvider,
-    providers: {
-      "anthropic-oauth": { enabled: true, claudePath: "claude" },
-      "openai-api": { enabled: true, apiKey: "sk-test" },
-    },
+    providers: [
+      { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+      { id: "openai-api", type: "openai-cli", displayName: "OpenAI API", enabled: true, apiKey: "sk-test" },
+    ],
     defaults: {
       cwd: "/default/cwd",
       maxSessions: 5,
@@ -71,15 +72,15 @@ function createCtx(conversationId = "conv-1"): CommandContext & {
 }
 
 describe("CommandHandler", () => {
-  let providers: Map<ProviderId, Provider>;
+  let providers: Map<string, Provider>;
   let handler: CommandHandler;
   let anthropicProvider: Provider;
   let openaiProvider: Provider;
 
   beforeEach(() => {
     providers = new Map();
-    anthropicProvider = createMockProvider("anthropic-oauth", "Anthropic OAuth");
-    openaiProvider = createMockProvider("openai-api", "OpenAI API");
+    anthropicProvider = createMockProvider("anthropic-oauth", "anthropic-cli", "Anthropic OAuth");
+    openaiProvider = createMockProvider("openai-api", "openai-cli", "OpenAI API");
     providers.set("anthropic-oauth", anthropicProvider);
     providers.set("openai-api", openaiProvider);
     handler = new CommandHandler(providers, createMockConfig());
@@ -282,7 +283,7 @@ describe("CommandHandler", () => {
 
     it("shows configured-but-unavailable provider", async () => {
       // Only put anthropic-oauth in the providers map, but config has openai-api enabled too
-      const singleProviders = new Map<ProviderId, Provider>();
+      const singleProviders = new Map<string, Provider>();
       singleProviders.set("anthropic-oauth", anthropicProvider);
       const singleHandler = new CommandHandler(singleProviders, createMockConfig());
       const ctx = createCtx();
@@ -293,7 +294,7 @@ describe("CommandHandler", () => {
     });
 
     it("gives helpful error for configured-but-unavailable provider switch", async () => {
-      const singleProviders = new Map<ProviderId, Provider>();
+      const singleProviders = new Map<string, Provider>();
       singleProviders.set("anthropic-oauth", anthropicProvider);
       const singleHandler = new CommandHandler(singleProviders, createMockConfig());
       const ctx = createCtx();
@@ -343,7 +344,7 @@ describe("CommandHandler", () => {
     });
 
     it("excludes /provider with single provider", () => {
-      const singleProviders = new Map<ProviderId, Provider>();
+      const singleProviders = new Map<string, Provider>();
       singleProviders.set("anthropic-oauth", anthropicProvider);
       const singleHandler = new CommandHandler(singleProviders, createMockConfig());
       const skills = singleHandler.getSkills();

@@ -1,34 +1,14 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import type { ProviderId } from "./providers/types.js";
-import { readConfigFile } from "./config-file.js";
+import { readConfigFile, type ProviderEntry } from "./config-file.js";
 
 export interface BridgeConfig {
   arinova: {
     serverUrl: string;
     botToken: string;
   };
-  defaultProvider: ProviderId;
-  providers: {
-    "anthropic-api"?: {
-      enabled: boolean;
-      apiKey?: string;
-      defaultModel?: string;
-    };
-    "anthropic-oauth"?: {
-      enabled: boolean;
-      claudePath?: string;
-    };
-    "openai-api"?: {
-      enabled: boolean;
-      apiKey?: string;
-      codexPath?: string;
-    };
-    "openai-oauth"?: {
-      enabled: boolean;
-      codexPath?: string;
-    };
-  };
+  defaultProvider: string;
+  providers: ProviderEntry[];
   defaults: {
     cwd: string;
     maxSessions: number;
@@ -56,30 +36,10 @@ export function loadConfig(): BridgeConfig {
 
   if (!botToken) throw new Error("ARINOVA_BOT_TOKEN is required (env or config file)");
 
-  const defaultProvider = (
+  const defaultProvider =
     process.env.DEFAULT_PROVIDER ??
     file?.defaultProvider ??
-    "anthropic-oauth"
-  ) as ProviderId;
-
-  // --- Provider configs ---
-  const anthropicApiKey =
-    process.env.ANTHROPIC_API_KEY ??
-    file?.providers?.["anthropic-api"]?.apiKey;
-
-  const claudePath =
-    process.env.CLAUDE_PATH ??
-    file?.providers?.["anthropic-oauth"]?.claudePath ??
-    "claude";
-
-  const openaiApiKey =
-    process.env.OPENAI_API_KEY ??
-    file?.providers?.["openai-api"]?.apiKey;
-
-  const codexPath =
-    process.env.CODEX_BINARY_PATH ??
-    file?.providers?.["openai-api"]?.codexPath ??
-    file?.providers?.["openai-oauth"]?.codexPath;
+    "anthropic-oauth";
 
   const rawCwd =
     process.env.DEFAULT_CWD ??
@@ -102,41 +62,13 @@ export function loadConfig(): BridgeConfig {
   const mcpConfigPath =
     process.env.MCP_CONFIG_PATH ?? undefined;
 
-  // Determine which providers are enabled
-  // If config file exists, use its enabled flags; otherwise enable based on available credentials
-  const hasConfigFile = file !== null;
+  // Read providers from config file array
+  const providers: ProviderEntry[] = file?.providers ?? [];
 
   return {
     arinova: { serverUrl, botToken },
     defaultProvider,
-    providers: {
-      "anthropic-api": {
-        enabled: hasConfigFile
-          ? file.providers?.["anthropic-api"]?.enabled ?? false
-          : !!anthropicApiKey,
-        apiKey: anthropicApiKey,
-        defaultModel: file?.providers?.["anthropic-api"]?.defaultModel,
-      },
-      "anthropic-oauth": {
-        enabled: hasConfigFile
-          ? file.providers?.["anthropic-oauth"]?.enabled ?? false
-          : true, // Default enabled since it just needs claude CLI
-        claudePath,
-      },
-      "openai-api": {
-        enabled: hasConfigFile
-          ? file.providers?.["openai-api"]?.enabled ?? false
-          : !!openaiApiKey,
-        apiKey: openaiApiKey,
-        codexPath,
-      },
-      "openai-oauth": {
-        enabled: hasConfigFile
-          ? file.providers?.["openai-oauth"]?.enabled ?? false
-          : false,
-        codexPath,
-      },
-    },
+    providers,
     defaults: {
       cwd: defaultCwd,
       maxSessions,

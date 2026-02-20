@@ -36,6 +36,8 @@ describe("AnthropicCliProvider", () => {
     vi.clearAllMocks();
     provider = new AnthropicCliProvider(
       {
+        providerId: "anthropic-oauth",
+        displayName: "Anthropic OAuth",
         claudePath: "claude",
         defaultCwd: "/default",
         maxSessions: 3,
@@ -164,11 +166,25 @@ describe("AnthropicCliProvider", () => {
   });
 
   describe("supportedModels", () => {
-    it("returns anthropic models", () => {
+    it("returns null when no models configured", () => {
       const models = provider.supportedModels();
-      expect(models).toContain("opus");
-      expect(models).toContain("sonnet");
-      expect(models).toContain("haiku");
+      expect(models).toBeNull();
+    });
+
+    it("returns custom models when configured", () => {
+      const customProvider = new AnthropicCliProvider(
+        {
+          providerId: "minimax",
+          displayName: "MiniMax",
+          claudePath: "claude",
+          defaultCwd: "/default",
+          maxSessions: 3,
+          idleTimeoutMs: 600_000,
+          models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+        },
+        logger,
+      );
+      expect(customProvider.supportedModels()).toEqual(["MiniMax-M2.5", "MiniMax-M2.1"]);
     });
   });
 
@@ -183,6 +199,31 @@ describe("AnthropicCliProvider", () => {
       await provider.resetSession("conv-1");
       const ok = await provider.resumeSession("conv-1", "sid-abc");
       expect(ok).toBe(true);
+    });
+  });
+
+  describe("env injection", () => {
+    it("creates provider with custom env (e.g. MiniMax)", () => {
+      const envProvider = new AnthropicCliProvider(
+        {
+          providerId: "minimax",
+          displayName: "MiniMax",
+          claudePath: "claude",
+          defaultCwd: "/default",
+          maxSessions: 3,
+          idleTimeoutMs: 600_000,
+          env: {
+            ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic",
+            ANTHROPIC_AUTH_TOKEN: "sk-mm-test",
+          },
+          models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+        },
+        logger,
+      );
+      expect(envProvider.id).toBe("minimax");
+      expect(envProvider.type).toBe("anthropic-cli");
+      expect(envProvider.displayName).toBe("MiniMax");
+      expect(envProvider.supportedModels()).toEqual(["MiniMax-M2.5", "MiniMax-M2.1"]);
     });
   });
 });

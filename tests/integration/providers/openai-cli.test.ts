@@ -173,5 +173,42 @@ describe("OpenAICliProvider", () => {
       expect(models!.length).toBeGreaterThan(0);
       expect(models).toContain("codex-mini-latest");
     });
+
+    it("returns custom models when configured", () => {
+      const customProvider = new OpenAICliProvider(
+        {
+          providerId: "custom-openai",
+          displayName: "Custom OpenAI",
+          codexPath: "/usr/bin/codex",
+          defaultCwd: "/default",
+          dbPath: path.join(tmpDir, "custom.db"),
+          models: ["custom-model-1", "custom-model-2"],
+        },
+        logger,
+      );
+      expect(customProvider.supportedModels()).toEqual(["custom-model-1", "custom-model-2"]);
+    });
+  });
+
+  describe("env injection", () => {
+    it("creates provider with custom env vars", () => {
+      const envProvider = new OpenAICliProvider(
+        {
+          providerId: "openai-custom",
+          displayName: "OpenAI Custom",
+          codexPath: "/usr/bin/codex",
+          defaultCwd: "/default",
+          dbPath: path.join(tmpDir, "env.db"),
+          env: {
+            OPENAI_BASE_URL: "https://custom-api.example.com",
+            OPENAI_API_KEY: "sk-custom",
+          },
+        },
+        logger,
+      );
+      expect(envProvider.id).toBe("openai-custom");
+      expect(envProvider.type).toBe("openai-cli");
+      expect(envProvider.displayName).toBe("OpenAI Custom");
+    });
   });
 });

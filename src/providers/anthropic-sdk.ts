@@ -10,12 +10,15 @@ import type {
 import type { Logger } from "../util/logger.js";
 
 export interface AnthropicSdkConfig {
+  providerId: string;
+  displayName: string;
   apiKey: string;
   defaultModel?: string;
   defaultCwd: string;
   maxSessions: number;
   idleTimeoutMs: number;
   mcpConfigPath?: string;
+  models?: string[];
 }
 
 interface SdkSession {
@@ -29,12 +32,13 @@ interface SdkSession {
 }
 
 /**
- * anthropic-api provider: uses @anthropic-ai/claude-code SDK directly.
+ * anthropic-sdk provider: uses @anthropic-ai/claude-code SDK directly.
  * API Key based, pay-per-use.
  */
 export class AnthropicSdkProvider implements Provider {
-  readonly id = "anthropic-api" as const;
-  readonly displayName = "Anthropic API (Claude Code SDK)";
+  readonly id: string;
+  readonly type = "anthropic-sdk";
+  readonly displayName: string;
 
   private config: AnthropicSdkConfig;
   private logger: Logger;
@@ -42,6 +46,8 @@ export class AnthropicSdkProvider implements Provider {
   private idleTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: AnthropicSdkConfig, logger: Logger) {
+    this.id = config.providerId;
+    this.displayName = config.displayName;
     this.config = config;
     this.logger = logger;
     this.startIdleSweep();
@@ -189,7 +195,7 @@ export class AnthropicSdkProvider implements Provider {
   }
 
   supportedModels(): string[] | null {
-    return ["opus", "sonnet", "haiku"];
+    return this.config.models ?? null;
   }
 
   async shutdown(): Promise<void> {

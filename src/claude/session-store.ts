@@ -22,6 +22,7 @@ export interface SessionStoreConfig {
   defaultCwd: string;
   maxSessions: number;
   idleTimeoutMs: number;
+  env?: Record<string, string>;
 }
 
 /**
@@ -55,6 +56,7 @@ export class SessionStore {
       model,
       resumeSessionId: opts?.resumeSessionId,
       compact: opts?.compact,
+      env: this.config.env,
       logger: this.logger,
     };
 

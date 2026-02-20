@@ -21,22 +21,25 @@ import { processTurn } from "../codex/events.js";
 import type { Logger } from "../util/logger.js";
 
 export interface OpenAICliConfig {
-  providerId: "openai-api" | "openai-oauth";
+  providerId: string;
   displayName: string;
   codexPath?: string;
   apiKey?: string;
   defaultCwd: string;
   dbPath: string;
+  env?: Record<string, string>;
+  models?: string[];
 }
 
 const RECOVERY_PROMPT = "請總結你目前的進度和最終結果";
 
 /**
  * OpenAI CLI provider: spawns ephemeral `codex` CLI processes.
- * Works for both openai-api (API key) and openai-oauth modes.
+ * Works for OpenAI native and OpenAI-compatible providers.
  */
 export class OpenAICliProvider implements Provider {
-  readonly id: ProviderId;
+  readonly id: string;
+  readonly type = "openai-cli";
   readonly displayName: string;
 
   private codexPath: string;
@@ -45,6 +48,8 @@ export class OpenAICliProvider implements Provider {
   private db: BridgeDb;
   private queue: ConversationQueue;
   private logger: Logger;
+  private customEnv?: Record<string, string>;
+  private modelList: string[];
 
   constructor(config: OpenAICliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -53,6 +58,15 @@ export class OpenAICliProvider implements Provider {
     this.defaultCwd = config.defaultCwd;
     this.logger = logger;
     this.queue = new ConversationQueue();
+    this.customEnv = config.env;
+    this.modelList = config.models ?? [
+      "codex-mini-latest",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark",
+      "gpt-5.2-codex",
+      "o4-mini",
+      "o3",
+    ];
 
     this.codexPath = resolveCodexBinary(config.codexPath);
     this.db = initDb(config.dbPath);
@@ -154,14 +168,7 @@ export class OpenAICliProvider implements Provider {
   }
 
   supportedModels(): string[] {
-    return [
-      "codex-mini-latest",
-      "gpt-5.3-codex",
-      "gpt-5.3-codex-spark",
-      "gpt-5.2-codex",
-      "o4-mini",
-      "o3",
-    ];
+    return this.modelList;
   }
 
   async shutdown(): Promise<void> {
@@ -191,11 +198,13 @@ export class OpenAICliProvider implements Provider {
       codex = spawnCodexResume(this.codexPath, conv.threadId!, content, {
         cwd: effectiveCwd,
         model: effectiveModel,
+        env: this.customEnv,
       });
     } else {
       codex = spawnCodexExec(this.codexPath, content, {
         cwd: effectiveCwd,
         model: effectiveModel,
+        env: this.customEnv,
       });
     }
 
@@ -291,7 +300,7 @@ export class OpenAICliProvider implements Provider {
     const cwd = conv?.cwd ?? this.defaultCwd;
     const model = conv?.model ?? undefined;
 
-    const codex = spawnCodexResume(this.codexPath, threadId, RECOVERY_PROMPT, { cwd, model });
+    const codex = spawnCodexResume(this.codexPath, threadId, RECOVERY_PROMPT, { cwd, model, env: this.customEnv });
 
     for await (const event of codex.events) {
       if (event.type === "turn.completed" && event.usage) {

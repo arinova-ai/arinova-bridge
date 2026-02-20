@@ -3,20 +3,63 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
-import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile } from "./config-file.js";
+import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile, type ProviderEntry } from "./config-file.js";
 
-type ProviderId = "anthropic-api" | "anthropic-oauth" | "openai-api" | "openai-oauth";
+interface BuiltinProvider {
+  id: string;
+  type: string;
+  displayName: string;
+  needsApiKey: boolean;
+  apiKeyPrompt?: string;
+  baseUrl?: string;
+  models?: string[];
+}
 
-const PROVIDER_CHOICES: Array<{ name: string; value: ProviderId; description: string }> = [
-  { name: "Anthropic API", value: "anthropic-api", description: "Claude Code SDK, API 計費" },
-  { name: "Anthropic OAuth", value: "anthropic-oauth", description: "claude CLI, Max/Pro 訂閱" },
-  { name: "OpenAI API", value: "openai-api", description: "codex CLI + API key" },
-  { name: "OpenAI OAuth", value: "openai-oauth", description: "codex CLI + OAuth" },
+const BUILTIN_PROVIDERS: BuiltinProvider[] = [
+  {
+    id: "anthropic-oauth",
+    type: "anthropic-cli",
+    displayName: "Anthropic OAuth (Claude CLI)",
+    needsApiKey: false,
+  },
+  {
+    id: "anthropic-api",
+    type: "anthropic-sdk",
+    displayName: "Anthropic API (Claude Code SDK)",
+    needsApiKey: true,
+    apiKeyPrompt: "Anthropic API Key (sk-ant-...)",
+  },
+  {
+    id: "openai-oauth",
+    type: "openai-cli",
+    displayName: "OpenAI OAuth (Codex CLI)",
+    needsApiKey: false,
+  },
+  {
+    id: "openai-api",
+    type: "openai-cli",
+    displayName: "OpenAI API (Codex CLI)",
+    needsApiKey: true,
+    apiKeyPrompt: "OpenAI API Key (sk-...)",
+  },
+  {
+    id: "minimax-api",
+    type: "anthropic-cli",
+    displayName: "MiniMax API (Anthropic Compatible)",
+    needsApiKey: true,
+    apiKeyPrompt: "MiniMax API Key",
+    baseUrl: "https://api.minimax.io/anthropic",
+    models: ["MiniMax-M2.5", "MiniMax-M2.1"],
+  },
 ];
 
 function maskToken(token: string): string {
   if (token.length <= 12) return "****";
   return `${token.slice(0, 8)}...${token.slice(-4)}`;
+}
+
+function getExistingEntry(existing: ConfigFile | null, id: string): ProviderEntry | undefined {
+  return existing?.providers?.find((p) => p.id === id);
 }
 
 async function runSetup(): Promise<boolean> {
@@ -47,14 +90,14 @@ async function runSetup(): Promise<boolean> {
   }) || existingToken!;
 
   // Step 2: Provider Selection
-  const enabledProviders = await checkbox<ProviderId>({
+  const enabledIds = await checkbox<string>({
     message: "Enable providers (space to toggle, enter to confirm)",
-    choices: PROVIDER_CHOICES.map((p) => ({
-      name: `${p.name}  (${p.description})`,
-      value: p.value,
+    choices: BUILTIN_PROVIDERS.map((p) => ({
+      name: `${p.displayName}`,
+      value: p.id,
       checked: existing
-        ? (existing.providers?.[p.value]?.enabled ?? false)
-        : (p.value === "anthropic-oauth"),
+        ? !!getExistingEntry(existing, p.id)?.enabled
+        : (p.id === "anthropic-oauth"),
     })),
     validate: (selected) => {
       if (selected.length === 0) return "At least one provider must be enabled";
@@ -62,59 +105,56 @@ async function runSetup(): Promise<boolean> {
     },
   });
 
-  // Step 3: API Key Prompts (only for API providers)
-  const config: ConfigFile = {
-    version: 1,
-    arinova: { botToken },
-    defaultProvider: enabledProviders[0],
-    providers: {},
-    defaults: {},
-  };
+  // Step 3: API Key Prompts (per provider)
+  const providers: ProviderEntry[] = [];
 
-  for (const id of enabledProviders) {
-    if (id === "anthropic-api") {
-      const apiKey = await password({
-        message: "Anthropic API Key (sk-ant-...)",
-        mask: "*",
-      });
-      const defaultModel = await input({
-        message: "Default model",
-        default: existing?.providers?.["anthropic-api"]?.defaultModel ?? "sonnet",
-      });
-      config.providers["anthropic-api"] = {
-        enabled: true,
-        apiKey: apiKey || undefined,
-        defaultModel: defaultModel || undefined,
-      };
-    } else if (id === "anthropic-oauth") {
-      config.providers["anthropic-oauth"] = { enabled: true };
-    } else if (id === "openai-api") {
-      const apiKey = await password({
-        message: "OpenAI API Key (sk-...)",
-        mask: "*",
-      });
-      config.providers["openai-api"] = {
-        enabled: true,
-        apiKey: apiKey || undefined,
-      };
-    } else if (id === "openai-oauth") {
-      config.providers["openai-oauth"] = { enabled: true };
+  for (const id of enabledIds) {
+    const builtin = BUILTIN_PROVIDERS.find((p) => p.id === id)!;
+    const existingEntry = getExistingEntry(existing, id);
+
+    const entry: ProviderEntry = {
+      id: builtin.id,
+      type: builtin.type,
+      displayName: builtin.displayName,
+      enabled: true,
+    };
+
+    if (builtin.baseUrl) {
+      entry.baseUrl = builtin.baseUrl;
     }
+    if (builtin.models) {
+      entry.models = builtin.models;
+    }
+
+    if (builtin.needsApiKey) {
+      const existingKey = existingEntry?.apiKey;
+      const apiKey = await password({
+        message: existingKey
+          ? `${builtin.apiKeyPrompt} (current: ${maskToken(existingKey)})`
+          : (builtin.apiKeyPrompt ?? `${builtin.displayName} API Key`),
+        mask: "*",
+      }) || existingKey;
+      if (apiKey) {
+        entry.apiKey = apiKey;
+      }
+    }
+
+    providers.push(entry);
   }
 
   // Step 4: Default Provider
-  if (enabledProviders.length > 1) {
-    const defaultProvider = await select<string>({
+  let defaultProvider = enabledIds[0];
+  if (enabledIds.length > 1) {
+    defaultProvider = await select<string>({
       message: "Default provider",
-      choices: enabledProviders.map((id) => {
-        const info = PROVIDER_CHOICES.find((p) => p.value === id)!;
-        return { name: `${info.name}  (${info.description})`, value: id };
-      }),
-      default: existing?.defaultProvider && enabledProviders.includes(existing.defaultProvider as ProviderId)
+      choices: providers.map((p) => ({
+        name: p.displayName,
+        value: p.id,
+      })),
+      default: existing?.defaultProvider && enabledIds.includes(existing.defaultProvider)
         ? existing.defaultProvider
-        : enabledProviders[0],
+        : enabledIds[0],
     });
-    config.defaultProvider = defaultProvider;
   }
 
   // Step 5: Working Directory
@@ -122,14 +162,13 @@ async function runSetup(): Promise<boolean> {
     message: "Default working directory",
     default: existing?.defaults?.cwd ?? "~/projects",
   });
-  config.defaults.cwd = defaultCwd;
 
   // Step 6: Confirmation Summary
   console.log("\n──────────────────────────────────────");
-  console.log("  Token:     " + maskToken(config.arinova.botToken));
-  console.log("  Providers: " + enabledProviders.join(", "));
-  console.log("  Default:   " + config.defaultProvider);
-  console.log("  CWD:       " + config.defaults.cwd);
+  console.log("  Token:     " + maskToken(botToken));
+  console.log("  Providers: " + providers.map((p) => p.id).join(", "));
+  console.log("  Default:   " + defaultProvider);
+  console.log("  CWD:       " + defaultCwd);
   console.log("──────────────────────────────────────\n");
 
   const confirmed = await confirm({ message: "Save this configuration?", default: true });
@@ -146,6 +185,14 @@ async function runSetup(): Promise<boolean> {
   }
 
   // Step 8: Write config
+  const config: ConfigFile = {
+    version: 2,
+    arinova: { botToken },
+    defaultProvider,
+    providers,
+    defaults: { cwd: defaultCwd },
+  };
+
   writeConfigFile(config);
   console.log(`\n✓ Saved to ${getConfigPath()}`);
   console.log("\nYou can now start the bridge with:");

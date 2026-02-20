@@ -17,7 +17,6 @@ describe("config-file", () => {
   });
 
   async function loadModule() {
-    // Mock homedir BEFORE importing the module so module-level constants use tmpDir
     vi.doMock("node:os", () => ({
       ...os,
       homedir: () => tmpDir,
@@ -34,24 +33,28 @@ describe("config-file", () => {
     expect(result).toBeNull();
   });
 
-  it("writes and reads config file", async () => {
+  it("writes and reads config file with array providers", async () => {
     const { readConfigFile, writeConfigFile } = await loadModule();
 
     writeConfigFile({
-      version: 1,
-      arinova: { serverUrl: "ws://localhost:3501", botToken: "test-token" },
+      version: 2,
+      arinova: { botToken: "test-token" },
       defaultProvider: "anthropic-oauth",
-      providers: {
-        "anthropic-oauth": { enabled: true },
-      },
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+        { id: "minimax", type: "anthropic-cli", displayName: "MiniMax", enabled: true, apiKey: "sk-mm", baseUrl: "https://api.minimax.io/anthropic" },
+      ],
       defaults: { cwd: "~/projects" },
     });
 
     const result = readConfigFile();
     expect(result).not.toBeNull();
-    expect(result!.version).toBe(1);
-    expect(result!.arinova.serverUrl).toBe("ws://localhost:3501");
+    expect(result!.version).toBe(2);
     expect(result!.defaultProvider).toBe("anthropic-oauth");
+    expect(result!.providers).toHaveLength(2);
+    expect(result!.providers[0].id).toBe("anthropic-oauth");
+    expect(result!.providers[1].id).toBe("minimax");
+    expect(result!.providers[1].baseUrl).toBe("https://api.minimax.io/anthropic");
   });
 
   it("creates config directory if it does not exist", async () => {
@@ -61,10 +64,10 @@ describe("config-file", () => {
     expect(fs.existsSync(configDir)).toBe(false);
 
     writeConfigFile({
-      version: 1,
-      arinova: { serverUrl: "ws://test", botToken: "tok" },
+      version: 2,
+      arinova: { botToken: "tok" },
       defaultProvider: "anthropic-oauth",
-      providers: {},
+      providers: [],
       defaults: {},
     });
 

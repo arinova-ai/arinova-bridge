@@ -1,22 +1,22 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
-import type { Provider, ProviderId } from "../providers/types.js";
+import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
 
 export class CommandHandler {
-  private providers: Map<ProviderId, Provider>;
+  private providers: Map<string, Provider>;
   private config: BridgeConfig;
 
   /** Per-conversation provider overrides (set by /provider). */
-  private providerOverrides = new Map<string, ProviderId>();
+  private providerOverrides = new Map<string, string>();
   /** Per-conversation cwd overrides (set by /new). */
   private cwdOverrides = new Map<string, string>();
   /** Per-conversation model overrides (set by /model). */
   private modelOverrides = new Map<string, string>();
 
-  constructor(providers: Map<ProviderId, Provider>, config: BridgeConfig) {
+  constructor(providers: Map<string, Provider>, config: BridgeConfig) {
     this.providers = providers;
     this.config = config;
   }
@@ -89,12 +89,15 @@ export class CommandHandler {
   }
 
   /** Get all configured (enabled) provider IDs from config, not just successfully created ones. */
-  private getConfiguredProviderIds(): ProviderId[] {
-    const ids: ProviderId[] = [];
-    for (const [id, conf] of Object.entries(this.config.providers)) {
-      if (conf?.enabled) ids.push(id as ProviderId);
-    }
-    return ids;
+  private getConfiguredProviderIds(): string[] {
+    return this.config.providers
+      .filter((p) => p.enabled)
+      .map((p) => p.id);
+  }
+
+  /** Check if any configured provider has a type starting with the given prefix. */
+  private hasProviderType(prefix: string): boolean {
+    return this.config.providers.some((p) => p.enabled && p.type.startsWith(prefix));
   }
 
   /** Get the list of skills to register with Arinova. */
@@ -110,13 +113,12 @@ export class CommandHandler {
       { id: "cost", name: "Cost", description: "顯示累計花費 / token 用量" },
     ];
 
-    // Add /compact only if an Anthropic provider is configured
-    const configuredIds = this.getConfiguredProviderIds();
-    if (configuredIds.includes("anthropic-api") || configuredIds.includes("anthropic-oauth")) {
+    // Add /compact only if an Anthropic-type provider is configured
+    if (this.hasProviderType("anthropic")) {
       skills.push({ id: "compact", name: "Compact", description: "壓縮對話上下文 (Anthropic only)" });
     }
 
-    const ids = configuredIds.join(" / ");
+    const ids = this.getConfiguredProviderIds().join(" / ");
     skills.push({ id: "provider", name: "Provider", description: `切換 provider (${ids})` });
 
     return skills;
@@ -228,12 +230,11 @@ export class CommandHandler {
       "/cost — 顯示累計花費 / token 用量",
     ];
 
-    const configuredIds = this.getConfiguredProviderIds();
-    if (configuredIds.includes("anthropic-api") || configuredIds.includes("anthropic-oauth")) {
+    if (this.hasProviderType("anthropic")) {
       lines.push("/compact — 壓縮對話上下文 (Anthropic only)");
     }
 
-    const ids = configuredIds.join(" / ");
+    const ids = this.getConfiguredProviderIds().join(" / ");
     lines.push(`/provider [name] — 切換 provider (${ids})`);
 
     lines.push("/help — 列出所有可用指令");
@@ -295,8 +296,8 @@ export class CommandHandler {
   private async handleCompact(ctx: CommandContext): Promise<void> {
     const provider = this.getProviderForConversation(ctx.conversationId);
 
-    // Compact is only supported by Anthropic providers
-    if (provider.id !== "anthropic-api" && provider.id !== "anthropic-oauth") {
+    // Compact is only supported by Anthropic-type providers
+    if (!provider.type.startsWith("anthropic")) {
       this.reply(ctx, "此 provider 不支援 /compact");
       return;
     }
@@ -375,7 +376,7 @@ export class CommandHandler {
       return;
     }
 
-    const targetId = arg as ProviderId;
+    const targetId = arg;
     const configuredIds = this.getConfiguredProviderIds();
     const targetProvider = this.providers.get(targetId);
 

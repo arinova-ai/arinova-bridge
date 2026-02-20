@@ -1,8 +1,4 @@
-export type ProviderId =
-  | "anthropic-api"
-  | "anthropic-oauth"
-  | "openai-api"
-  | "openai-oauth";
+export type ProviderId = string;
 
 export interface SendMessageOpts {
   conversationId: string;
@@ -49,6 +45,7 @@ export interface SessionListEntry {
 
 export interface Provider {
   readonly id: ProviderId;
+  readonly type: string;
   readonly displayName: string;
 
   sendMessage(opts: SendMessageOpts): Promise<SendResult>;

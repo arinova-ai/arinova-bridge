@@ -53,6 +53,8 @@ describe("AnthropicSdkProvider", () => {
     vi.clearAllMocks();
     provider = new AnthropicSdkProvider(
       {
+        providerId: "anthropic-api",
+        displayName: "Anthropic API",
         apiKey: "sk-ant-test-key",
         defaultModel: "sonnet",
         defaultCwd: "/default",
@@ -161,9 +163,25 @@ describe("AnthropicSdkProvider", () => {
   });
 
   describe("supportedModels", () => {
-    it("returns anthropic models", () => {
+    it("returns null when no models configured", () => {
       const models = provider.supportedModels();
-      expect(models).toEqual(["opus", "sonnet", "haiku"]);
+      expect(models).toBeNull();
+    });
+
+    it("returns custom models when configured", () => {
+      const customProvider = new AnthropicSdkProvider(
+        {
+          providerId: "custom-sdk",
+          displayName: "Custom SDK",
+          apiKey: "sk-ant-test",
+          defaultCwd: "/default",
+          maxSessions: 5,
+          idleTimeoutMs: 600_000,
+          models: ["opus", "sonnet", "haiku"],
+        },
+        logger,
+      );
+      expect(customProvider.supportedModels()).toEqual(["opus", "sonnet", "haiku"]);
     });
   });
 

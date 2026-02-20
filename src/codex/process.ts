@@ -6,6 +6,7 @@ import type { ThreadEvent } from "./events.js";
 export interface CodexSpawnOptions {
   cwd?: string;
   model?: string;
+  env?: Record<string, string>;
 }
 
 export interface CodexProcess {
@@ -35,7 +36,7 @@ export function spawnCodexExec(
   options: CodexSpawnOptions = {},
 ): CodexProcess {
   const args = buildExecArgs(prompt, options);
-  return spawnCodex(codexPath, args);
+  return spawnCodex(codexPath, args, options.env);
 }
 
 /** Spawn `codex resume --json` for a follow-up message. */
@@ -46,7 +47,7 @@ export function spawnCodexResume(
   options: CodexSpawnOptions = {},
 ): CodexProcess {
   const args = buildResumeArgs(threadId, prompt, options);
-  return spawnCodex(codexPath, args);
+  return spawnCodex(codexPath, args, options.env);
 }
 
 /** Send SIGINT to a running Codex child process. */
@@ -107,11 +108,14 @@ function buildResumeArgs(
   return args;
 }
 
-function spawnCodex(codexPath: string, args: string[]): CodexProcess {
+function spawnCodex(codexPath: string, args: string[], customEnv?: Record<string, string>): CodexProcess {
   const stderrChunks: Buffer[] = [];
+
+  const env = customEnv ? { ...process.env, ...customEnv } : undefined;
 
   const child = spawn(codexPath, args, {
     stdio: ["pipe", "pipe", "pipe"],
+    env,
   });
 
   child.stdin?.end();
