@@ -52,7 +52,9 @@ async function runSetup(): Promise<boolean> {
     choices: PROVIDER_CHOICES.map((p) => ({
       name: `${p.name}  (${p.description})`,
       value: p.value,
-      checked: existing?.providers?.[p.value]?.enabled ?? (p.value === "anthropic-oauth"),
+      checked: existing
+        ? (existing.providers?.[p.value]?.enabled ?? false)
+        : (p.value === "anthropic-oauth"),
     })),
     validate: (selected) => {
       if (selected.length === 0) return "At least one provider must be enabled";

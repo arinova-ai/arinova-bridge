@@ -167,8 +167,11 @@ describe("OpenAICliProvider", () => {
   });
 
   describe("supportedModels", () => {
-    it("returns null (no validation)", () => {
-      expect(provider.supportedModels()).toBeNull();
+    it("returns known model list", () => {
+      const models = provider.supportedModels();
+      expect(models).toBeInstanceOf(Array);
+      expect(models!.length).toBeGreaterThan(0);
+      expect(models).toContain("codex-mini-latest");
     });
   });
 });

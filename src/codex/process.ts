@@ -94,6 +94,7 @@ function buildResumeArgs(
   options: CodexSpawnOptions,
 ): string[] {
   const args = [
+    "exec",
     "resume",
     "--json",
     "--skip-git-repo-check",
@@ -145,7 +146,7 @@ async function* createEventStream(
     try {
       yield JSON.parse(line) as ThreadEvent;
     } catch {
-      console.warn("[codex] Malformed JSONL line, skipping:", line.slice(0, 80));
+      // Malformed JSONL line, skip silently
     }
   }
 }

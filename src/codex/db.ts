@@ -32,6 +32,7 @@ export interface BridgeDb {
   updateStatus(convId: string, status: ConversationStatus): void;
   addTokenUsage(convId: string, usage: TokenUsage): void;
   getRunningConversations(): Conversation[];
+  getAllConversations(): Conversation[];
   resetConversation(convId: string, cwd?: string | null): void;
 }
 
@@ -84,6 +85,9 @@ export function initDb(dbPath: string): BridgeDb {
     `),
     getRunning: db.prepare(
       "SELECT * FROM conversations WHERE status = 'running'",
+    ),
+    getAll: db.prepare(
+      "SELECT * FROM conversations WHERE thread_id IS NOT NULL",
     ),
     reset: db.prepare(`
       UPDATE conversations SET
@@ -151,6 +155,10 @@ export function initDb(dbPath: string): BridgeDb {
 
     getRunningConversations(): Conversation[] {
       return (stmts.getRunning.all() as unknown[]).map(toConversation);
+    },
+
+    getAllConversations(): Conversation[] {
+      return (stmts.getAll.all() as unknown[]).map(toConversation);
     },
 
     resetConversation(convId, cwd) {

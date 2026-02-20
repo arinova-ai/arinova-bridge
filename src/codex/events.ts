@@ -126,6 +126,7 @@ export interface TurnResult {
   threadId: string | null;
   finalResponse: string;
   usage: TokenUsage | null;
+  error: string | null;
 }
 
 /**
@@ -145,6 +146,7 @@ export async function processTurn(
   let threadId: string | null = null;
   let finalResponse = "";
   let usage: TokenUsage | null = null;
+  let error: string | null = null;
   let lastSentLength = 0;
 
   for await (const event of events) {
@@ -183,10 +185,12 @@ export async function processTurn(
         break;
 
       case "turn.failed":
+        error = event.error.message;
         sink.onError(event.error.message);
         break;
 
       case "error":
+        error = event.message;
         sink.onError(event.message);
         break;
 
@@ -196,5 +200,5 @@ export async function processTurn(
     }
   }
 
-  return { threadId, finalResponse, usage };
+  return { threadId, finalResponse, usage, error };
 }

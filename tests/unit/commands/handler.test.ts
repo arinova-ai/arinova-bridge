@@ -280,6 +280,27 @@ describe("CommandHandler", () => {
       expect(ctx.completed).toContain("不支援或未啟用");
     });
 
+    it("shows configured-but-unavailable provider", async () => {
+      // Only put anthropic-oauth in the providers map, but config has openai-api enabled too
+      const singleProviders = new Map<ProviderId, Provider>();
+      singleProviders.set("anthropic-oauth", anthropicProvider);
+      const singleHandler = new CommandHandler(singleProviders, createMockConfig());
+      const ctx = createCtx();
+      await singleHandler.handle("/provider", ctx);
+      expect(ctx.completed).toContain("anthropic-oauth");
+      expect(ctx.completed).toContain("openai-api");
+      expect(ctx.completed).toContain("無法啟動");
+    });
+
+    it("gives helpful error for configured-but-unavailable provider switch", async () => {
+      const singleProviders = new Map<ProviderId, Provider>();
+      singleProviders.set("anthropic-oauth", anthropicProvider);
+      const singleHandler = new CommandHandler(singleProviders, createMockConfig());
+      const ctx = createCtx();
+      await singleHandler.handle("/provider openai-api", ctx);
+      expect(ctx.completed).toContain("無法啟動");
+    });
+
     it("clears model override on switch", async () => {
       const ctx = createCtx();
       // Set model on anthropic
@@ -327,7 +348,7 @@ describe("CommandHandler", () => {
       const singleHandler = new CommandHandler(singleProviders, createMockConfig());
       const skills = singleHandler.getSkills();
       const ids = skills.map((s) => s.id);
-      expect(ids).not.toContain("provider");
+      expect(ids).toContain("provider");
     });
   });
 });

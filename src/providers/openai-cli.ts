@@ -142,9 +142,8 @@ export class OpenAICliProvider implements Provider {
   }
 
   listSessions(): SessionListEntry[] {
-    // List all conversations with thread IDs
-    const running = this.db.getRunningConversations();
-    return running.map((conv) => ({
+    const all = this.db.getAllConversations();
+    return all.map((conv) => ({
       providerId: this.id,
       sessionId: conv.threadId ?? "",
       conversationId: conv.convId,
@@ -154,9 +153,15 @@ export class OpenAICliProvider implements Provider {
     }));
   }
 
-  supportedModels(): string[] | null {
-    // OpenAI models — pass through, no validation
-    return null;
+  supportedModels(): string[] {
+    return [
+      "codex-mini-latest",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark",
+      "gpt-5.2-codex",
+      "o4-mini",
+      "o3",
+    ];
   }
 
   async shutdown(): Promise<void> {
@@ -172,6 +177,7 @@ export class OpenAICliProvider implements Provider {
     cwd?: string,
     model?: string,
     onChunk?: (text: string) => void,
+    isRetry = false,
   ): Promise<SendResult> {
     const conv = this.db.getConversation(conversationId);
     const effectiveCwd = cwd ?? conv?.cwd ?? this.defaultCwd;
@@ -179,9 +185,10 @@ export class OpenAICliProvider implements Provider {
 
     this.db.upsertConversation(conversationId, { status: "running" });
 
+    const isResume = !isRetry && !!conv?.threadId;
     let codex;
-    if (conv?.threadId) {
-      codex = spawnCodexResume(this.codexPath, conv.threadId, content, {
+    if (isResume) {
+      codex = spawnCodexResume(this.codexPath, conv.threadId!, content, {
         cwd: effectiveCwd,
         model: effectiveModel,
       });
@@ -216,12 +223,36 @@ export class OpenAICliProvider implements Provider {
       }
 
       const exit = await waitForExit(codex.child);
-      if (exit.code !== 0 && exit.code !== null) {
-        const stderr = codex.stderr();
-        if (stderr) {
-          this.logger.error(`openai-cli: stderr for ${conversationId}: ${stderr}`);
-        }
+      const stderr = codex.stderr();
+      const failed = exit.code !== 0 && exit.code !== null;
+      const noOutput = !result.finalResponse?.trim();
+
+      if (stderr) {
+        this.logger.error(`openai-cli: stderr for ${conversationId}: ${stderr}`);
+      }
+
+      // Resume failed with no output → auto-retry as fresh exec
+      if (isResume && noOutput && !isRetry) {
+        this.logger.warn(`openai-cli: resume produced no output for ${conversationId}, retrying as new exec`);
+        this.db.resetConversation(conversationId, effectiveCwd);
+        this.queue.activeProcesses.delete(conversationId);
+        return this.runCodexTurn(conversationId, content, cwd, model, onChunk, true);
+      }
+
+      if (result.error) {
         this.db.updateStatus(conversationId, "error");
+        throw new Error(result.error);
+      }
+
+      if (failed || (noOutput && stderr)) {
+        this.db.updateStatus(conversationId, "error");
+
+        if (noOutput) {
+          const hint = stderr
+            ? stderr.split("\n").filter((l) => l.trim()).slice(0, 3).join("\n")
+            : `exit code ${exit.code}`;
+          throw new Error(`Codex 執行失敗:\n${hint}`);
+        }
       } else {
         this.db.updateStatus(conversationId, "idle");
       }

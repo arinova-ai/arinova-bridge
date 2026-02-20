@@ -88,6 +88,15 @@ export class CommandHandler {
     }
   }
 
+  /** Get all configured (enabled) provider IDs from config, not just successfully created ones. */
+  private getConfiguredProviderIds(): ProviderId[] {
+    const ids: ProviderId[] = [];
+    for (const [id, conf] of Object.entries(this.config.providers)) {
+      if (conf?.enabled) ids.push(id as ProviderId);
+    }
+    return ids;
+  }
+
   /** Get the list of skills to register with Arinova. */
   getSkills(): Array<{ id: string; name: string; description: string }> {
     const skills = [
@@ -101,16 +110,14 @@ export class CommandHandler {
       { id: "cost", name: "Cost", description: "顯示累計花費 / token 用量" },
     ];
 
-    // Add /compact only if an Anthropic provider is enabled
-    if (this.providers.has("anthropic-api") || this.providers.has("anthropic-oauth")) {
+    // Add /compact only if an Anthropic provider is configured
+    const configuredIds = this.getConfiguredProviderIds();
+    if (configuredIds.includes("anthropic-api") || configuredIds.includes("anthropic-oauth")) {
       skills.push({ id: "compact", name: "Compact", description: "壓縮對話上下文 (Anthropic only)" });
     }
 
-    // Add /provider only if multiple providers are enabled
-    if (this.providers.size > 1) {
-      const ids = Array.from(this.providers.keys()).join(" / ");
-      skills.push({ id: "provider", name: "Provider", description: `切換 provider (${ids})` });
-    }
+    const ids = configuredIds.join(" / ");
+    skills.push({ id: "provider", name: "Provider", description: `切換 provider (${ids})` });
 
     return skills;
   }
@@ -221,14 +228,13 @@ export class CommandHandler {
       "/cost — 顯示累計花費 / token 用量",
     ];
 
-    if (this.providers.has("anthropic-api") || this.providers.has("anthropic-oauth")) {
+    const configuredIds = this.getConfiguredProviderIds();
+    if (configuredIds.includes("anthropic-api") || configuredIds.includes("anthropic-oauth")) {
       lines.push("/compact — 壓縮對話上下文 (Anthropic only)");
     }
 
-    if (this.providers.size > 1) {
-      const ids = Array.from(this.providers.keys()).join(" / ");
-      lines.push(`/provider [name] — 切換 provider (${ids})`);
-    }
+    const ids = configuredIds.join(" / ");
+    lines.push(`/provider [name] — 切換 provider (${ids})`);
 
     lines.push("/help — 列出所有可用指令");
     this.reply(ctx, lines.join("\n"));
@@ -353,19 +359,33 @@ export class CommandHandler {
   private async handleProvider(arg: string, ctx: CommandContext): Promise<void> {
     if (!arg) {
       const current = this.getProviderForConversation(ctx.conversationId);
-      const all = Array.from(this.providers.entries())
-        .map(([id, p]) => `${id === current.id ? "→ " : "  "}${id} (${p.displayName})`)
-        .join("\n");
-      this.reply(ctx, `目前 Provider: ${current.displayName}\n\n${all}\n\n用法: /provider <name>`);
+      const configuredIds = this.getConfiguredProviderIds();
+      const lines: string[] = [];
+      for (const id of configuredIds) {
+        const provider = this.providers.get(id);
+        const isCurrent = id === current.id;
+        const prefix = isCurrent ? "→ " : "  ";
+        if (provider) {
+          lines.push(`${prefix}${id} (${provider.displayName})`);
+        } else {
+          lines.push(`${prefix}${id} ⚠ 無法啟動`);
+        }
+      }
+      this.reply(ctx, `目前 Provider: ${current.displayName}\n\n${lines.join("\n")}\n\n用法: /provider <name>`);
       return;
     }
 
     const targetId = arg as ProviderId;
+    const configuredIds = this.getConfiguredProviderIds();
     const targetProvider = this.providers.get(targetId);
 
     if (!targetProvider) {
-      const available = Array.from(this.providers.keys()).join(" / ");
-      this.reply(ctx, `不支援或未啟用的 provider: ${arg}\n可用: ${available}`);
+      if (configuredIds.includes(targetId)) {
+        this.reply(ctx, `Provider ${arg} 已設定但無法啟動，請檢查 CLI 是否已安裝`);
+      } else {
+        const available = configuredIds.join(" / ");
+        this.reply(ctx, `不支援或未啟用的 provider: ${arg}\n可用: ${available}`);
+      }
       return;
     }
 
