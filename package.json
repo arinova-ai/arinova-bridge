@@ -1,0 +1,31 @@
+{
+  "name": "arinova-bridge",
+  "version": "0.1.0",
+  "description": "Multi-provider bridge between Arinova Chat and AI coding assistants (Claude, Codex)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "arinova-bridge": "dist/index.js",
+    "arinova-bridge-setup": "dist/setup.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "setup": "tsx src/setup.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.0",
+    "@arinova-ai/agent-sdk": "file:../arinova-chat/packages/agent-sdk",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^25.3.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.18"
+  }
+}
