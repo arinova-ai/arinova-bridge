@@ -44,7 +44,15 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     type: "gemini-cli",
     displayName: "Google Gemini (OAuth)",
     needsApiKey: false,
-    models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    models: ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+  },
+  {
+    id: "google-api",
+    type: "gemini-cli",
+    displayName: "Google Gemini API (Gemini CLI)",
+    needsApiKey: true,
+    apiKeyPrompt: "Google Gemini API Key",
+    models: ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
   },
   {
     id: "openai-api",
