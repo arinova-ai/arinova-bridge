@@ -5,8 +5,16 @@ import type { Logger } from "../util/logger.js";
 import { AnthropicCliProvider } from "./anthropic-cli.js";
 import { AnthropicSdkProvider } from "./anthropic-sdk.js";
 import { OpenAICliProvider } from "./openai-cli.js";
+import { GeminiCliProvider } from "./gemini-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
+
+/** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
+const DEFAULT_ANTHROPIC_MODELS = [
+  "claude-sonnet-4-6",
+  "claude-opus-4-6",
+  "claude-haiku-4-5",
+];
 
 /**
  * Map baseUrl/apiKey to the correct env var names based on provider type.
@@ -39,6 +47,11 @@ async function buildEnv(entry: ProviderEntry, logger: Logger): Promise<Record<st
     }
     if (entry.apiKey) {
       env.OPENAI_API_KEY = entry.apiKey;
+      hasEnv = true;
+    }
+  } else if (entry.type === "gemini-cli") {
+    if (entry.apiKey) {
+      env.GEMINI_API_KEY = entry.apiKey;
       hasEnv = true;
     }
   }
@@ -123,7 +136,7 @@ async function createProvider(
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
           env,
-          models: entry.models,
+          models: entry.models ?? (!entry.baseUrl ? DEFAULT_ANTHROPIC_MODELS : undefined),
         },
         logger,
       );
@@ -159,6 +172,25 @@ async function createProvider(
           dbPath: config.defaults.dbPath,
           env,
           models: entry.models,
+        },
+        logger,
+      );
+
+    case "gemini-cli":
+      return new GeminiCliProvider(
+        {
+          providerId: entry.id,
+          displayName: entry.displayName,
+          geminiPath: entry.geminiPath,
+          apiKey: entry.apiKey,
+          defaultCwd: config.defaults.cwd,
+          dbPath: config.defaults.dbPath,
+          env,
+          models: entry.models ?? [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+          ],
         },
         logger,
       );

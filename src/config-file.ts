@@ -14,6 +14,7 @@ export interface ProviderEntry {
   baseUrl?: string;
   claudePath?: string;
   codexPath?: string;
+  geminiPath?: string;
   defaultModel?: string;
   models?: string[];
 }

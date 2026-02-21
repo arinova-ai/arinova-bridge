@@ -24,6 +24,7 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     type: "anthropic-cli",
     displayName: "Anthropic OAuth (Claude CLI)",
     needsApiKey: false,
+    models: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
   },
   {
     id: "anthropic-api",
@@ -37,6 +38,13 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     type: "openai-cli",
     displayName: "OpenAI OAuth (Codex CLI)",
     needsApiKey: false,
+  },
+  {
+    id: "gemini-oauth",
+    type: "gemini-cli",
+    displayName: "Google Gemini (OAuth)",
+    needsApiKey: false,
+    models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
   },
   {
     id: "openai-api",
