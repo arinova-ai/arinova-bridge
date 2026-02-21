@@ -39,6 +39,7 @@ agent.onTask(async (ctx) => {
     sendChunk: ctx.sendChunk,
     sendComplete: ctx.sendComplete,
     sendError: ctx.sendError,
+    uploadFile: ctx.uploadFile,
   });
   if (result.handled) return;
 
@@ -48,21 +49,24 @@ agent.onTask(async (ctx) => {
     const cwd = commandHandler.getCwdForConversation(conversationId);
     const model = commandHandler.getModelForConversation(conversationId);
 
-    let accumulated = "";
     const sendResult = await provider.sendMessage({
       conversationId,
       content,
       cwd,
       model,
-      onChunk: (text) => {
-        accumulated += text;
-        ctx.sendChunk(accumulated);
-      },
+      onChunk: (text) => ctx.sendChunk(text),
+      signal: ctx.signal,
+      uploadFile: ctx.uploadFile,
     });
 
     ctx.sendComplete(sendResult.text);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // User-initiated cancel (via SDK signal) or superseded by a new message
+    if (ctx.signal.aborted || msg === "Turn aborted by user") {
+      logger.info(`task cancelled for ${conversationId}`);
+      return;
+    }
     logger.error(`task error for ${conversationId}: ${msg}`);
     ctx.sendError(msg);
   }

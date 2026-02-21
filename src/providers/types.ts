@@ -1,11 +1,20 @@
 export type ProviderId = string;
 
+export interface UploadResult {
+  url: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+}
+
 export interface SendMessageOpts {
   conversationId: string;
   content: string;
   cwd?: string;
   model?: string;
   onChunk: (text: string) => void;
+  signal?: AbortSignal;
+  uploadFile?: (file: Uint8Array, fileName: string, fileType?: string) => Promise<UploadResult>;
 }
 
 export interface SendResult {
@@ -38,6 +47,7 @@ export interface SessionListEntry {
   sessionId: string;
   conversationId: string;
   alive: boolean;
+  status: "ready" | "busy" | "idle" | "error";
   cwd: string;
   model?: string;
   lastActivity?: number;
