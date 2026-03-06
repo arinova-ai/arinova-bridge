@@ -4,7 +4,7 @@ import type { Provider } from "../../../src/providers/types.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { CommandContext } from "../../../src/commands/types.js";
 
-function createMockProvider(id: string, type: string, displayName: string): Provider {
+function createMockProvider(id: string, type: string, displayName: string, sessionId = `${id}-session-id`): Provider {
   return {
     id,
     type,
@@ -14,7 +14,7 @@ function createMockProvider(id: string, type: string, displayName: string): Prov
     resetSession: vi.fn(async () => {}),
     resumeSession: vi.fn(async () => true),
     getSessionInfo: vi.fn(() => ({
-      sessionId: "test-session-id",
+      sessionId,
       alive: true,
       cwd: "/test",
       model: "sonnet",
@@ -25,9 +25,10 @@ function createMockProvider(id: string, type: string, displayName: string): Prov
     listSessions: vi.fn(() => [
       {
         providerId: id,
-        sessionId: "test-session-id",
+        sessionId,
         conversationId: "conv-1",
         alive: true,
+        status: "ready",
         cwd: "/test",
         model: "sonnet",
       },
@@ -54,6 +55,32 @@ function createMockConfig(defaultProvider = "anthropic-oauth"): BridgeConfig {
   };
 }
 
+const mockNotes = [
+  {
+    id: "note-aabbccdd-1234",
+    conversationId: "conv-1",
+    creatorId: "user-1",
+    creatorType: "user" as const,
+    creatorName: "Alice",
+    title: "TODO List",
+    content: "Fix the bug in auth module",
+    createdAt: "2026-03-01T00:00:00Z",
+    updatedAt: "2026-03-01T00:00:00Z",
+  },
+  {
+    id: "note-eeff0011-5678",
+    conversationId: "conv-1",
+    creatorId: "agent-1",
+    creatorType: "agent" as const,
+    creatorName: "Bridge",
+    agentName: "Bridge Bot",
+    title: "Meeting Notes",
+    content: "Discussed the new feature",
+    createdAt: "2026-03-02T00:00:00Z",
+    updatedAt: "2026-03-02T00:00:00Z",
+  },
+];
+
 function createCtx(conversationId = "conv-1"): CommandContext & {
   chunks: string[];
   completed: string | null;
@@ -67,6 +94,19 @@ function createCtx(conversationId = "conv-1"): CommandContext & {
     sendChunk: vi.fn((text: string) => { ctx.chunks.push(text); }),
     sendComplete: vi.fn((text: string) => { ctx.completed = text; }),
     sendError: vi.fn((text: string) => { ctx.errored = text; }),
+    listNotes: vi.fn(async () => ({ notes: mockNotes, hasMore: false })),
+    createNote: vi.fn(async (body: { title: string; content?: string }) => ({
+      ...mockNotes[0],
+      id: "note-new-12345678",
+      title: body.title,
+      content: body.content ?? "",
+    })),
+    updateNote: vi.fn(async (_noteId: string, body: { title?: string; content?: string }) => ({
+      ...mockNotes[0],
+      title: body.title ?? mockNotes[0].title,
+      content: body.content ?? mockNotes[0].content,
+    })),
+    deleteNote: vi.fn(async () => {}),
   };
   return ctx;
 }
@@ -113,6 +153,9 @@ describe("CommandHandler", () => {
       expect(ctx.completed).toContain("/new");
       expect(ctx.completed).toContain("/status");
       expect(ctx.completed).toContain("/provider");
+      expect(ctx.completed).toContain("/notes");
+      expect(ctx.completed).toContain("/note-add");
+      expect(ctx.completed).toContain("/note-del");
     });
   });
 
@@ -121,7 +164,7 @@ describe("CommandHandler", () => {
       const ctx = createCtx();
       await handler.handle("/status", ctx);
       expect(ctx.completed).toContain("Anthropic OAuth");
-      expect(ctx.completed).toContain("test-sessio"); // truncated to 12 chars
+      expect(ctx.completed).toContain("anthropic-oa"); // session ID truncated to 12 chars
     });
 
     it("shows no session when provider returns null", async () => {
@@ -199,8 +242,17 @@ describe("CommandHandler", () => {
     it("lists sessions from all providers", async () => {
       const ctx = createCtx();
       await handler.handle("/sessions", ctx);
-      expect(ctx.completed).toContain("test-sessio");
       expect(ctx.completed).toContain("anthropic-oauth");
+      expect(ctx.completed).toContain("openai-api");
+      expect(ctx.completed).toContain("ready"); // status text
+    });
+
+    it("marks current session with green dot", async () => {
+      const ctx = createCtx();
+      await handler.handle("/sessions", ctx);
+      // anthropic-oauth is the default provider and conv-1 matches, so 🟢
+      expect(ctx.completed).toContain("🟢");
+      expect(ctx.completed).toContain("⚪");
     });
 
     it("shows empty message when no sessions", async () => {
@@ -219,21 +271,39 @@ describe("CommandHandler", () => {
       expect(ctx.completed).toContain("請提供 session ID");
     });
 
-    it("resumes with session ID", async () => {
+    it("resumes with session ID prefix match", async () => {
       const ctx = createCtx();
-      await handler.handle("/resume abc123", ctx);
+      await handler.handle("/resume anthropic-oauth-ses", ctx);
       expect(anthropicProvider.resumeSession).toHaveBeenCalledWith(
         "conv-1",
-        "abc123",
+        "anthropic-oauth-session-id",
         expect.anything(),
       );
       expect(ctx.completed).toContain("已恢復 session");
     });
 
-    it("reports failure", async () => {
-      vi.mocked(anthropicProvider.resumeSession).mockResolvedValue(false);
+    it("auto-switches provider when resuming cross-provider session", async () => {
+      const ctx = createCtx();
+      await handler.handle("/resume openai-api-ses", ctx);
+      expect(openaiProvider.resumeSession).toHaveBeenCalledWith(
+        "conv-1",
+        "openai-api-session-id",
+        expect.anything(),
+      );
+      expect(ctx.completed).toContain("已恢復 session");
+      expect(ctx.completed).toContain("Provider 已切換");
+    });
+
+    it("reports no match for unknown ID", async () => {
       const ctx = createCtx();
       await handler.handle("/resume bad-id", ctx);
+      expect(ctx.completed).toContain("找不到匹配");
+    });
+
+    it("reports failure when provider rejects resume", async () => {
+      vi.mocked(anthropicProvider.resumeSession).mockResolvedValue(false);
+      const ctx = createCtx();
+      await handler.handle("/resume anthropic-oauth-ses", ctx);
       expect(ctx.completed).toContain("恢復失敗");
     });
   });
@@ -327,6 +397,96 @@ describe("CommandHandler", () => {
 
       const provider = handler.getProviderForConversation("conv-1");
       expect(provider.id).toBe("openai-api");
+    });
+  });
+
+  describe("/notes", () => {
+    it("lists notes", async () => {
+      const ctx = createCtx();
+      await handler.handle("/notes", ctx);
+      expect(ctx.completed).toContain("TODO List");
+      expect(ctx.completed).toContain("Meeting Notes");
+      expect(ctx.completed).toContain("note-aab");
+    });
+
+    it("shows empty message when no notes", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.listNotes!).mockResolvedValue({ notes: [], hasMore: false });
+      await handler.handle("/notes", ctx);
+      expect(ctx.completed).toContain("目前沒有筆記");
+    });
+
+    it("shows unavailable when listNotes is missing", async () => {
+      const ctx = createCtx();
+      ctx.listNotes = undefined;
+      await handler.handle("/notes", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+  });
+
+  describe("/note-add", () => {
+    it("creates note with title only", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-add My Title", ctx);
+      expect(ctx.createNote).toHaveBeenCalledWith({ title: "My Title", content: undefined });
+      expect(ctx.completed).toContain("已新增筆記");
+    });
+
+    it("creates note with title and content", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-add My Title | Some content here", ctx);
+      expect(ctx.createNote).toHaveBeenCalledWith({ title: "My Title", content: "Some content here" });
+    });
+
+    it("requires argument", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-add", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+  });
+
+  describe("/note-edit", () => {
+    it("updates note by id prefix", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-edit note-aabb New Title | New content", ctx);
+      expect(ctx.updateNote).toHaveBeenCalledWith(
+        "note-aabbccdd-1234",
+        { title: "New Title", content: "New content" },
+      );
+      expect(ctx.completed).toContain("已更新筆記");
+    });
+
+    it("requires id and content", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-edit", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+
+    it("reports no match for unknown id", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-edit bad-id New Title", ctx);
+      expect(ctx.completed).toContain("找不到匹配");
+    });
+  });
+
+  describe("/note-del", () => {
+    it("deletes note by id prefix", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-del note-aabb", ctx);
+      expect(ctx.deleteNote).toHaveBeenCalledWith("note-aabbccdd-1234");
+      expect(ctx.completed).toContain("已刪除筆記");
+    });
+
+    it("requires argument", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-del", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+
+    it("reports ambiguous match", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-del note-", ctx);
+      expect(ctx.completed).toContain("多個筆記匹配");
     });
   });
 

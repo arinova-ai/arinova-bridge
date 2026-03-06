@@ -20,6 +20,7 @@ export type SendMessageResult = {
 
 const DEFAULT_CLAUDE_PATH = "claude";
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+const STALE_DRAIN_TIMEOUT_MS = 5000;
 
 /**
  * Persistent Claude Code CLI process using the bidirectional stream-json protocol.
@@ -42,6 +43,12 @@ export class ClaudeProcess {
   private turnProseText = "";
   private turnOnText: ((text: string) => void) | null = null;
   private turnTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** Number of aborted turn results still expected from the process. */
+  private staleResults = 0;
+  private staleDrainTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Signal and listener for the current turn (cleared on abort/complete). */
+  private turnSignal: AbortSignal | null = null;
+  private turnSignalListener: (() => void) | null = null;
 
   constructor(opts: ClaudeProcessOptions) {
     this.opts = opts;
@@ -157,6 +164,7 @@ export class ClaudeProcess {
   sendMessage(
     text: string,
     onText?: (text: string) => void,
+    signal?: AbortSignal,
   ): Promise<SendMessageResult> {
     const log = this.opts.logger;
 
@@ -168,8 +176,19 @@ export class ClaudeProcess {
       return Promise.reject(new Error("Another message is already in-flight"));
     }
 
+    // Clear any leftover signal listener from a previously aborted turn
+    // (prevents the old task's signal from aborting this new turn)
+    this.clearSignalListener();
+
     this.turnProseText = "";
     this.turnOnText = onText ?? null;
+
+    // Attach signal listener for this turn
+    if (signal) {
+      this.turnSignalListener = () => this.abortTurn();
+      signal.addEventListener("abort", this.turnSignalListener, { once: true });
+      this.turnSignal = signal;
+    }
 
     return new Promise<SendMessageResult>((resolve, reject) => {
       this.turnResolve = resolve;
@@ -194,6 +213,7 @@ export class ClaudeProcess {
         if (err) {
           log.error(`claude-process: stdin write error: ${err.message}`);
           this.clearTurnTimeout();
+          this.clearSignalListener();
           this.turnResolve = null;
           this.turnReject = null;
           reject(new Error(`Failed to write to Claude stdin: ${err.message}`));
@@ -210,7 +230,10 @@ export class ClaudeProcess {
   /** Abort the current in-flight turn without killing the process. */
   abortTurn(): void {
     if (!this.turnReject) return;
+    this.staleResults++;
+    this.ensureStaleDrainTimer();
     this.clearTurnTimeout();
+    this.clearSignalListener();
     const reject = this.turnReject;
     this.turnResolve = null;
     this.turnReject = null;
@@ -227,6 +250,7 @@ export class ClaudeProcess {
 
   private completeTurn(): void {
     this.clearTurnTimeout();
+    this.clearSignalListener();
     if (this.turnResolve) {
       const resolve = this.turnResolve;
       this.turnResolve = null;
@@ -237,6 +261,36 @@ export class ClaudeProcess {
         sessionId: this.sessionId,
       });
     }
+  }
+
+  private clearSignalListener(): void {
+    if (this.turnSignal && this.turnSignalListener) {
+      this.turnSignal.removeEventListener("abort", this.turnSignalListener);
+    }
+    this.turnSignal = null;
+    this.turnSignalListener = null;
+  }
+
+  private clearStaleDrainTimer(): void {
+    if (this.staleDrainTimer) {
+      clearTimeout(this.staleDrainTimer);
+      this.staleDrainTimer = null;
+    }
+  }
+
+  private ensureStaleDrainTimer(): void {
+    if (this.staleDrainTimer) return;
+
+    const log = this.opts.logger;
+    this.staleDrainTimer = setTimeout(() => {
+      this.staleDrainTimer = null;
+      if (this.staleResults <= 0) return;
+      log.warn(
+        `claude-process: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`,
+      );
+      this.staleResults = 0;
+      void this.restart();
+    }, STALE_DRAIN_TIMEOUT_MS);
   }
 
   private processLine(line: string): void {
@@ -268,6 +322,29 @@ export class ClaudeProcess {
         log.warn(`claude-process: rate limit status=${status} info=${JSON.stringify(info)}`);
       }
       return;
+    }
+
+    // While draining stale results from an aborted turn, skip stream events
+    if (this.staleResults > 0) {
+      if (eventType === "stream_event" || eventType === "assistant" || eventType === "user") {
+        return;
+      }
+      if (eventType === "result") {
+        // Still track session ID and cost from the aborted turn
+        if (typeof event.session_id === "string") {
+          this.sessionId = event.session_id as string;
+        }
+        if (typeof event.total_cost_usd === "number") {
+          this.totalCostUsd += event.total_cost_usd as number;
+        }
+        this.staleResults--;
+        if (this.staleResults <= 0) {
+          this.staleResults = 0;
+          this.clearStaleDrainTimer();
+        }
+        log.info(`claude-process: discarded stale result (remaining=${this.staleResults})`);
+        return;
+      }
     }
 
     // Streaming text delta — Claude's prose (only thing we send to chat)
@@ -340,6 +417,8 @@ export class ClaudeProcess {
   async restart(): Promise<void> {
     this.opts.logger.info("claude-process: restarting...");
     await this.stop();
+    this.staleResults = 0;
+    this.clearStaleDrainTimer();
     this.start();
   }
 
@@ -355,6 +434,7 @@ export class ClaudeProcess {
       this.alive = false;
 
       this.clearTurnTimeout();
+      this.clearStaleDrainTimer();
       if (this.turnReject) {
         this.turnReject(new Error("Claude process stopped"));
         this.turnResolve = null;
@@ -378,7 +458,7 @@ export class ClaudeProcess {
   }
 
   getSessionId(): string {
-    return this.sessionId;
+    return this.sessionId || this.opts.resumeSessionId || "";
   }
 
   getTotalCost(): number {

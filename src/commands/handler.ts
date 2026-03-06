@@ -83,6 +83,18 @@ export class CommandHandler {
       case "provider":
         await this.handleProvider(arg, ctx);
         return { handled: true };
+      case "notes":
+        await this.handleNotes(arg, ctx);
+        return { handled: true };
+      case "note-add":
+        await this.handleNoteAdd(arg, ctx);
+        return { handled: true };
+      case "note-edit":
+        await this.handleNoteEdit(arg, ctx);
+        return { handled: true };
+      case "note-del":
+        await this.handleNoteDel(arg, ctx);
+        return { handled: true };
       default:
         return { handled: false };
     }
@@ -117,6 +129,13 @@ export class CommandHandler {
     if (this.hasProviderType("anthropic")) {
       skills.push({ id: "compact", name: "Compact", description: "壓縮對話上下文 (Anthropic only)" });
     }
+
+    skills.push(
+      { id: "notes", name: "Notes", description: "列出對話筆記" },
+      { id: "note-add", name: "Note Add", description: "新增筆記 (/note-add 標題 | 內容)" },
+      { id: "note-edit", name: "Note Edit", description: "編輯筆記 (/note-edit <id> 標題 | 內容)" },
+      { id: "note-del", name: "Note Del", description: "刪除筆記 (/note-del <id>)" },
+    );
 
     const ids = this.getConfiguredProviderIds().join(" / ");
     skills.push({ id: "provider", name: "Provider", description: `切換 provider (${ids})` });
@@ -157,10 +176,14 @@ export class CommandHandler {
   }
 
   private handleSessions(ctx: CommandContext): void {
+    const activeProvider = this.getProviderForConversation(ctx.conversationId);
+    const activeSession = activeProvider.getSessionInfo(ctx.conversationId);
+
     const allSessions: Array<{
       providerId: string;
       sessionId: string;
-      alive: boolean;
+      conversationId: string;
+      status: string;
       cwd: string;
       model?: string;
     }> = [];
@@ -178,10 +201,14 @@ export class CommandHandler {
 
     const lines = ["Sessions:\n"];
     for (const s of allSessions) {
-      const status = s.alive ? "🟢" : "⚪";
+      const isCurrent = s.providerId === activeProvider.id
+        && s.conversationId === ctx.conversationId
+        && !!activeSession
+        && s.sessionId === activeSession.sessionId;
+      const dot = isCurrent ? "🟢" : "⚪";
       const id = s.sessionId.slice(0, 12);
       const model = s.model ?? "default";
-      lines.push(`${status} [${s.providerId}] ${id}  ${model}  ${s.cwd}`);
+      lines.push(`${dot} [${s.providerId}] ${id}  ${s.status}  ${model}  ${s.cwd}`);
     }
     lines.push("\n用法: /resume <session-id>");
     this.reply(ctx, lines.join("\n"));
@@ -234,6 +261,13 @@ export class CommandHandler {
       lines.push("/compact — 壓縮對話上下文 (Anthropic only)");
     }
 
+    lines.push(
+      "/notes — 列出對話筆記",
+      "/note-add <標題> | <內容> — 新增筆記",
+      "/note-edit <id> <標題> | <內容> — 編輯筆記",
+      "/note-del <id> — 刪除筆記",
+    );
+
     const ids = this.getConfiguredProviderIds().join(" / ");
     lines.push(`/provider [name] — 切換 provider (${ids})`);
 
@@ -248,23 +282,60 @@ export class CommandHandler {
   }
 
   private async handleResume(arg: string, ctx: CommandContext): Promise<void> {
-    const provider = this.getProviderForConversation(ctx.conversationId);
-
     if (!arg) {
       this.reply(ctx, "請提供 session ID\n用法: /resume <session-id>");
       return;
     }
 
+    // Fuzzy-match across ALL providers
+    const needle = arg.toLowerCase();
+    const matches: Array<{ providerId: string; sessionId: string }> = [];
+
+    for (const provider of this.providers.values()) {
+      for (const s of provider.listSessions()) {
+        if (s.sessionId.toLowerCase().startsWith(needle)) {
+          matches.push({ providerId: provider.id, sessionId: s.sessionId });
+        }
+      }
+    }
+
+    let sessionId: string;
+    let targetProviderId: string;
+
+    if (matches.length === 1) {
+      sessionId = matches[0].sessionId;
+      targetProviderId = matches[0].providerId;
+    } else if (matches.length > 1) {
+      const list = matches.map((m) => `  [${m.providerId}] ${m.sessionId.slice(0, 12)}…`).join("\n");
+      this.reply(ctx, `多個 session 匹配 "${arg}":\n${list}\n請輸入更長的前綴`);
+      return;
+    } else {
+      this.reply(ctx, `找不到匹配 "${arg}" 的 session\n用 /sessions 查看可用的 session ID`);
+      return;
+    }
+
+    // Auto-switch provider if the matched session belongs to a different one
+    const currentProvider = this.getProviderForConversation(ctx.conversationId);
+    if (currentProvider.id !== targetProviderId) {
+      currentProvider.interrupt(ctx.conversationId);
+      this.providerOverrides.set(ctx.conversationId, targetProviderId);
+      this.modelOverrides.delete(ctx.conversationId);
+    }
+
+    const provider = this.providers.get(targetProviderId)!;
     const cwd = this.getCwdForConversation(ctx.conversationId);
     const model = this.getModelForConversation(ctx.conversationId);
 
-    const ok = await provider.resumeSession(ctx.conversationId, arg, { cwd, model });
+    const ok = await provider.resumeSession(ctx.conversationId, sessionId, { cwd, model });
     if (!ok) {
       this.reply(ctx, "恢復失敗\n用 /sessions 查看可用的 session ID");
       return;
     }
 
-    this.reply(ctx, `已恢復 session: ${arg.slice(0, 12)}`);
+    const switchNote = currentProvider.id !== targetProviderId
+      ? `\nProvider 已切換到 ${provider.displayName}`
+      : "";
+    this.reply(ctx, `已恢復 session: ${sessionId.slice(0, 12)}${switchNote}`);
   }
 
   private async handleModel(arg: string, ctx: CommandContext): Promise<void> {
@@ -278,8 +349,18 @@ export class CommandHandler {
       return;
     }
 
-    // Case-insensitive match, but use the original casing from supported list
-    const match = supported?.find((m) => m.toLowerCase() === arg.toLowerCase());
+    // Case-insensitive exact match, then substring match
+    const needle = arg.toLowerCase();
+    let match = supported?.find((m) => m.toLowerCase() === needle);
+    if (!match && supported) {
+      const fuzzy = supported.filter((m) => m.toLowerCase().includes(needle));
+      if (fuzzy.length === 1) {
+        match = fuzzy[0];
+      } else if (fuzzy.length > 1) {
+        this.reply(ctx, `多個模型匹配 "${arg}": ${fuzzy.join(" / ")}\n請輸入更精確的名稱`);
+        return;
+      }
+    }
     if (supported && !match) {
       this.reply(ctx, `不支援的模型: ${arg}\n可用: ${supported.join(" / ")}`);
       return;
@@ -358,6 +439,146 @@ export class CommandHandler {
 
     this.reply(ctx, lines.join("\n"));
   }
+
+  // --- Notes Commands ---
+
+  private async handleNotes(arg: string, ctx: CommandContext): Promise<void> {
+    if (!ctx.listNotes) {
+      this.reply(ctx, "Notes API 不可用");
+      return;
+    }
+
+    try {
+      const result = await ctx.listNotes({ limit: 20 });
+      if (result.notes.length === 0) {
+        this.reply(ctx, "目前沒有筆記\n用 /note-add <標題> | <內容> 來新增");
+        return;
+      }
+
+      const lines = ["筆記列表:\n"];
+      for (const note of result.notes) {
+        const id = note.id.slice(0, 8);
+        const creator = note.agentName ?? note.creatorName;
+        const preview = note.content
+          ? ` — ${note.content.slice(0, 60)}${note.content.length > 60 ? "…" : ""}`
+          : "";
+        lines.push(`\`${id}\` **${note.title}**${preview}  _(${creator})_`);
+      }
+
+      if (result.hasMore) {
+        lines.push(`\n還有更多筆記…`);
+      }
+
+      this.reply(ctx, lines.join("\n"));
+    } catch (err) {
+      this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async handleNoteAdd(arg: string, ctx: CommandContext): Promise<void> {
+    if (!ctx.createNote) {
+      this.reply(ctx, "Notes API 不可用");
+      return;
+    }
+
+    if (!arg) {
+      this.reply(ctx, "用法: /note-add <標題> | <內容>\n或: /note-add <標題>");
+      return;
+    }
+
+    const pipeIdx = arg.indexOf("|");
+    const title = pipeIdx === -1 ? arg.trim() : arg.slice(0, pipeIdx).trim();
+    const content = pipeIdx === -1 ? undefined : arg.slice(pipeIdx + 1).trim();
+
+    try {
+      const note = await ctx.createNote({ title, content });
+      this.reply(ctx, `已新增筆記: **${note.title}** (\`${note.id.slice(0, 8)}\`)`);
+    } catch (err) {
+      this.reply(ctx, `新增筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async handleNoteEdit(arg: string, ctx: CommandContext): Promise<void> {
+    if (!ctx.updateNote || !ctx.listNotes) {
+      this.reply(ctx, "Notes API 不可用");
+      return;
+    }
+
+    if (!arg) {
+      this.reply(ctx, "用法: /note-edit <id> <新標題> | <新內容>");
+      return;
+    }
+
+    const spaceIdx = arg.indexOf(" ");
+    if (spaceIdx === -1) {
+      this.reply(ctx, "用法: /note-edit <id> <新標題> | <新內容>");
+      return;
+    }
+
+    const idPrefix = arg.slice(0, spaceIdx).toLowerCase();
+    const rest = arg.slice(spaceIdx + 1).trim();
+
+    // Resolve note ID by prefix
+    const noteId = await this.resolveNoteId(idPrefix, ctx);
+    if (!noteId) return;
+
+    const pipeIdx = rest.indexOf("|");
+    const title = pipeIdx === -1 ? rest.trim() : rest.slice(0, pipeIdx).trim();
+    const content = pipeIdx === -1 ? undefined : rest.slice(pipeIdx + 1).trim();
+
+    const body: { title?: string; content?: string } = {};
+    if (title) body.title = title;
+    if (content !== undefined) body.content = content;
+
+    try {
+      const note = await ctx.updateNote(noteId, body);
+      this.reply(ctx, `已更新筆記: **${note.title}** (\`${note.id.slice(0, 8)}\`)`);
+    } catch (err) {
+      this.reply(ctx, `更新筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async handleNoteDel(arg: string, ctx: CommandContext): Promise<void> {
+    if (!ctx.deleteNote || !ctx.listNotes) {
+      this.reply(ctx, "Notes API 不可用");
+      return;
+    }
+
+    if (!arg) {
+      this.reply(ctx, "用法: /note-del <id>\n用 /notes 查看筆記列表");
+      return;
+    }
+
+    const noteId = await this.resolveNoteId(arg.trim().toLowerCase(), ctx);
+    if (!noteId) return;
+
+    try {
+      await ctx.deleteNote(noteId);
+      this.reply(ctx, `已刪除筆記 \`${noteId.slice(0, 8)}\``);
+    } catch (err) {
+      this.reply(ctx, `刪除筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async resolveNoteId(prefix: string, ctx: CommandContext): Promise<string | null> {
+    try {
+      const result = await ctx.listNotes!({ limit: 50 });
+      const matches = result.notes.filter((n) => n.id.toLowerCase().startsWith(prefix));
+      if (matches.length === 1) return matches[0].id;
+      if (matches.length > 1) {
+        const list = matches.map((n) => `  \`${n.id.slice(0, 8)}\` ${n.title}`).join("\n");
+        this.reply(ctx, `多個筆記匹配 "${prefix}":\n${list}\n請輸入更長的前綴`);
+        return null;
+      }
+      this.reply(ctx, `找不到匹配 "${prefix}" 的筆記\n用 /notes 查看筆記列表`);
+      return null;
+    } catch (err) {
+      this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
+  // --- Provider Command ---
 
   private async handleProvider(arg: string, ctx: CommandContext): Promise<void> {
     if (!arg) {

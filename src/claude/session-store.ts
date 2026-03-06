@@ -114,6 +114,9 @@ export class SessionStore {
     const cwd = dead?.cwd ?? existing?.cwd ?? this.config.defaultCwd;
     const model = dead?.model ?? existing?.model;
 
+    // Remove from dead sessions — it's being resumed as an active session
+    this.deadSessionIds.delete(sid);
+
     await this.destroySession(conversationId);
     return this.createSession(conversationId, {
       cwd,
@@ -126,6 +129,7 @@ export class SessionStore {
     conversationId: string;
     sessionId: string;
     alive: boolean;
+    status: "ready" | "busy" | "idle";
     cwd: string;
     model?: string;
     lastActivity: number;
@@ -135,6 +139,7 @@ export class SessionStore {
       conversationId: string;
       sessionId: string;
       alive: boolean;
+      status: "ready" | "busy" | "idle";
       cwd: string;
       model?: string;
       lastActivity: number;
@@ -144,10 +149,13 @@ export class SessionStore {
     for (const [convId, entry] of this.sessions) {
       const sid = entry.process.getSessionId();
       if (sid) {
+        const alive = entry.process.isAlive();
+        const busy = entry.process.isBusy();
         result.push({
           conversationId: convId,
           sessionId: sid,
-          alive: entry.process.isAlive(),
+          alive,
+          status: busy ? "busy" : alive ? "ready" : "idle",
           cwd: entry.cwd,
           model: entry.model,
           lastActivity: entry.lastActivity,
@@ -163,6 +171,7 @@ export class SessionStore {
           conversationId: "",
           sessionId: sid,
           alive: false,
+          status: "idle",
           cwd: info.cwd,
           model: info.model,
           lastActivity: 0,

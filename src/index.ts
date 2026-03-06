@@ -40,6 +40,16 @@ agent.onTask(async (ctx) => {
     sendComplete: ctx.sendComplete,
     sendError: ctx.sendError,
     uploadFile: ctx.uploadFile,
+    attachments: ctx.attachments,
+    conversationType: ctx.conversationType,
+    senderUserId: ctx.senderUserId,
+    senderUsername: ctx.senderUsername,
+    members: ctx.members,
+    fetchHistory: ctx.fetchHistory,
+    listNotes: (options) => agent.listNotes(conversationId, options),
+    createNote: (body) => agent.createNote(conversationId, body),
+    updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
+    deleteNote: (noteId) => agent.deleteNote(conversationId, noteId),
   });
   if (result.handled) return;
 
@@ -57,6 +67,14 @@ agent.onTask(async (ctx) => {
       onChunk: (text) => ctx.sendChunk(text),
       signal: ctx.signal,
       uploadFile: ctx.uploadFile,
+      attachments: ctx.attachments,
+      conversationType: ctx.conversationType,
+      senderUserId: ctx.senderUserId,
+      senderUsername: ctx.senderUsername,
+      members: ctx.members,
+      replyTo: ctx.replyTo,
+      history: ctx.history,
+      fetchHistory: ctx.fetchHistory,
     });
 
     ctx.sendComplete(sendResult.text);

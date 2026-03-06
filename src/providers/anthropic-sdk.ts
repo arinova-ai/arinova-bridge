@@ -7,6 +7,7 @@ import type {
   CostInfo,
   SessionListEntry,
 } from "./types.js";
+import { buildContextPrefix } from "../util/context.js";
 import type { Logger } from "../util/logger.js";
 
 export interface AnthropicSdkConfig {
@@ -54,7 +55,8 @@ export class AnthropicSdkProvider implements Provider {
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, content, cwd, model, onChunk } = opts;
+    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const content = buildContextPrefix(opts) + opts.content;
 
     // Lazy import to avoid requiring the SDK if not used
     const { query } = await import("@anthropic-ai/claude-code");
@@ -64,6 +66,10 @@ export class AnthropicSdkProvider implements Provider {
 
     const abortController = new AbortController();
     session.abortController = abortController;
+
+    // Propagate external abort signal to internal controller
+    const onAbort = () => abortController.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     const effectiveCwd = cwd ?? session.cwd;
     const effectiveModel = model ?? session.model ?? this.config.defaultModel;
@@ -119,6 +125,7 @@ export class AnthropicSdkProvider implements Provider {
 
       session.sessionId = newSessionId;
       session.abortController = null;
+      signal?.removeEventListener("abort", onAbort);
 
       return {
         text: resultText || "Done.",
@@ -126,6 +133,7 @@ export class AnthropicSdkProvider implements Provider {
       };
     } catch (err) {
       session.abortController = null;
+      signal?.removeEventListener("abort", onAbort);
       throw err;
     }
   }
@@ -186,6 +194,7 @@ export class AnthropicSdkProvider implements Provider {
         sessionId: session.sessionId,
         conversationId: convId,
         alive: true,
+        status: session.abortController ? "busy" : "ready",
         cwd: session.cwd,
         model: session.model,
         lastActivity: session.lastActivity,

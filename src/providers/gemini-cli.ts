@@ -18,6 +18,7 @@ import {
   waitForGeminiExit,
 } from "../gemini/process.js";
 import { processGeminiTurn } from "../gemini/events.js";
+import { buildContextPrefix } from "../util/context.js";
 import type { Logger } from "../util/logger.js";
 
 export interface GeminiCliConfig {
@@ -69,7 +70,8 @@ export class GeminiCliProvider implements Provider {
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, content, cwd, model, onChunk, signal } = opts;
+    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const content = buildContextPrefix(opts) + opts.content;
 
     const onAbort = () => this.interrupt(conversationId);
     signal?.addEventListener("abort", onAbort, { once: true });

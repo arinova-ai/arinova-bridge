@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
 
-export type ConversationStatus = "idle" | "running" | "done" | "error";
+export type ConversationStatus = "ready" | "busy" | "done" | "error";
 
 export interface Conversation {
   convId: string;
@@ -51,7 +51,7 @@ export function initDb(dbPath: string): BridgeDb {
       thread_id           TEXT,
       cwd                 TEXT,
       model               TEXT,
-      status              TEXT NOT NULL DEFAULT 'idle',
+      status              TEXT NOT NULL DEFAULT 'ready',
       input_tokens        INTEGER NOT NULL DEFAULT 0,
       cached_input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens       INTEGER NOT NULL DEFAULT 0,
@@ -84,7 +84,7 @@ export function initDb(dbPath: string): BridgeDb {
       WHERE conv_id = @convId
     `),
     getRunning: db.prepare(
-      "SELECT * FROM conversations WHERE status = 'running'",
+      "SELECT * FROM conversations WHERE status = 'busy'",
     ),
     getAll: db.prepare(
       "SELECT * FROM conversations WHERE thread_id IS NOT NULL",
@@ -93,7 +93,7 @@ export function initDb(dbPath: string): BridgeDb {
       UPDATE conversations SET
         thread_id = NULL,
         cwd = @cwd,
-        status = 'idle',
+        status = 'ready',
         input_tokens = 0,
         cached_input_tokens = 0,
         output_tokens = 0,
@@ -134,7 +134,7 @@ export function initDb(dbPath: string): BridgeDb {
         threadId: data.threadId ?? null,
         cwd: data.cwd ?? null,
         model: data.model ?? null,
-        status: data.status ?? "idle",
+        status: data.status ?? "ready",
         now: now(),
       });
     },

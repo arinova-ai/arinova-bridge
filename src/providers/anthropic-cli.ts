@@ -8,6 +8,7 @@ import type {
   SessionListEntry,
 } from "./types.js";
 import { SessionStore } from "../claude/session-store.js";
+import { buildContextPrefix } from "../util/context.js";
 import type { Logger } from "../util/logger.js";
 
 export interface AnthropicCliConfig {
@@ -54,19 +55,27 @@ export class AnthropicCliProvider implements Provider {
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, content, cwd, model, onChunk } = opts;
+    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const content = buildContextPrefix(opts) + opts.content;
 
     let entry = this.store.getSession(conversationId);
 
     if (entry && entry.process.isAlive()) {
+      // Abort any in-flight turn (e.g. cancel + immediate new message)
+      if (entry.process.isBusy()) {
+        entry.process.abortTurn();
+      }
       entry.lastActivity = Date.now();
     } else {
       entry = this.store.createSession(conversationId, { cwd, model });
     }
 
+    // Signal is managed inside ClaudeProcess — it clears the old listener
+    // before attaching the new one, preventing stale signals from aborting
+    // the wrong turn.
     const result = await entry.process.sendMessage(content, (text) => {
       onChunk(text);
-    });
+    }, signal);
 
     return {
       text: result.text,
@@ -127,6 +136,7 @@ export class AnthropicCliProvider implements Provider {
       sessionId: s.sessionId,
       conversationId: s.conversationId,
       alive: s.alive,
+      status: s.status,
       cwd: s.cwd,
       model: s.model,
       lastActivity: s.lastActivity,

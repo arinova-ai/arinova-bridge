@@ -7,6 +7,33 @@ export interface UploadResult {
   fileSize: number;
 }
 
+export interface TaskAttachment {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  url: string;
+}
+
+export interface ConversationMember {
+  agentId: string;
+  agentName: string;
+}
+
+export interface ReplyTo {
+  role: string;
+  content: string;
+  senderAgentName?: string;
+}
+
+export interface HistoryMessage {
+  role: string;
+  content: string;
+  senderAgentName?: string;
+  senderUsername?: string;
+  createdAt: string;
+}
+
 export interface SendMessageOpts {
   conversationId: string;
   content: string;
@@ -15,6 +42,52 @@ export interface SendMessageOpts {
   onChunk: (text: string) => void;
   signal?: AbortSignal;
   uploadFile?: (file: Uint8Array, fileName: string, fileType?: string) => Promise<UploadResult>;
+  attachments?: TaskAttachment[];
+  /** "direct" or "group" */
+  conversationType?: string;
+  /** User ID of the human who sent the message. */
+  senderUserId?: string;
+  /** Username of the human who sent the message. */
+  senderUsername?: string;
+  /** Other agents in the conversation (group only). */
+  members?: ConversationMember[];
+  /** The message being replied to. */
+  replyTo?: ReplyTo;
+  /** Recent conversation history (up to 5 messages before current). */
+  history?: HistoryMessage[];
+  /** Fetch full conversation history with pagination. */
+  fetchHistory?: (options?: FetchHistoryOptions) => Promise<FetchHistoryResult>;
+}
+
+export interface FetchHistoryOptions {
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
+}
+
+export interface FetchHistoryResult {
+  messages: FetchedMessage[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+export interface FetchedMessage {
+  id: string;
+  conversationId: string;
+  seq: number;
+  role: string;
+  content: string;
+  status: string;
+  senderAgentId?: string;
+  senderAgentName?: string;
+  senderUserId?: string;
+  senderUsername?: string;
+  replyToId?: string;
+  threadId?: string;
+  createdAt: string;
+  updatedAt: string;
+  attachments?: TaskAttachment[];
 }
 
 export interface SendResult {

@@ -18,6 +18,7 @@ import {
   waitForExit,
 } from "../codex/process.js";
 import { processTurn } from "../codex/events.js";
+import { buildContextPrefix } from "../util/context.js";
 import type { Logger } from "../util/logger.js";
 
 export interface OpenAICliConfig {
@@ -78,7 +79,11 @@ export class OpenAICliProvider implements Provider {
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, content, cwd, model, onChunk } = opts;
+    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const content = buildContextPrefix(opts) + opts.content;
+
+    const onAbort = () => this.interrupt(conversationId);
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     return new Promise<SendResult>((resolve, reject) => {
       this.queue.enqueue(conversationId, async () => {
@@ -93,6 +98,8 @@ export class OpenAICliProvider implements Provider {
           resolve(result);
         } catch (err) {
           reject(err);
+        } finally {
+          signal?.removeEventListener("abort", onAbort);
         }
       });
     });
@@ -111,7 +118,7 @@ export class OpenAICliProvider implements Provider {
       this.db.resetConversation(conversationId, opts?.cwd ?? null);
     } else {
       this.db.upsertConversation(conversationId, {
-        status: "idle",
+        status: "ready",
         cwd: opts?.cwd,
       });
     }
@@ -127,7 +134,7 @@ export class OpenAICliProvider implements Provider {
   ): Promise<boolean> {
     this.db.upsertConversation(conversationId, {
       threadId: sessionId,
-      status: "idle",
+      status: "ready",
     });
     return true;
   }
@@ -138,7 +145,7 @@ export class OpenAICliProvider implements Provider {
 
     return {
       sessionId: conv.threadId,
-      alive: conv.status === "running",
+      alive: conv.status === "busy",
       cwd: conv.cwd ?? this.defaultCwd,
       model: conv.model ?? undefined,
     };
@@ -157,14 +164,21 @@ export class OpenAICliProvider implements Provider {
 
   listSessions(): SessionListEntry[] {
     const all = this.db.getAllConversations();
-    return all.map((conv) => ({
-      providerId: this.id,
-      sessionId: conv.threadId ?? "",
-      conversationId: conv.convId,
-      alive: conv.status === "running",
-      cwd: conv.cwd ?? this.defaultCwd,
-      model: conv.model ?? undefined,
-    }));
+    return all.map((conv) => {
+      const hasThread = !!conv.threadId;
+      const status = conv.status === "error" ? "error" as const
+        : conv.status === "busy" ? "busy" as const
+        : "ready" as const;
+      return {
+        providerId: this.id,
+        sessionId: conv.threadId ?? "",
+        conversationId: conv.convId,
+        alive: hasThread && status !== "error",
+        status,
+        cwd: conv.cwd ?? this.defaultCwd,
+        model: conv.model ?? undefined,
+      };
+    });
   }
 
   supportedModels(): string[] {
@@ -190,7 +204,7 @@ export class OpenAICliProvider implements Provider {
     const effectiveCwd = cwd ?? conv?.cwd ?? this.defaultCwd;
     const effectiveModel = model ?? conv?.model ?? undefined;
 
-    this.db.upsertConversation(conversationId, { status: "running" });
+    this.db.upsertConversation(conversationId, { status: "busy" });
 
     const isResume = !isRetry && !!conv?.threadId;
     let codex;
@@ -263,7 +277,7 @@ export class OpenAICliProvider implements Provider {
           throw new Error(`Codex 執行失敗:\n${hint}`);
         }
       } else {
-        this.db.updateStatus(conversationId, "idle");
+        this.db.updateStatus(conversationId, "ready");
       }
 
       return {
@@ -313,6 +327,6 @@ export class OpenAICliProvider implements Provider {
     }
 
     await waitForExit(codex.child);
-    this.db.updateStatus(convId, "idle");
+    this.db.updateStatus(convId, "ready");
   }
 }
