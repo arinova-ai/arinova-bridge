@@ -34,6 +34,9 @@ export interface BridgeDb {
   getRunningConversations(): Conversation[];
   getAllConversations(): Conversation[];
   resetConversation(convId: string, cwd?: string | null): void;
+  // Rate limit cache
+  saveRateLimitCache(json: string): void;
+  loadRateLimitCache(): string | null;
 }
 
 export function initDb(dbPath: string): BridgeDb {
@@ -44,6 +47,14 @@ export function initDb(dbPath: string): BridgeDb {
 
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rate_limit_cache (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      data       TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -89,6 +100,11 @@ export function initDb(dbPath: string): BridgeDb {
     getAll: db.prepare(
       "SELECT * FROM conversations WHERE thread_id IS NOT NULL",
     ),
+    saveRateLimit: db.prepare(`
+      INSERT INTO rate_limit_cache (id, data, updated_at) VALUES (1, @data, @now)
+      ON CONFLICT(id) DO UPDATE SET data = @data, updated_at = @now
+    `),
+    loadRateLimit: db.prepare("SELECT data FROM rate_limit_cache WHERE id = 1"),
     reset: db.prepare(`
       UPDATE conversations SET
         thread_id = NULL,
@@ -167,6 +183,15 @@ export function initDb(dbPath: string): BridgeDb {
         cwd: cwd ?? null,
         now: now(),
       });
+    },
+
+    saveRateLimitCache(json: string) {
+      stmts.saveRateLimit.run({ data: json, now: now() });
+    },
+
+    loadRateLimitCache(): string | null {
+      const row = stmts.loadRateLimit.get() as { data: string } | undefined;
+      return row?.data ?? null;
     },
   };
 }
