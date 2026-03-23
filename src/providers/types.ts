@@ -115,6 +115,32 @@ export interface CostInfo {
   outputTokens?: number;
 }
 
+export interface RateLimitEntry {
+  status: string;
+  rateLimitType: string;
+  utilization?: number;
+  resetsAt?: number;
+  overageStatus?: string;
+  isUsingOverage?: boolean;
+}
+
+export interface UsageInfo {
+  context?: {
+    contextTokens: number;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+  };
+  rateLimits?: RateLimitEntry[];
+  window?: {
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    turns: number;
+    resetsAt: number;
+  };
+  totalCostUsd?: number;
+}
+
 export interface SessionListEntry {
   providerId: ProviderId;
   sessionId: string;
@@ -141,6 +167,7 @@ export interface Provider {
   ): Promise<boolean>;
   getSessionInfo(conversationId: string): SessionInfo | null;
   getCostInfo(conversationId: string): CostInfo | null;
+  getUsageInfo(conversationId: string): UsageInfo | null;
   listSessions(): SessionListEntry[];
   supportedModels(): string[] | null;
   shutdown(): Promise<void>;

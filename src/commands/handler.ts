@@ -80,6 +80,9 @@ export class CommandHandler {
       case "cost":
         this.handleCost(ctx);
         return { handled: true };
+      case "usage":
+        this.handleUsage(ctx);
+        return { handled: true };
       case "provider":
         await this.handleProvider(arg, ctx);
         return { handled: true };
@@ -123,6 +126,7 @@ export class CommandHandler {
       { id: "resume", name: "Resume", description: "恢復 session (可帶 ID: /resume <id>)" },
       { id: "model", name: "Model", description: "切換模型" },
       { id: "cost", name: "Cost", description: "顯示累計花費 / token 用量" },
+      { id: "usage", name: "Usage", description: "顯示 context 用量與 rate limit 狀態" },
     ];
 
     // Add /compact only if an Anthropic-type provider is configured
@@ -255,6 +259,7 @@ export class CommandHandler {
       "/resume [id] — 恢復 session",
       "/model [name] — 切換模型",
       "/cost — 顯示累計花費 / token 用量",
+      "/usage — 顯示 context 用量與 rate limit 狀態",
     ];
 
     if (this.hasProviderType("anthropic")) {
@@ -407,6 +412,94 @@ export class CommandHandler {
     }
 
     this.reply(ctx, "已壓縮對話上下文");
+  }
+
+  private handleUsage(ctx: CommandContext): void {
+    const provider = this.getProviderForConversation(ctx.conversationId);
+    const usage = provider.getUsageInfo(ctx.conversationId);
+
+    if (!usage) {
+      // Fallback: show cost info if available
+      const cost = provider.getCostInfo(ctx.conversationId);
+      if (cost?.totalCostUsd !== undefined) {
+        this.reply(ctx, `此 provider 不支援詳細用量資訊\n累計花費: $${cost.totalCostUsd.toFixed(4)}`);
+      } else {
+        this.reply(ctx, "目前無使用資料（需先發送訊息）");
+      }
+      return;
+    }
+
+    const lines: string[] = [];
+
+    // Context usage
+    if (usage.context) {
+      const used = usage.context.contextTokens;
+      const window = usage.context.contextWindow;
+      if (window) {
+        const pct = ((used / window) * 100).toFixed(1);
+        lines.push(`Context: ${this.fmtTokens(used)} / ${this.fmtTokens(window)} (${pct}%)`);
+      } else {
+        lines.push(`Context: ${this.fmtTokens(used)}`);
+      }
+      if (usage.context.maxOutputTokens) {
+        lines.push(`Max output: ${this.fmtTokens(usage.context.maxOutputTokens)}`);
+      }
+    } else {
+      lines.push("Context: 尚無資料（需先發送訊息）");
+    }
+
+    // Rate limits
+    const typeLabels: Record<string, string> = { five_hour: "5H Limit", seven_day: "7D Limit" };
+    if (usage.rateLimits?.length) {
+      for (const rl of usage.rateLimits) {
+        lines.push("");
+        const label = typeLabels[rl.rateLimitType] ?? rl.rateLimitType;
+        const statusIcon = rl.status === "allowed" ? "🟢" : rl.status === "allowed_warning" ? "🟡" : "🔴";
+        const pct = rl.utilization !== undefined ? ` ${(rl.utilization * 100).toFixed(0)}% used` : "";
+        lines.push(`${statusIcon} ${label}${pct}`);
+        if (rl.resetsAt) {
+          lines.push(`  重置: ${this.fmtResetTime(rl.resetsAt)}`);
+        }
+        // Show bridge-local window stats for five_hour
+        if (rl.rateLimitType === "five_hour" && usage.window) {
+          const w = usage.window;
+          lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
+        }
+        if (rl.overageStatus) {
+          const overageIcon = rl.overageStatus === "allowed" ? "🟢" : "🔴";
+          lines.push(`  Overage: ${overageIcon} ${rl.overageStatus}${rl.isUsingOverage ? " (使用中)" : ""}`);
+        }
+      }
+    } else if (usage.window) {
+      lines.push("");
+      lines.push("Rate limit: 尚無資料");
+      const w = usage.window;
+      lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
+    }
+
+    // Total cost
+    if (usage.totalCostUsd !== undefined && usage.totalCostUsd > 0) {
+      lines.push("");
+      lines.push(`Session 累計: $${usage.totalCostUsd.toFixed(4)}`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private fmtTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+    return String(n);
+  }
+
+  private fmtResetTime(epochSec: number): string {
+    const now = Math.floor(Date.now() / 1000);
+    const diff = epochSec - now;
+    if (diff <= 0) return "已重置";
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m 後`;
+    return `${m}m 後`;
   }
 
   private handleCost(ctx: CommandContext): void {

@@ -13,6 +13,31 @@ export type ClaudeProcessOptions = {
   logger: Logger;
 };
 
+export type RateLimitInfo = {
+  status: string;
+  resetsAt?: number;
+  rateLimitType?: string;
+  overageStatus?: string;
+  overageResetsAt?: number;
+  isUsingOverage?: boolean;
+  /** 0-1 utilization from Anthropic API headers (may be absent at low usage) */
+  utilization?: number;
+};
+
+export type WindowUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  turns: number;
+  resetsAt: number;
+};
+
+export type ContextUsage = {
+  contextTokens: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+};
+
 export type SendMessageResult = {
   text: string;
   sessionId: string;
@@ -36,6 +61,29 @@ export class ClaudeProcess {
   private alive = false;
   private totalCostUsd = 0;
   private stderrBuf: string[] = [];
+
+  // Latest snapshot (persisted across turns for /usage)
+  private rateLimits = new Map<string, RateLimitInfo>();
+  private lastContext: ContextUsage | undefined;
+
+  // 5H window usage tracking
+  private windowResetsAt = 0;
+  private windowInputTokens = 0;
+  private windowOutputTokens = 0;
+  private windowCostUsd = 0;
+  private windowTurns = 0;
+
+  // Per-turn usage accumulators
+  private turnInputTokens = 0;
+  private turnOutputTokens = 0;
+  private turnCacheRead = 0;
+  private turnCacheCreation = 0;
+  private turnCostUsd: number | undefined;
+  private turnNumTurns: number | undefined;
+  private turnContextTokens = 0;
+  private turnContextWindow: number | undefined;
+  private turnMaxOutputTokens: number | undefined;
+  private turnRateLimits = new Map<string, RateLimitInfo>();
 
   // Per-turn state
   private turnResolve: ((result: SendMessageResult) => void) | null = null;
@@ -182,6 +230,16 @@ export class ClaudeProcess {
 
     this.turnProseText = "";
     this.turnOnText = onText ?? null;
+    this.turnInputTokens = 0;
+    this.turnOutputTokens = 0;
+    this.turnCacheRead = 0;
+    this.turnCacheCreation = 0;
+    this.turnCostUsd = undefined;
+    this.turnNumTurns = undefined;
+    this.turnContextTokens = 0;
+    this.turnContextWindow = undefined;
+    this.turnMaxOutputTokens = undefined;
+    this.turnRateLimits.clear();
 
     // Attach signal listener for this turn
     if (signal) {
@@ -251,6 +309,36 @@ export class ClaudeProcess {
   private completeTurn(): void {
     this.clearTurnTimeout();
     this.clearSignalListener();
+
+    // Persist rate limit snapshots
+    for (const [type, rl] of this.turnRateLimits) {
+      this.rateLimits.set(type, { ...rl });
+      if (type === "five_hour") {
+        const newResetsAt = rl.resetsAt ?? 0;
+        if (newResetsAt !== this.windowResetsAt) {
+          this.windowResetsAt = newResetsAt;
+          this.windowInputTokens = 0;
+          this.windowOutputTokens = 0;
+          this.windowCostUsd = 0;
+          this.windowTurns = 0;
+        }
+      }
+    }
+    // Accumulate window usage
+    this.windowInputTokens += this.turnInputTokens + this.turnCacheRead + this.turnCacheCreation;
+    this.windowOutputTokens += this.turnOutputTokens;
+    if (this.turnCostUsd !== undefined) this.windowCostUsd += this.turnCostUsd;
+    this.windowTurns += this.turnNumTurns ?? 1;
+
+    // Persist context snapshot
+    if (this.turnContextTokens > 0) {
+      this.lastContext = {
+        contextTokens: this.turnContextTokens,
+        contextWindow: this.turnContextWindow,
+        maxOutputTokens: this.turnMaxOutputTokens,
+      };
+    }
+
     if (this.turnResolve) {
       const resolve = this.turnResolve;
       this.turnResolve = null;
@@ -317,9 +405,21 @@ export class ClaudeProcess {
 
     if (eventType === "rate_limit_event") {
       const info = event.rate_limit_info as Record<string, unknown> | undefined;
-      const status = String(info?.status ?? "unknown");
-      if (status !== "allowed") {
-        log.warn(`claude-process: rate limit status=${status} info=${JSON.stringify(info)}`);
+      if (info) {
+        const rlType = typeof info.rateLimitType === "string" ? info.rateLimitType : "unknown";
+        const rl: RateLimitInfo = {
+          status: String(info.status ?? "unknown"),
+          resetsAt: typeof info.resetsAt === "number" ? info.resetsAt : undefined,
+          rateLimitType: rlType,
+          overageStatus: typeof info.overageStatus === "string" ? info.overageStatus : undefined,
+          overageResetsAt: typeof info.overageResetsAt === "number" ? info.overageResetsAt : undefined,
+          isUsingOverage: typeof info.isUsingOverage === "boolean" ? info.isUsingOverage : undefined,
+          utilization: typeof info.utilization === "number" ? info.utilization : undefined,
+        };
+        this.turnRateLimits.set(rlType, rl);
+        if (rl.status !== "allowed") {
+          log.warn(`claude-process: rate limit ${rlType} status=${rl.status} info=${JSON.stringify(info)}`);
+        }
       }
       return;
     }
@@ -358,6 +458,23 @@ export class ClaudeProcess {
           this.turnOnText?.(text);
         }
       }
+      // message_start carries input token counts
+      if (inner?.type === "message_start") {
+        const msgUsage = (inner.message as Record<string, unknown>)?.usage as Record<string, number> | undefined;
+        if (msgUsage) {
+          if (msgUsage.input_tokens) this.turnInputTokens += msgUsage.input_tokens;
+          if (msgUsage.cache_read_input_tokens) this.turnCacheRead += msgUsage.cache_read_input_tokens;
+          if (msgUsage.cache_creation_input_tokens) this.turnCacheCreation += msgUsage.cache_creation_input_tokens;
+          // Track latest input as context size (last message_start = most recent context)
+          const totalInput = (msgUsage.input_tokens ?? 0) + (msgUsage.cache_read_input_tokens ?? 0) + (msgUsage.cache_creation_input_tokens ?? 0);
+          if (totalInput > 0) this.turnContextTokens = totalInput;
+        }
+      }
+      // message_delta carries output token counts
+      if (inner?.type === "message_delta") {
+        const deltaUsage = (inner as Record<string, unknown>).usage as Record<string, number> | undefined;
+        if (deltaUsage?.output_tokens) this.turnOutputTokens += deltaUsage.output_tokens;
+      }
       return;
     }
 
@@ -374,6 +491,19 @@ export class ClaudeProcess {
 
       if (typeof event.total_cost_usd === "number") {
         this.totalCostUsd += event.total_cost_usd as number;
+        this.turnCostUsd = event.total_cost_usd as number;
+      }
+      if (typeof event.num_turns === "number") {
+        this.turnNumTurns = event.num_turns as number;
+      }
+
+      // Extract contextWindow/maxOutputTokens from modelUsage
+      const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
+      if (modelUsage) {
+        for (const info of Object.values(modelUsage)) {
+          if (typeof info.contextWindow === "number") this.turnContextWindow = info.contextWindow;
+          if (typeof info.maxOutputTokens === "number") this.turnMaxOutputTokens = info.maxOutputTokens;
+        }
       }
 
       const costUsd = typeof event.total_cost_usd === "number"
@@ -471,5 +601,24 @@ export class ClaudeProcess {
 
   getModel(): string | undefined {
     return this.opts.model;
+  }
+
+  getRateLimits(): Map<string, RateLimitInfo> {
+    return this.rateLimits;
+  }
+
+  getContext(): ContextUsage | undefined {
+    return this.lastContext;
+  }
+
+  getWindowUsage(): WindowUsage | undefined {
+    if (this.windowResetsAt === 0 && this.windowTurns === 0) return undefined;
+    return {
+      inputTokens: this.windowInputTokens,
+      outputTokens: this.windowOutputTokens,
+      costUsd: this.windowCostUsd,
+      turns: this.windowTurns,
+      resetsAt: this.windowResetsAt,
+    };
   }
 }

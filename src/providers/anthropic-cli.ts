@@ -5,6 +5,7 @@ import type {
   SessionOpts,
   SessionInfo,
   CostInfo,
+  UsageInfo,
   SessionListEntry,
 } from "./types.js";
 import { SessionStore } from "../claude/session-store.js";
@@ -128,6 +129,39 @@ export class AnthropicCliProvider implements Provider {
     return {
       totalCostUsd: entry.process.getTotalCost(),
     };
+  }
+
+  getUsageInfo(conversationId: string): UsageInfo | null {
+    const entry = this.store.getSession(conversationId);
+    if (!entry || !entry.process.isAlive()) return null;
+
+    const result: UsageInfo = {};
+
+    const ctx = entry.process.getContext();
+    if (ctx) result.context = { ...ctx };
+
+    const rlMap = entry.process.getRateLimits();
+    if (rlMap.size > 0) {
+      result.rateLimits = [];
+      for (const rl of rlMap.values()) {
+        result.rateLimits.push({
+          status: rl.status,
+          rateLimitType: rl.rateLimitType ?? "unknown",
+          utilization: rl.utilization,
+          resetsAt: rl.resetsAt,
+          overageStatus: rl.overageStatus,
+          isUsingOverage: rl.isUsingOverage,
+        });
+      }
+    }
+
+    const win = entry.process.getWindowUsage();
+    if (win) result.window = { ...win };
+
+    const cost = entry.process.getTotalCost();
+    if (cost > 0) result.totalCostUsd = cost;
+
+    return result;
   }
 
   listSessions(): SessionListEntry[] {

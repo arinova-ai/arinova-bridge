@@ -186,6 +186,10 @@ export class AnthropicSdkProvider implements Provider {
     };
   }
 
+  getUsageInfo(_conversationId: string): null {
+    return null;
+  }
+
   listSessions(): SessionListEntry[] {
     const result: SessionListEntry[] = [];
     for (const [convId, session] of this.sessions) {

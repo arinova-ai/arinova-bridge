@@ -153,6 +153,10 @@ export class GeminiCliProvider implements Provider {
     };
   }
 
+  getUsageInfo(_conversationId: string): null {
+    return null;
+  }
+
   listSessions(): SessionListEntry[] {
     const all = this.db.getAllConversations();
     return all.map((conv) => {
