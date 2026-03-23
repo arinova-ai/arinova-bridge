@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import type { Provider } from "../providers/types.js";
@@ -448,20 +448,52 @@ export class CommandHandler {
       lines.push("Context: 尚無資料（需先發送訊息）");
     }
 
-    // Rate limits
+    // Rate limits — merge provider data with status line file fallback
     const typeLabels: Record<string, string> = { five_hour: "5H Limit", seven_day: "7D Limit" };
+    const statusFile = this.readStatusFile();
+
+    // Build merged rate limit entries
+    const rlEntries: Array<{ type: string; utilization?: number; resetsAt?: number; status: string; overageStatus?: string; isUsingOverage?: boolean }> = [];
     if (usage.rateLimits?.length) {
       for (const rl of usage.rateLimits) {
+        const sfKey = rl.rateLimitType;
+        const sf = statusFile?.[sfKey] as { used_percentage?: number; resets_at?: number } | undefined;
+        rlEntries.push({
+          type: rl.rateLimitType,
+          utilization: rl.utilization ?? (typeof sf?.used_percentage === "number" ? sf.used_percentage / 100 : undefined),
+          resetsAt: rl.resetsAt ?? sf?.resets_at,
+          status: rl.status,
+          overageStatus: rl.overageStatus,
+          isUsingOverage: rl.isUsingOverage,
+        });
+      }
+    }
+    // Add types only in status file (not in provider data)
+    for (const type of ["five_hour", "seven_day"]) {
+      if (!rlEntries.some((e) => e.type === type)) {
+        const sf = statusFile?.[type] as { used_percentage?: number; resets_at?: number } | undefined;
+        if (sf?.used_percentage !== undefined) {
+          rlEntries.push({
+            type,
+            utilization: sf.used_percentage / 100,
+            resetsAt: sf.resets_at,
+            status: "allowed",
+          });
+        }
+      }
+    }
+
+    if (rlEntries.length > 0) {
+      for (const rl of rlEntries) {
         lines.push("");
-        const label = typeLabels[rl.rateLimitType] ?? rl.rateLimitType;
+        const label = typeLabels[rl.type] ?? rl.type;
         const statusIcon = rl.status === "allowed" ? "🟢" : rl.status === "allowed_warning" ? "🟡" : "🔴";
         const pct = rl.utilization !== undefined ? ` ${(rl.utilization * 100).toFixed(0)}% used` : "";
         lines.push(`${statusIcon} ${label}${pct}`);
         if (rl.resetsAt) {
           lines.push(`  重置: ${this.fmtResetTime(rl.resetsAt)}`);
         }
-        // Show bridge-local window stats for five_hour
-        if (rl.rateLimitType === "five_hour" && usage.window) {
+        if (rl.type === "five_hour" && usage.window) {
           const w = usage.window;
           lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
         }
@@ -484,6 +516,17 @@ export class CommandHandler {
     }
 
     this.reply(ctx, lines.join("\n"));
+  }
+
+  /** Read account-level rate limit data from Claude Code status line cache. */
+  private readStatusFile(): Record<string, unknown> | null {
+    try {
+      const raw = readFileSync("/tmp/claude-status.json", "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      return (data.rate_limits ?? null) as Record<string, unknown> | null;
+    } catch {
+      return null;
+    }
   }
 
   private fmtTokens(n: number): string {
