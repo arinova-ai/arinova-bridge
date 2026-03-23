@@ -6,6 +6,7 @@ import type {
   SessionOpts,
   SessionInfo,
   CostInfo,
+  UsageInfo,
   SessionListEntry,
 } from "./types.js";
 import { initDb, type BridgeDb } from "../codex/db.js";
@@ -162,8 +163,25 @@ export class OpenAICliProvider implements Provider {
     };
   }
 
-  getUsageInfo(_conversationId: string): null {
-    return null;
+  getUsageInfo(conversationId: string): UsageInfo | null {
+    const conv = this.db.getConversation(conversationId);
+    if (!conv) return null;
+
+    const totalTokens = conv.inputTokens + conv.outputTokens;
+    if (totalTokens === 0) return null;
+
+    return {
+      context: {
+        contextTokens: conv.inputTokens + conv.cachedInputTokens,
+      },
+      window: {
+        inputTokens: conv.inputTokens + conv.cachedInputTokens,
+        outputTokens: conv.outputTokens,
+        costUsd: 0,
+        turns: 0,
+        resetsAt: 0,
+      },
+    };
   }
 
   listSessions(): SessionListEntry[] {
