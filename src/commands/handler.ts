@@ -417,22 +417,12 @@ export class CommandHandler {
   private handleUsage(ctx: CommandContext): void {
     const provider = this.getProviderForConversation(ctx.conversationId);
     const usage = provider.getUsageInfo(ctx.conversationId);
-
-    if (!usage) {
-      // Fallback: show cost info if available
-      const cost = provider.getCostInfo(ctx.conversationId);
-      if (cost?.totalCostUsd !== undefined) {
-        this.reply(ctx, `此 provider 不支援詳細用量資訊\n累計花費: $${cost.totalCostUsd.toFixed(4)}`);
-      } else {
-        this.reply(ctx, "目前無使用資料（需先發送訊息）");
-      }
-      return;
-    }
+    const statusFile = this.readStatusFile();
 
     const lines: string[] = [];
 
-    // Context usage
-    if (usage.context) {
+    // Context usage — prefer provider data, fallback to status file
+    if (usage?.context) {
       const used = usage.context.contextTokens;
       const window = usage.context.contextWindow;
       if (window) {
@@ -444,20 +434,22 @@ export class CommandHandler {
       if (usage.context.maxOutputTokens) {
         lines.push(`Max output: ${this.fmtTokens(usage.context.maxOutputTokens)}`);
       }
-    } else {
-      lines.push("Context: 尚無資料（需先發送訊息）");
+    } else if (statusFile?.context_window) {
+      const cw = (statusFile as Record<string, unknown>).context_window as { used_percentage?: number; context_window_size?: number; remaining_percentage?: number };
+      if (cw.used_percentage !== undefined && cw.context_window_size) {
+        lines.push(`Context: ${cw.used_percentage}% of ${this.fmtTokens(cw.context_window_size)}`);
+      }
     }
 
     // Rate limits — merge provider data with status line file fallback
     const typeLabels: Record<string, string> = { five_hour: "5H Limit", seven_day: "7D Limit" };
-    const statusFile = this.readStatusFile();
+    const sfRateLimits = statusFile?.rate_limits as Record<string, unknown> | undefined;
 
     // Build merged rate limit entries
     const rlEntries: Array<{ type: string; utilization?: number; resetsAt?: number; status: string; overageStatus?: string; isUsingOverage?: boolean }> = [];
-    if (usage.rateLimits?.length) {
+    if (usage?.rateLimits?.length) {
       for (const rl of usage.rateLimits) {
-        const sfKey = rl.rateLimitType;
-        const sf = statusFile?.[sfKey] as { used_percentage?: number; resets_at?: number } | undefined;
+        const sf = sfRateLimits?.[rl.rateLimitType] as { used_percentage?: number; resets_at?: number } | undefined;
         rlEntries.push({
           type: rl.rateLimitType,
           utilization: rl.utilization ?? (typeof sf?.used_percentage === "number" ? sf.used_percentage / 100 : undefined),
@@ -471,7 +463,7 @@ export class CommandHandler {
     // Add types only in status file (not in provider data)
     for (const type of ["five_hour", "seven_day"]) {
       if (!rlEntries.some((e) => e.type === type)) {
-        const sf = statusFile?.[type] as { used_percentage?: number; resets_at?: number } | undefined;
+        const sf = sfRateLimits?.[type] as { used_percentage?: number; resets_at?: number } | undefined;
         if (sf?.used_percentage !== undefined) {
           rlEntries.push({
             type,
@@ -493,7 +485,7 @@ export class CommandHandler {
         if (rl.resetsAt) {
           lines.push(`  重置: ${this.fmtResetTime(rl.resetsAt)}`);
         }
-        if (rl.type === "five_hour" && usage.window) {
+        if (rl.type === "five_hour" && usage?.window) {
           const w = usage.window;
           lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
         }
@@ -502,28 +494,28 @@ export class CommandHandler {
           lines.push(`  Overage: ${overageIcon} ${rl.overageStatus}${rl.isUsingOverage ? " (使用中)" : ""}`);
         }
       }
-    } else if (usage.window) {
-      lines.push("");
-      lines.push("Rate limit: 尚無資料");
-      const w = usage.window;
-      lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
     }
 
     // Total cost
-    if (usage.totalCostUsd !== undefined && usage.totalCostUsd > 0) {
+    const totalCost = usage?.totalCostUsd ?? (statusFile?.cost as { total_cost_usd?: number })?.total_cost_usd;
+    if (totalCost !== undefined && totalCost > 0) {
       lines.push("");
-      lines.push(`Session 累計: $${usage.totalCostUsd.toFixed(4)}`);
+      lines.push(`Session 累計: $${totalCost.toFixed(4)}`);
+    }
+
+    if (lines.length === 0) {
+      this.reply(ctx, "目前無使用資料");
+      return;
     }
 
     this.reply(ctx, lines.join("\n"));
   }
 
-  /** Read account-level rate limit data from Claude Code status line cache. */
+  /** Read Claude Code status line cache (rate limits, context window, cost). */
   private readStatusFile(): Record<string, unknown> | null {
     try {
       const raw = readFileSync("/tmp/claude-status.json", "utf-8");
-      const data = JSON.parse(raw) as Record<string, unknown>;
-      return (data.rate_limits ?? null) as Record<string, unknown> | null;
+      return JSON.parse(raw) as Record<string, unknown>;
     } catch {
       return null;
     }
