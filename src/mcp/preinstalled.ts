@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import type { Logger } from "../util/logger.js";
 
 /**
@@ -32,6 +33,15 @@ const PREINSTALLED_SERVERS: Record<string, McpStdioServer> = {
   },
 };
 
+/**
+ * GitHub MCP server — only included when GITHUB_TOKEN is available.
+ */
+const GITHUB_MCP_SERVER: McpStdioServer = {
+  command: "npx",
+  args: ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+  env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" }, // placeholder, filled at runtime
+};
+
 /** Directory where generated MCP config files are stored. */
 const MCP_CONFIG_DIR = path.join(homedir(), ".arinova-bridge", "mcp");
 
@@ -39,12 +49,30 @@ const MCP_CONFIG_DIR = path.join(homedir(), ".arinova-bridge", "mcp");
 const MCP_CLI_CONFIG_PATH = path.join(MCP_CONFIG_DIR, "preinstalled.json");
 
 /**
+ * Build the full server map including conditional servers (e.g. GitHub).
+ */
+function buildServerMap(): Record<string, McpStdioServer> {
+  const servers: Record<string, McpStdioServer> = { ...PREINSTALLED_SERVERS };
+
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+  if (githubToken) {
+    servers.github = {
+      ...GITHUB_MCP_SERVER,
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: githubToken },
+    };
+  }
+
+  return servers;
+}
+
+/**
  * Get the pre-installed MCP servers as SDK-compatible config.
  * Used by anthropic-sdk provider to pass mcpServers to query().
  */
 export function getPreinstalledMcpServers(): McpSdkServers {
+  const servers = buildServerMap();
   const result: McpSdkServers = {};
-  for (const [name, server] of Object.entries(PREINSTALLED_SERVERS)) {
+  for (const [name, server] of Object.entries(servers)) {
     result[name] = {
       type: "stdio",
       command: server.command,
@@ -70,7 +98,7 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
 
     const config: McpCliConfig = {
-      mcpServers: PREINSTALLED_SERVERS,
+      mcpServers: buildServerMap(),
     };
 
     const desired = JSON.stringify(config, null, 2);
@@ -87,5 +115,67 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
   } catch (err) {
     logger.error(`mcp: failed to generate CLI config: ${err}`);
     return undefined;
+  }
+}
+
+/**
+ * Pre-install MCP servers for Codex CLI using `codex mcp add`.
+ * Idempotent — re-adding an existing server just overwrites it.
+ */
+export function ensureCodexMcpServers(codexPath: string, logger: Logger): void {
+  const servers = buildServerMap();
+
+  for (const [name, server] of Object.entries(servers)) {
+    try {
+      // codex mcp add <name> [--env KEY=VALUE ...] -- <command> [args...]
+      const args = ["mcp", "add", name];
+
+      // --env flags must come before --
+      if (server.env) {
+        for (const [key, value] of Object.entries(server.env)) {
+          args.push("--env", `${key}=${value}`);
+        }
+      }
+
+      args.push("--", server.command, ...server.args);
+
+      execFileSync(codexPath, args, { timeout: 15_000, stdio: "pipe" });
+      logger.info(`mcp: codex mcp add ${name} — ok`);
+    } catch (err) {
+      logger.error(`mcp: codex mcp add ${name} failed: ${err}`);
+    }
+  }
+}
+
+/**
+ * Pre-install MCP servers for Gemini CLI using `gemini mcp add`.
+ * Idempotent — re-adding an existing server just overwrites it.
+ */
+export function ensureGeminiMcpServers(geminiPath: string, logger: Logger): void {
+  const servers = buildServerMap();
+
+  for (const [name, server] of Object.entries(servers)) {
+    try {
+      // gemini mcp add <name> <command> [args...] --scope user --trust
+      const args = [
+        "mcp", "add", name,
+        server.command,
+        ...server.args,
+        "--scope", "user",
+        "--trust",
+      ];
+
+      // Add env vars
+      if (server.env) {
+        for (const [key, value] of Object.entries(server.env)) {
+          args.push("-e", `${key}=${value}`);
+        }
+      }
+
+      execFileSync(geminiPath, args, { timeout: 15_000, stdio: "pipe" });
+      logger.info(`mcp: gemini mcp add ${name} — ok`);
+    } catch (err) {
+      logger.error(`mcp: gemini mcp add ${name} failed: ${err}`);
+    }
   }
 }

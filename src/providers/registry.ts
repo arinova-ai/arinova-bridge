@@ -8,7 +8,7 @@ import { OpenAICliProvider } from "./openai-cli.js";
 import { GeminiCliProvider } from "./gemini-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
-import { ensureCliMcpConfig, getPreinstalledMcpServers } from "../mcp/preinstalled.js";
+import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, ensureGeminiMcpServers } from "../mcp/preinstalled.js";
 
 /** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
 const DEFAULT_ANTHROPIC_MODELS = [
@@ -162,7 +162,9 @@ async function createProvider(
         logger,
       );
 
-    case "openai-cli":
+    case "openai-cli": {
+      const codexPath = entry.codexPath ?? "codex";
+      ensureCodexMcpServers(codexPath, logger);
       return new OpenAICliProvider(
         {
           providerId: entry.id,
@@ -176,8 +178,11 @@ async function createProvider(
         },
         logger,
       );
+    }
 
-    case "gemini-cli":
+    case "gemini-cli": {
+      const geminiPath = entry.geminiPath ?? "gemini";
+      ensureGeminiMcpServers(geminiPath, logger);
       return new GeminiCliProvider(
         {
           providerId: entry.id,
@@ -198,6 +203,7 @@ async function createProvider(
         },
         logger,
       );
+    }
 
     default:
       logger.error(`registry: unknown provider type "${entry.type}" for ${entry.id}`);
