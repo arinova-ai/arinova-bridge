@@ -33,6 +33,7 @@ export interface ConfigFile {
     maxSessions?: number;
     idleTimeoutMs?: number;
     dbPath?: string;
+    mcpConfigPath?: string;
   };
 }
 

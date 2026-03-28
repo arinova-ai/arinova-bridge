@@ -8,6 +8,7 @@ import { OpenAICliProvider } from "./openai-cli.js";
 import { GeminiCliProvider } from "./gemini-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
+import { ensureCliMcpConfig, getPreinstalledMcpServers } from "../mcp/preinstalled.js";
 
 /** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
 const DEFAULT_ANTHROPIC_MODELS = [
@@ -131,7 +132,7 @@ async function createProvider(
           providerId: entry.id,
           displayName: entry.displayName,
           claudePath: entry.claudePath ?? "claude",
-          mcpConfigPath: config.defaults.mcpConfigPath,
+          mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger),
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
@@ -155,7 +156,7 @@ async function createProvider(
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
-          mcpConfigPath: config.defaults.mcpConfigPath,
+          mcpServers: getPreinstalledMcpServers(),
           models: entry.models,
         },
         logger,

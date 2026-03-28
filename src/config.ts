@@ -66,7 +66,9 @@ export function loadConfig(): BridgeConfig {
     path.join(homedir(), ".arinova-bridge", "bridge.db");
 
   const mcpConfigPath =
-    process.env.MCP_CONFIG_PATH ?? undefined;
+    process.env.MCP_CONFIG_PATH ??
+    file?.defaults?.mcpConfigPath ??
+    undefined;
 
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];

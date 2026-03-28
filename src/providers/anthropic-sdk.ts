@@ -18,7 +18,7 @@ export interface AnthropicSdkConfig {
   defaultCwd: string;
   maxSessions: number;
   idleTimeoutMs: number;
-  mcpConfigPath?: string;
+  mcpServers?: Record<string, { type: "stdio"; command: string; args: string[]; env?: Record<string, string> }>;
   models?: string[];
 }
 
@@ -88,6 +88,7 @@ export class AnthropicSdkProvider implements Provider {
             ANTHROPIC_API_KEY: this.config.apiKey,
           },
           resume: session.sessionId.startsWith("sdk-") ? undefined : session.sessionId,
+          ...(this.config.mcpServers ? { mcpServers: this.config.mcpServers } : {}),
         },
       });
 

@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 const logger = createLogger("bridge");
 const config = loadConfig();
 
-logger.info(`Loaded config: defaultProvider=${config.defaultProvider}`);
+logger.info(`Loaded config: defaultProvider=${config.defaultProvider} mcpConfigPath=${config.defaults.mcpConfigPath ?? "(none, will auto-generate)"}`);
 
 const providers = await createProviders(config, logger);
 
