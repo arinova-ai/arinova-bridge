@@ -4,6 +4,9 @@ import { createProviders } from "./providers/registry.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
+import { HudMonitor } from "./claude/hud-monitor.js";
+import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
+import { readFileSync } from "node:fs";
 
 const logger = createLogger("bridge");
 const config = loadConfig();
@@ -23,6 +26,15 @@ const commandHandler = new CommandHandler(providers, config);
 
 // Start background OAuth token refresh
 const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
+
+// Start HUD monitor for statusLine-based rate limit tracking
+const hudMonitor = new HudMonitor({ logger });
+hudMonitor.start();
+
+// Start HUD WebSocket for pushing context/rate-limit data to arinova-chat
+const hudWsUrl = config.arinova.serverUrl + "/api/v1/hud";
+const hudWs = new HudWebSocket(hudWsUrl, config.arinova.botToken, logger);
+hudWs.connect();
 
 const agent = new ArinovaAgent({
   serverUrl: config.arinova.serverUrl,
@@ -59,6 +71,9 @@ agent.onTask(async (ctx) => {
     const cwd = commandHandler.getCwdForConversation(conversationId);
     const model = commandHandler.getModelForConversation(conversationId);
 
+    // Push task started
+    hudWs.sendTask(config.arinova.agentName, { status: "started", task: content.slice(0, 200) });
+
     const sendResult = await provider.sendMessage({
       conversationId,
       content,
@@ -78,6 +93,41 @@ agent.onTask(async (ctx) => {
     });
 
     ctx.sendComplete(sendResult.text);
+
+    // Snapshot context, model, cost before async work
+    const hudUsage = provider.getUsageInfo(conversationId);
+    const hudSessionModel = provider.getSessionInfo(conversationId)?.model ?? model ?? "";
+    const hudCost = provider.getCostInfo(conversationId);
+
+    // Push task completed
+    hudWs.sendTask(config.arinova.agentName, {
+      status: "completed",
+      costUsd: hudCost?.totalCostUsd,
+    });
+
+    // HUD push: fire-and-forget (don't block next message)
+    (async () => {
+      await hudMonitor.notify();
+      const hudData: HudData = {};
+
+      if (hudUsage?.context) {
+        const total = hudUsage.context.contextWindow ?? 0;
+        hudData.context = {
+          used: hudUsage.context.contextTokens,
+          total,
+          percent: total ? Math.round((hudUsage.context.contextTokens / total) * 100) : 0,
+        };
+      }
+
+      try {
+        const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
+        if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
+        if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
+      } catch { /* status file unavailable */ }
+
+      hudData.model = formatModelName(hudSessionModel);
+      hudWs.send(conversationId, hudData);
+    })().catch((err) => logger.warn(`hud-ws: push failed — ${err}`));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // User-initiated cancel (via SDK signal) or superseded by a new message
@@ -105,6 +155,8 @@ agent.on("error", (err) => {
 // Graceful shutdown
 async function shutdown() {
   logger.info("Shutting down...");
+  hudWs.close();
+  hudMonitor.stop();
   stopRefreshTimer();
   const shutdowns = Array.from(providers.values()).map((p) => p.shutdown());
   await Promise.allSettled(shutdowns);

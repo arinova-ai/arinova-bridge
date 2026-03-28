@@ -65,6 +65,7 @@ export class ClaudeProcess {
   // Latest snapshot (persisted across turns for /usage)
   private rateLimits = new Map<string, RateLimitInfo>();
   private lastContext: ContextUsage | undefined;
+  private resolvedModel: string | undefined;
 
   // 5H window usage tracking
   private windowResetsAt = 0;
@@ -500,8 +501,13 @@ export class ClaudeProcess {
       // Extract contextWindow/maxOutputTokens from modelUsage
       const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
       if (modelUsage) {
-        for (const info of Object.values(modelUsage)) {
-          if (typeof info.contextWindow === "number") this.turnContextWindow = info.contextWindow;
+        for (const [modelId, info] of Object.entries(modelUsage)) {
+          // Only use the largest contextWindow (primary model, not sub-agent models like haiku)
+          const cw = typeof info.contextWindow === "number" ? info.contextWindow : 0;
+          if (cw > (this.turnContextWindow ?? 0)) {
+            this.turnContextWindow = cw;
+            this.resolvedModel = modelId;
+          }
           if (typeof info.maxOutputTokens === "number") this.turnMaxOutputTokens = info.maxOutputTokens;
         }
       }
@@ -600,7 +606,7 @@ export class ClaudeProcess {
   }
 
   getModel(): string | undefined {
-    return this.opts.model;
+    return this.resolvedModel ?? this.opts.model;
   }
 
   getRateLimits(): Map<string, RateLimitInfo> {
@@ -621,4 +627,5 @@ export class ClaudeProcess {
       resetsAt: this.windowResetsAt,
     };
   }
+
 }

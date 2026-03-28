@@ -80,7 +80,7 @@ export class CommandHandler {
       case "cost":
         this.handleCost(ctx);
         return { handled: true };
-      case "hud":
+      case "hud-for-usage":
         this.handleUsage(ctx);
         return { handled: true };
       case "provider":
@@ -126,7 +126,7 @@ export class CommandHandler {
       { id: "resume", name: "Resume", description: "恢復 session (可帶 ID: /resume <id>)" },
       { id: "model", name: "Model", description: "切換模型" },
       { id: "cost", name: "Cost", description: "顯示累計花費 / token 用量" },
-      { id: "hud", name: "HUD", description: "顯示 context 用量與 rate limit 狀態" },
+      { id: "hud-for-usage", name: "HUD", description: "顯示 context 用量與 rate limit 狀態" },
     ];
 
     // Add /compact only if an Anthropic-type provider is configured
@@ -259,7 +259,7 @@ export class CommandHandler {
       "/resume [id] — 恢復 session",
       "/model [name] — 切換模型",
       "/cost — 顯示累計花費 / token 用量",
-      "/hud — 顯示 context 用量與 rate limit 狀態",
+      "/hud-for-usage — 顯示 context 用量與 rate limit 狀態",
     ];
 
     if (this.hasProviderType("anthropic")) {
@@ -415,100 +415,35 @@ export class CommandHandler {
   }
 
   private handleUsage(ctx: CommandContext): void {
+    const out: Record<string, unknown> = {};
+
+    // Context: from live session (per-session)
     const provider = this.getProviderForConversation(ctx.conversationId);
     const usage = provider.getUsageInfo(ctx.conversationId);
-    const statusFile = this.readStatusFile();
-
-    const lines: string[] = [];
-
-    // Context usage — prefer provider data, fallback to status file
     if (usage?.context) {
-      const used = usage.context.contextTokens;
-      const window = usage.context.contextWindow;
-      if (window) {
-        const pct = ((used / window) * 100).toFixed(1);
-        lines.push(`Context: ${this.fmtTokens(used)} / ${this.fmtTokens(window)} (${pct}%)`);
-      } else {
-        lines.push(`Context: ${this.fmtTokens(used)}`);
-      }
-      if (usage.context.maxOutputTokens) {
-        lines.push(`Max output: ${this.fmtTokens(usage.context.maxOutputTokens)}`);
-      }
-    } else if (statusFile?.context_window) {
-      const cw = (statusFile as Record<string, unknown>).context_window as { used_percentage?: number; context_window_size?: number; remaining_percentage?: number };
-      if (cw.used_percentage !== undefined && cw.context_window_size) {
-        lines.push(`Context: ${cw.used_percentage}% of ${this.fmtTokens(cw.context_window_size)}`);
-      }
+      const total = usage.context.contextWindow ?? 0;
+      const pct = total ? Math.round((usage.context.contextTokens / total) * 100) : 0;
+      out.context = { used: pct, total, percent: pct };
     }
 
-    // Rate limits — merge provider data with status line file fallback
-    const typeLabels: Record<string, string> = { five_hour: "5H Limit", seven_day: "7D Limit" };
-    const sfRateLimits = statusFile?.rate_limits as Record<string, unknown> | undefined;
+    // Rate limits: from status file (account-level, kept fresh by HUD monitor)
+    const statusFile = this.readStatusFile() as {
+      limit5h?: { percent?: number; resetIn?: string };
+      limit7d?: { percent?: number; resetIn?: string };
+      model?: string;
+      cost?: number;
+    } | null;
+    if (statusFile?.limit5h) out.limit5h = statusFile.limit5h;
+    if (statusFile?.limit7d) out.limit7d = statusFile.limit7d;
+    if (statusFile?.model) out.model = statusFile.model;
+    if (statusFile?.cost !== undefined && statusFile.cost > 0) out.cost = statusFile.cost;
 
-    // Build merged rate limit entries
-    const rlEntries: Array<{ type: string; utilization?: number; resetsAt?: number; status: string; overageStatus?: string; isUsingOverage?: boolean }> = [];
-    if (usage?.rateLimits?.length) {
-      for (const rl of usage.rateLimits) {
-        const sf = sfRateLimits?.[rl.rateLimitType] as { used_percentage?: number; resets_at?: number } | undefined;
-        rlEntries.push({
-          type: rl.rateLimitType,
-          utilization: rl.utilization ?? (typeof sf?.used_percentage === "number" ? sf.used_percentage / 100 : undefined),
-          resetsAt: rl.resetsAt ?? sf?.resets_at,
-          status: rl.status,
-          overageStatus: rl.overageStatus,
-          isUsingOverage: rl.isUsingOverage,
-        });
-      }
-    }
-    // Add types only in status file (not in provider data)
-    for (const type of ["five_hour", "seven_day"]) {
-      if (!rlEntries.some((e) => e.type === type)) {
-        const sf = sfRateLimits?.[type] as { used_percentage?: number; resets_at?: number } | undefined;
-        if (sf?.used_percentage !== undefined) {
-          rlEntries.push({
-            type,
-            utilization: sf.used_percentage / 100,
-            resetsAt: sf.resets_at,
-            status: "allowed",
-          });
-        }
-      }
-    }
-
-    if (rlEntries.length > 0) {
-      for (const rl of rlEntries) {
-        lines.push("");
-        const label = typeLabels[rl.type] ?? rl.type;
-        const statusIcon = rl.status === "allowed" ? "🟢" : rl.status === "allowed_warning" ? "🟡" : "🔴";
-        const pct = rl.utilization !== undefined ? ` ${(rl.utilization * 100).toFixed(0)}% used` : "";
-        lines.push(`${statusIcon} ${label}${pct}`);
-        if (rl.resetsAt) {
-          lines.push(`  重置: ${this.fmtResetTime(rl.resetsAt)}`);
-        }
-        if (rl.type === "five_hour" && usage?.window) {
-          const w = usage.window;
-          lines.push(`  本 session: Input ${this.fmtTokens(w.inputTokens)} / Output ${this.fmtTokens(w.outputTokens)} / $${w.costUsd.toFixed(4)} / ${w.turns} turns`);
-        }
-        if (rl.overageStatus) {
-          const overageIcon = rl.overageStatus === "allowed" ? "🟢" : "🔴";
-          lines.push(`  Overage: ${overageIcon} ${rl.overageStatus}${rl.isUsingOverage ? " (使用中)" : ""}`);
-        }
-      }
-    }
-
-    // Total cost
-    const totalCost = usage?.totalCostUsd ?? (statusFile?.cost as { total_cost_usd?: number })?.total_cost_usd;
-    if (totalCost !== undefined && totalCost > 0) {
-      lines.push("");
-      lines.push(`Session 累計: $${totalCost.toFixed(4)}`);
-    }
-
-    if (lines.length === 0) {
+    if (Object.keys(out).length === 0) {
       this.reply(ctx, "目前無使用資料");
       return;
     }
 
-    this.reply(ctx, lines.join("\n"));
+    this.reply(ctx, JSON.stringify(out));
   }
 
   /** Read Claude Code status line cache (rate limits, context window, cost). */
@@ -519,22 +454,6 @@ export class CommandHandler {
     } catch {
       return null;
     }
-  }
-
-  private fmtTokens(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-    return String(n);
-  }
-
-  private fmtResetTime(epochSec: number): string {
-    const now = Math.floor(Date.now() / 1000);
-    const diff = epochSec - now;
-    if (diff <= 0) return "已重置";
-    const h = Math.floor(diff / 3600);
-    const m = Math.floor((diff % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m 後`;
-    return `${m}m 後`;
   }
 
   private handleCost(ctx: CommandContext): void {

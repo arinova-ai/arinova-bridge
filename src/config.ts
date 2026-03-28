@@ -6,6 +6,7 @@ export interface BridgeConfig {
   arinova: {
     serverUrl: string;
     botToken: string;
+    agentName: string;
   };
   defaultProvider: string;
   providers: ProviderEntry[];
@@ -35,6 +36,11 @@ export function loadConfig(): BridgeConfig {
     "";
 
   if (!botToken) throw new Error("ARINOVA_BOT_TOKEN is required (env or config file)");
+
+  const agentName =
+    process.env.ARINOVA_AGENT_NAME ??
+    file?.arinova?.agentName ??
+    "default";
 
   const defaultProvider =
     process.env.DEFAULT_PROVIDER ??
@@ -66,7 +72,7 @@ export function loadConfig(): BridgeConfig {
   const providers: ProviderEntry[] = file?.providers ?? [];
 
   return {
-    arinova: { serverUrl, botToken },
+    arinova: { serverUrl, botToken, agentName },
     defaultProvider,
     providers,
     defaults: {

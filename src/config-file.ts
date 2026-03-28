@@ -24,6 +24,7 @@ export interface ConfigFile {
   arinova: {
     serverUrl?: string;
     botToken: string;
+    agentName?: string;
   };
   defaultProvider: string;
   providers: ProviderEntry[];
