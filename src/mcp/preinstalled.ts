@@ -33,15 +33,6 @@ const PREINSTALLED_SERVERS: Record<string, McpStdioServer> = {
   },
 };
 
-/**
- * GitHub MCP server — only included when GITHUB_TOKEN is available.
- */
-const GITHUB_MCP_SERVER: McpStdioServer = {
-  command: "npx",
-  args: ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
-  env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" }, // placeholder, filled at runtime
-};
-
 /** Directory where generated MCP config files are stored. */
 const MCP_CONFIG_DIR = path.join(homedir(), ".arinova-bridge", "mcp");
 
@@ -57,7 +48,8 @@ function buildServerMap(): Record<string, McpStdioServer> {
   const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
   if (githubToken) {
     servers.github = {
-      ...GITHUB_MCP_SERVER,
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
       env: { GITHUB_PERSONAL_ACCESS_TOKEN: githubToken },
     };
   }
