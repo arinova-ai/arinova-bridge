@@ -10,21 +10,66 @@ const PID_FILE = path.join(homedir(), ".arinova-bridge", "bridge.pid");
 function showHelp(): void {
   console.log(`
 arinova-bridge v${VERSION}
+Multi-provider bridge between Arinova Chat and AI coding assistants.
 
-Usage: arinova-bridge <command>
+INSTALL
+  npm install -g @arinova-ai/arinova-bridge
 
-Commands:
-  start    Start the bridge server
-  stop     Stop the running bridge server
-  config   Show current configuration
-  setup    Interactive setup wizard
+QUICK START
+  arinova-bridge setup          # Interactive config wizard
+  arinova-bridge start          # Start the bridge server
+
+COMMANDS
+  start    Start the bridge server (writes PID to ~/.arinova-bridge/bridge.pid)
+  stop     Stop the running bridge server (sends SIGTERM via PID file)
+  config   Show current configuration (secrets masked)
+  setup    Interactive setup wizard (providers, bot token, statusLine)
   help     Show this help message
 
-Examples:
-  arinova-bridge start
-  arinova-bridge setup
-  arinova-bridge config
-  arinova-bridge stop
+CONFIG FILE
+  ~/.arinova-bridge/config.json
+
+  {
+    "version": 2,
+    "arinova": {
+      "serverUrl": "wss://api.chat.arinova.ai",
+      "botToken": "ari_...",
+      "agentName": "default"
+    },
+    "defaultProvider": "anthropic-oauth",
+    "providers": [
+      { "id": "anthropic-oauth", "type": "anthropic-cli", "displayName": "...", "enabled": true }
+    ],
+    "defaults": {
+      "cwd": "~/projects",
+      "maxSessions": 5,
+      "idleTimeoutMs": 600000,
+      "mcpConfigPath": null
+    }
+  }
+
+MULTI-AGENT MODE
+  Add an "agents" array to config.json. Each agent connects with its own
+  bot token and can use a different provider:
+
+  "agents": [
+    { "name": "lucy",  "botToken": "ari_...", "provider": "anthropic-oauth" },
+    { "name": "pan",   "botToken": "ari_...", "provider": "anthropic-oauth", "cwd": "~/projects" },
+    { "name": "codex", "botToken": "ari_...", "provider": "openai-oauth",   "model": "o3" }
+  ]
+
+  Without "agents", the bridge runs in single-agent mode using arinova.botToken.
+
+ENVIRONMENT VARIABLES
+  ARINOVA_SERVER_URL    Override WebSocket server URL
+  ARINOVA_BOT_TOKEN     Override bot token (single-agent mode)
+  ARINOVA_AGENT_NAME    Override agent name (single-agent mode)
+  DEFAULT_PROVIDER      Override default provider ID
+  DEFAULT_CWD           Override default working directory
+  MAX_SESSIONS          Override max concurrent sessions per provider
+  MCP_CONFIG_PATH       Override MCP config file path
+  DB_PATH               Override SQLite database path
+  GITHUB_TOKEN          Enable GitHub MCP server (auto-detected)
 `.trim());
 }
 
