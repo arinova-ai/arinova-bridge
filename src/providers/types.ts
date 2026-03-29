@@ -93,6 +93,8 @@ export interface FetchedMessage {
 export interface SendResult {
   text: string;
   sessionId?: string;
+  durationMs?: number;
+  numTurns?: number;
 }
 
 export interface SessionOpts {

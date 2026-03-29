@@ -41,6 +41,8 @@ export type ContextUsage = {
 export type SendMessageResult = {
   text: string;
   sessionId: string;
+  durationMs?: number;
+  numTurns?: number;
 };
 
 const DEFAULT_CLAUDE_PATH = "claude";
@@ -81,6 +83,7 @@ export class ClaudeProcess {
   private turnCacheCreation = 0;
   private turnCostUsd: number | undefined;
   private turnNumTurns: number | undefined;
+  private turnDurationMs: number | undefined;
   private turnContextTokens = 0;
   private turnContextWindow: number | undefined;
   private turnMaxOutputTokens: number | undefined;
@@ -237,6 +240,7 @@ export class ClaudeProcess {
     this.turnCacheCreation = 0;
     this.turnCostUsd = undefined;
     this.turnNumTurns = undefined;
+    this.turnDurationMs = undefined;
     this.turnContextTokens = 0;
     this.turnContextWindow = undefined;
     this.turnMaxOutputTokens = undefined;
@@ -348,6 +352,8 @@ export class ClaudeProcess {
       resolve({
         text: this.turnProseText,
         sessionId: this.sessionId,
+        durationMs: this.turnDurationMs,
+        numTurns: this.turnNumTurns,
       });
     }
   }
@@ -496,6 +502,9 @@ export class ClaudeProcess {
       }
       if (typeof event.num_turns === "number") {
         this.turnNumTurns = event.num_turns as number;
+      }
+      if (typeof event.duration_ms === "number") {
+        this.turnDurationMs = event.duration_ms as number;
       }
 
       // Extract contextWindow/maxOutputTokens from modelUsage

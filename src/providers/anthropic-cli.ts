@@ -81,6 +81,8 @@ export class AnthropicCliProvider implements Provider {
     return {
       text: result.text,
       sessionId: result.sessionId,
+      durationMs: result.durationMs,
+      numTurns: result.numTurns,
     };
   }
 

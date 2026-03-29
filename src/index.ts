@@ -103,6 +103,8 @@ agent.onTask(async (ctx) => {
     hudWs.sendTask(config.arinova.agentName, {
       status: "completed",
       costUsd: hudCost?.totalCostUsd,
+      durationMs: sendResult.durationMs,
+      numTurns: sendResult.numTurns,
     });
 
     // HUD push: fire-and-forget (don't block next message)
