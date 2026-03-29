@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
