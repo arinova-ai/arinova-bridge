@@ -279,7 +279,56 @@ async function runSetup(): Promise<boolean> {
 }
 
 const CLAUDE_SETTINGS_PATH = path.join(homedir(), ".claude", "settings.json");
-const STATUS_LINE_CMD = "tee /tmp/claude-status.json";
+const STATUSLINE_SCRIPT_PATH = path.join(homedir(), ".arinova-bridge", "statusline.sh");
+const STATUSLINE_CONFIG = {
+  type: "command",
+  command: "~/.arinova-bridge/statusline.sh",
+};
+
+/* eslint-disable no-useless-escape */
+const STATUSLINE_SCRIPT = [
+  "#!/bin/bash",
+  "INPUT=$(cat)",
+  'echo "$INPUT" | /usr/bin/python3 -c "',
+  "import sys, json, time",
+  "d = json.load(sys.stdin)",
+  "def fmt_reset(epoch):",
+  "  if not epoch: return None",
+  "  diff = int(epoch - time.time())",
+  "  if diff <= 0: return 'reset'",
+  "  days = diff // 86400; hours = (diff % 86400) // 3600; mins = (diff % 3600) // 60",
+  "  parts = []",
+  "  if days: parts.append(f'{days}d')",
+  "  if hours: parts.append(f'{hours}h')",
+  "  parts.append(f'{mins}m')",
+  "  return ' '.join(parts)",
+  "cw = d.get('context_window', {})",
+  "ctx_pct = cw.get('used_percentage')",
+  "rl = d.get('rate_limits', {})",
+  "fh = rl.get('five_hour', {})",
+  "sd = rl.get('seven_day', {})",
+  "model = d.get('model', {})",
+  "cost = d.get('cost', {})",
+  "out = {",
+  "  'context': {'used': ctx_pct if ctx_pct is not None else 0, 'total': cw.get('context_window_size', 0), 'percent': ctx_pct if ctx_pct is not None else 0},",
+  "  'limit5h': {'percent': round(fh.get('used_percentage', 0)), 'resetIn': fmt_reset(fh.get('resets_at'))},",
+  "  'limit7d': {'percent': round(sd.get('used_percentage', 0)), 'resetIn': fmt_reset(sd.get('resets_at'))},",
+  "  'model': model.get('display_name', ''),",
+  "  'cost': round(cost.get('total_cost_usd', 0), 4),",
+  "}",
+  "for k in ('limit5h', 'limit7d'):",
+  "  if out[k]['resetIn'] is None: del out[k]['resetIn']",
+  "json.dump(out, sys.stdout)",
+  '" > /tmp/claude-status.json 2>/dev/null',
+  'cat /tmp/claude-status.json | /usr/bin/python3 -c "',
+  "import sys, json",
+  "d = json.load(sys.stdin)",
+  "ctx = d.get('context',{}).get('percent','?')",
+  "r5 = d.get('limit5h',{}).get('percent','?')",
+  "cost = d.get('cost',0)",
+  "print(f'ctx:{ctx}% | 5h:{r5}% | \\${cost:.3f}')",
+  '" 2>/dev/null',
+].join("\n") + "\n";
 
 async function setupClaudeStatusLine(): Promise<void> {
   console.log("\n── Rate Limit Monitoring ──────────────");
@@ -290,21 +339,33 @@ async function setupClaudeStatusLine(): Promise<void> {
   });
   if (!enableHud) return;
 
-  // Read existing settings
+  // Step 1: Create statusline.sh script
+  const scriptDir = path.dirname(STATUSLINE_SCRIPT_PATH);
+  if (!fs.existsSync(scriptDir)) {
+    fs.mkdirSync(scriptDir, { recursive: true });
+  }
+  fs.writeFileSync(STATUSLINE_SCRIPT_PATH, STATUSLINE_SCRIPT, { mode: 0o755 });
+  console.log(`  ✓ 建立 ${STATUSLINE_SCRIPT_PATH}`);
+
+  // Step 2: Read existing Claude settings
   let settings: Record<string, unknown> = {};
   if (fs.existsSync(CLAUDE_SETTINGS_PATH)) {
     try {
       settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_PATH, "utf-8"));
     } catch {
       console.log("  ⚠ 無法解析現有 settings.json，請手動加入：");
-      console.log(`    "statusLine": "${STATUS_LINE_CMD}"`);
+      console.log(`    "statusLine": ${JSON.stringify(STATUSLINE_CONFIG)}`);
       return;
     }
   }
 
-  // Check existing statusLine
-  if (settings.statusLine && settings.statusLine !== STATUS_LINE_CMD) {
-    console.log(`  現有 statusLine: ${settings.statusLine}`);
+  // Step 3: Check existing statusLine
+  const existing = settings.statusLine;
+  const isOurs = existing && typeof existing === "object" &&
+    (existing as Record<string, unknown>).command === STATUSLINE_CONFIG.command;
+
+  if (existing && !isOurs) {
+    console.log(`  現有 statusLine: ${JSON.stringify(existing)}`);
     const overwrite = await confirm({
       message: "覆寫現有 statusLine 設定？",
       default: false,
@@ -315,15 +376,15 @@ async function setupClaudeStatusLine(): Promise<void> {
     }
   }
 
-  // Merge and write
-  settings.statusLine = STATUS_LINE_CMD;
+  // Step 4: Merge and write
+  settings.statusLine = STATUSLINE_CONFIG;
 
   const dir = path.dirname(CLAUDE_SETTINGS_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-  console.log(`\n✓ Claude statusLine 已設定（${CLAUDE_SETTINGS_PATH}）`);
+  console.log(`  ✓ Claude statusLine 已設定（${CLAUDE_SETTINGS_PATH}）`);
   console.log("  Rate limit 資料將寫入 /tmp/claude-status.json");
 }
 
