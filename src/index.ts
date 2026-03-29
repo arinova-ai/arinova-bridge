@@ -34,12 +34,14 @@ const hudWsUrl = config.arinova.serverUrl + "/api/v1/hud";
 // Track all agents for shutdown
 const activeAgents: Array<{ agent: ArinovaAgent; name: string; hudWs: HudWebSocket }> = [];
 
-// Start each agent
-for (const agentConfig of config.agents) {
-  try {
-    await startAgent(agentConfig);
-  } catch (err) {
-    logger.error(`Failed to start agent "${agentConfig.name}": ${err}`);
+// Start all agents in parallel
+const startResults = await Promise.allSettled(
+  config.agents.map((agentConfig) => startAgent(agentConfig)),
+);
+for (let i = 0; i < startResults.length; i++) {
+  const result = startResults[i];
+  if (result.status === "rejected") {
+    logger.error(`Failed to start agent "${config.agents[i].name}": ${result.reason}`);
   }
 }
 
@@ -81,10 +83,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
+    // Prefix conversationId with agent name to isolate sessions across agents
+    const sessionId = `${agentName}:${conversationId}`;
 
     // Try command handling first
     const result = await commandHandler.handle(content, {
-      conversationId,
+      conversationId: sessionId,
       sendChunk: ctx.sendChunk,
       sendComplete: ctx.sendComplete,
       sendError: ctx.sendError,
@@ -95,6 +99,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       senderUsername: ctx.senderUsername,
       members: ctx.members,
       fetchHistory: ctx.fetchHistory,
+      // Arinova API calls use original conversationId (not session-scoped)
       listNotes: (options) => agent.listNotes(conversationId, options),
       createNote: (body) => agent.createNote(conversationId, body),
       updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
@@ -104,14 +109,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
     // General message — route to the appropriate provider
     try {
-      const msgProvider = commandHandler.getProviderForConversation(conversationId);
-      const cwd = commandHandler.getCwdForConversation(conversationId);
-      const model = commandHandler.getModelForConversation(conversationId) ?? agentCfg.model;
+      const msgProvider = commandHandler.getProviderForConversation(sessionId);
+      const cwd = commandHandler.getCwdForConversation(sessionId);
+      const model = commandHandler.getModelForConversation(sessionId) ?? agentCfg.model;
 
       hudWs.sendTask(agentName, { status: "started", task: content.slice(0, 200) });
 
       const sendResult = await msgProvider.sendMessage({
-        conversationId,
+        conversationId: sessionId,
         content,
         cwd,
         model,
@@ -130,9 +135,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       ctx.sendComplete(sendResult.text);
 
-      const hudUsage = msgProvider.getUsageInfo(conversationId);
-      const hudSessionModel = msgProvider.getSessionInfo(conversationId)?.model ?? model ?? "";
-      const hudCost = msgProvider.getCostInfo(conversationId);
+      const hudUsage = msgProvider.getUsageInfo(sessionId);
+      const hudSessionModel = msgProvider.getSessionInfo(sessionId)?.model ?? model ?? "";
+      const hudCost = msgProvider.getCostInfo(sessionId);
 
       hudWs.sendTask(agentName, {
         status: "completed",
