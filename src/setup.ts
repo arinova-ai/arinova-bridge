@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { homedir } from "node:os";
 import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
 import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile, type ProviderEntry } from "./config-file.js";
@@ -265,11 +266,64 @@ async function runSetup(): Promise<boolean> {
 
   writeConfigFile(config);
   console.log(`\n✓ Saved to ${getConfigPath()}`);
+
+  // Step 9: Claude statusLine setup for rate limit monitoring
+  const hasAnthropicCli = providers.some((p) => p.type === "anthropic-cli");
+  if (hasAnthropicCli) {
+    await setupClaudeStatusLine();
+  }
+
   console.log("\nYou can now start the bridge with:");
-  console.log("  npm start");
-  console.log("  # or");
-  console.log("  npx arinova-bridge");
+  console.log("  arinova-bridge start");
   return true;
+}
+
+const CLAUDE_SETTINGS_PATH = path.join(homedir(), ".claude", "settings.json");
+const STATUS_LINE_CMD = "tee /tmp/claude-status.json";
+
+async function setupClaudeStatusLine(): Promise<void> {
+  console.log("\n── Rate Limit Monitoring ──────────────");
+
+  const enableHud = await confirm({
+    message: "啟用 rate limit 監控？（需設定 Claude CLI statusLine）",
+    default: true,
+  });
+  if (!enableHud) return;
+
+  // Read existing settings
+  let settings: Record<string, unknown> = {};
+  if (fs.existsSync(CLAUDE_SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_PATH, "utf-8"));
+    } catch {
+      console.log("  ⚠ 無法解析現有 settings.json，將建立新的");
+      settings = {};
+    }
+  }
+
+  // Check existing statusLine
+  if (settings.statusLine && settings.statusLine !== STATUS_LINE_CMD) {
+    console.log(`  現有 statusLine: ${settings.statusLine}`);
+    const overwrite = await confirm({
+      message: "覆寫現有 statusLine 設定？",
+      default: false,
+    });
+    if (!overwrite) {
+      console.log("  跳過 statusLine 設定");
+      return;
+    }
+  }
+
+  // Merge and write
+  settings.statusLine = STATUS_LINE_CMD;
+
+  const dir = path.dirname(CLAUDE_SETTINGS_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  console.log(`\n✓ Claude statusLine 已設定（${CLAUDE_SETTINGS_PATH}）`);
+  console.log("  Rate limit 資料將寫入 /tmp/claude-status.json");
 }
 
 async function main() {
