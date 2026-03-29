@@ -296,8 +296,9 @@ async function setupClaudeStatusLine(): Promise<void> {
     try {
       settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_PATH, "utf-8"));
     } catch {
-      console.log("  ⚠ 無法解析現有 settings.json，將建立新的");
-      settings = {};
+      console.log("  ⚠ 無法解析現有 settings.json，請手動加入：");
+      console.log(`    "statusLine": "${STATUS_LINE_CMD}"`);
+      return;
     }
   }
 
