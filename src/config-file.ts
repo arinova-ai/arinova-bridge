@@ -19,6 +19,14 @@ export interface ProviderEntry {
   models?: string[];
 }
 
+export interface AgentEntry {
+  name: string;
+  botToken: string;
+  provider: string;
+  cwd?: string;
+  model?: string;
+}
+
 export interface ConfigFile {
   version: number;
   arinova: {
@@ -35,6 +43,7 @@ export interface ConfigFile {
     dbPath?: string;
     mcpConfigPath?: string;
   };
+  agents?: AgentEntry[];
 }
 
 export function getConfigDir(): string {

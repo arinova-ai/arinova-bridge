@@ -1,6 +1,14 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { readConfigFile, type ProviderEntry } from "./config-file.js";
+import { readConfigFile, type ProviderEntry, type AgentEntry } from "./config-file.js";
+
+export interface ResolvedAgent {
+  name: string;
+  botToken: string;
+  provider: string;
+  cwd: string;
+  model?: string;
+}
 
 export interface BridgeConfig {
   arinova: {
@@ -17,6 +25,7 @@ export interface BridgeConfig {
     dbPath: string;
     mcpConfigPath?: string;
   };
+  agents: ResolvedAgent[];
 }
 
 /**
@@ -73,6 +82,26 @@ export function loadConfig(): BridgeConfig {
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];
 
+  // Build agents list: use config agents array if present, else single agent fallback
+  let agents: ResolvedAgent[];
+  if (file?.agents && file.agents.length > 0) {
+    agents = file.agents.map((a) => ({
+      name: a.name,
+      botToken: a.botToken,
+      provider: a.provider,
+      cwd: (a.cwd ?? defaultCwd).replace(/^~/, homedir()),
+      model: a.model,
+    }));
+  } else {
+    // Backward compatible: single agent from arinova.botToken
+    agents = [{
+      name: agentName,
+      botToken,
+      provider: defaultProvider,
+      cwd: defaultCwd,
+    }];
+  }
+
   return {
     arinova: { serverUrl, botToken, agentName },
     defaultProvider,
@@ -84,5 +113,6 @@ export function loadConfig(): BridgeConfig {
       dbPath,
       mcpConfigPath,
     },
+    agents,
   };
 }
