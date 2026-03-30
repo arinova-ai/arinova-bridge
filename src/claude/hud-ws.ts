@@ -85,7 +85,9 @@ export class HudWebSocket {
   }
 
   send(conversationId: string, data: HudData): void {
-    this.rawSend({ type: "hud_update", conversationId, data });
+    const msg = { type: "hud_update", conversationId, data };
+    this.logger.info(`hud-ws: hud_update ${JSON.stringify(msg)}`);
+    this.rawSend(msg);
   }
 
   sendTask(agentName: string, data: TaskData): void {
