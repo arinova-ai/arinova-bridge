@@ -21,7 +21,9 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.0",
-    "@arinova-ai/agent-sdk": "^0.0.15",
+    "@arinova-ai/agent-sdk": "^0.0.16-staging.0",
+    "@arinova-ai/cli": "0.0.24-staging.0",
+    "@arinova-ai/theme-sdk": "0.0.4-staging.0",
     "@inquirer/prompts": "^8.2.1",
     "better-sqlite3": "^11.0.0",
     "node-pty": "^1.2.0-beta.12"

@@ -36,7 +36,7 @@ export interface JsonRpcServerRequest {
 
 export interface InitializeParams {
   clientInfo: { name: string; version: string; title: string | null };
-  capabilities: { experimental_api?: boolean };
+  capabilities: { experimentalApi?: boolean };
 }
 
 export interface InitializeResult {
@@ -62,7 +62,7 @@ export interface ThreadStartParams {
   personality?: string | null;
   ephemeral?: boolean;
   experimentalRawEvents?: boolean;
-  persistExtendedHistory?: boolean;
+  persistFullHistory?: boolean;
 }
 
 export interface ThreadResumeParams extends ThreadStartParams {

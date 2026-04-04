@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
-import { input, select, checkbox, password, confirm } from "@inquirer/prompts";
+import { input, select, password, confirm } from "@inquirer/prompts";
 import { writeConfigFile, readConfigFile, getConfigPath, type ConfigFile, type ProviderEntry } from "./config-file.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "./oauth/token-store.js";
 import { performMiniMaxOAuth, type MiniMaxRegion } from "./oauth/minimax.js";
@@ -37,6 +37,7 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     type: "openai-cli",
     displayName: "OpenAI OAuth (Codex CLI)",
     needsApiKey: false,
+    models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"],
   },
   {
     id: "gemini-oauth",
@@ -59,6 +60,7 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     displayName: "OpenAI API (Codex CLI)",
     needsApiKey: true,
     apiKeyPrompt: "OpenAI API Key (sk-...)",
+    models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"],
   },
   {
     id: "minimax-oauth",
@@ -129,6 +131,43 @@ async function handleOAuthLogin(builtin: BuiltinProvider): Promise<void> {
   }
 }
 
+const SUBMIT_VALUE = "__submit__";
+
+async function selectProviders(existing: ConfigFile | null): Promise<string[]> {
+  const checked = new Set<string>(
+    existing
+      ? BUILTIN_PROVIDERS.filter((p) => getExistingEntry(existing, p.id)?.enabled).map((p) => p.id)
+      : ["anthropic-oauth"],
+  );
+
+  while (true) {
+    const choices = BUILTIN_PROVIDERS.map((p) => ({
+      name: `${checked.has(p.id) ? "✓" : " "} ${p.displayName}`,
+      value: p.id,
+    }));
+    choices.push({ name: `── Submit (${checked.size} selected) ──`, value: SUBMIT_VALUE });
+
+    const picked = await select<string>({
+      message: "Enable providers (enter to toggle, select Submit to confirm)",
+      choices,
+    });
+
+    if (picked === SUBMIT_VALUE) {
+      if (checked.size === 0) {
+        console.log("  ⚠ At least one provider must be enabled");
+        continue;
+      }
+      return Array.from(checked);
+    }
+
+    if (checked.has(picked)) {
+      checked.delete(picked);
+    } else {
+      checked.add(picked);
+    }
+  }
+}
+
 async function runSetup(): Promise<boolean> {
   console.log("\n=== Arinova Bridge Setup ===\n");
 
@@ -156,21 +195,8 @@ async function runSetup(): Promise<boolean> {
     },
   }) || existingToken!;
 
-  // Step 2: Provider Selection
-  const enabledIds = await checkbox<string>({
-    message: "Enable providers (space to toggle, enter to confirm)",
-    choices: BUILTIN_PROVIDERS.map((p) => ({
-      name: `${p.displayName}`,
-      value: p.id,
-      checked: existing
-        ? !!getExistingEntry(existing, p.id)?.enabled
-        : (p.id === "anthropic-oauth"),
-    })),
-    validate: (selected) => {
-      if (selected.length === 0) return "At least one provider must be enabled";
-      return true;
-    },
-  });
+  // Step 2: Provider Selection (enter = toggle, select Submit to confirm)
+  const enabledIds = await selectProviders(existing);
 
   // Step 3: API Key Prompts (per provider)
   const providers: ProviderEntry[] = [];

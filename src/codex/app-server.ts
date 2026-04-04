@@ -25,9 +25,21 @@ export interface CodexAppServerOpts {
   logger: Logger;
 }
 
+/** Known context window sizes (tokens) per model. Used as fallback when Codex doesn't report modelContextWindow. */
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  "gpt-5.4": 1_050_000,
+  "gpt-5.4-mini": 400_000,
+  "gpt-5.3-codex": 400_000,
+  "gpt-5.2-codex": 400_000,
+  "gpt-5.2": 400_000,
+  "gpt-5.1-codex-max": 400_000,
+  "gpt-5.1-codex-mini": 400_000,
+};
+
 interface ThreadState {
   threadId: string;
   conversationId: string;
+  model: string | null;
   // Active turn
   turnResolve: ((text: string) => void) | null;
   turnReject: ((err: Error) => void) | null;
@@ -166,13 +178,17 @@ export class CodexAppServer {
     rpc.onServerRequest("item/applyPatch/requestApproval", autoApprove);
     rpc.onServerRequest("permissions/requestApproval", autoApprove);
     rpc.onServerRequest("tool/requestUserInput", autoApprove);
-    rpc.onServerRequest("mcpServer/elicitationRequest", autoApprove);
     rpc.onServerRequest("item/exec/requestApproval", autoApprove);
+
+    // MCP elicitation uses a different response shape: { action: "accept" }
+    const autoApproveElicitation = () => ({ action: "accept" });
+    rpc.onServerRequest("mcpServer/elicitationRequest", autoApproveElicitation);
+    rpc.onServerRequest("mcpServer/elicitation/request", autoApproveElicitation);
 
     // Initialization handshake
     const initParams: InitializeParams = {
       clientInfo: { name: "arinova-bridge", version: "0.1.0", title: null },
-      capabilities: { experimental_api: true },
+      capabilities: { experimentalApi: true },
     };
 
     log.info("codex-app-server: sending initialize...");
@@ -231,7 +247,7 @@ export class CodexAppServer {
     // Start new thread
     const params: ThreadStartParams = {
       approvalPolicy: "never",
-      persistExtendedHistory: true,
+      persistFullHistory: true,
       ephemeral: false,
     };
     if (opts.model) params.model = opts.model;
@@ -246,6 +262,7 @@ export class CodexAppServer {
     this.threads.set(newThreadId, {
       threadId: newThreadId,
       conversationId,
+      model: opts.model ?? null,
       turnResolve: null,
       turnReject: null,
       turnOnChunk: null,
@@ -266,7 +283,7 @@ export class CodexAppServer {
     const params: ThreadResumeParams = {
       threadId,
       approvalPolicy: "never",
-      persistExtendedHistory: true,
+      persistFullHistory: true,
     };
     if (opts.model) params.model = opts.model;
     if (opts.cwd) params.cwd = opts.cwd;
@@ -281,6 +298,7 @@ export class CodexAppServer {
       this.threads.set(resumedId, {
         threadId: resumedId,
         conversationId,
+        model: opts.model ?? null,
         turnResolve: null,
         turnReject: null,
         turnOnChunk: null,
@@ -381,9 +399,14 @@ export class CodexAppServer {
     const state = this.threads.get(threadId);
     if (!state?.totalUsage) return null;
 
+    const contextWindow =
+      state.modelContextWindow ??
+      (state.model ? MODEL_CONTEXT_WINDOWS[state.model] : undefined) ??
+      undefined;
+
     return {
       contextTokens: state.totalUsage.inputTokens + state.totalUsage.cachedInputTokens,
-      contextWindow: state.modelContextWindow ?? undefined,
+      contextWindow,
     };
   }
 
@@ -444,10 +467,12 @@ export class CodexAppServer {
 
   private onRateLimitsUpdated(params: RateLimitsUpdatedNotification): void {
     this.rateLimitSnapshot = params.rateLimits;
+    const p = params.rateLimits.primary;
+    const s = params.rateLimits.secondary;
     this.opts.logger.info(
       `codex-app-server: rate limits updated — ` +
-      `primary=${params.rateLimits.primary?.usedPercent ?? "?"}% ` +
-      `secondary=${params.rateLimits.secondary?.usedPercent ?? "?"}%`,
+      `primary=${p?.usedPercent ?? "?"}% resetsAt=${p?.resetsAt ?? "null"} ` +
+      `secondary=${s?.usedPercent ?? "?"}% resetsAt=${s?.resetsAt ?? "null"}`,
     );
   }
 

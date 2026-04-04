@@ -117,32 +117,17 @@ export class CommandHandler {
 
   /** Get the list of skills to register with Arinova. */
   getSkills(): Array<{ id: string; name: string; description: string }> {
+    const ids = this.getConfiguredProviderIds().join(" / ");
     const skills = [
       { id: "new", name: "New", description: "開新工作階段 (可帶路徑: /new ~/project)" },
       { id: "sessions", name: "Sessions", description: "列出所有 sessions" },
       { id: "status", name: "Status", description: "查看目前 session 狀態" },
-      { id: "help", name: "Help", description: "列出所有可用指令" },
       { id: "stop", name: "Stop", description: "中斷目前正在執行的操作" },
-      { id: "resume", name: "Resume", description: "恢復 session (可帶 ID: /resume <id>)" },
+      { id: "resume", name: "Resume", description: "恢復指定的 session (/resume <session-id>)" },
       { id: "model", name: "Model", description: "切換模型" },
-      { id: "cost", name: "Cost", description: "顯示累計花費 / token 用量" },
-      { id: "hud-for-usage", name: "HUD", description: "顯示 context 用量與 rate limit 狀態" },
+      { id: "compact", name: "Compact", description: "壓縮對話 context (僅 Anthropic)" },
+      { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
     ];
-
-    // Add /compact only if an Anthropic-type provider is configured
-    if (this.hasProviderType("anthropic")) {
-      skills.push({ id: "compact", name: "Compact", description: "壓縮對話上下文 (Anthropic only)" });
-    }
-
-    skills.push(
-      { id: "notes", name: "Notes", description: "列出對話筆記" },
-      { id: "note-add", name: "Note Add", description: "新增筆記 (/note-add 標題 | 內容)" },
-      { id: "note-edit", name: "Note Edit", description: "編輯筆記 (/note-edit <id> 標題 | 內容)" },
-      { id: "note-del", name: "Note Del", description: "刪除筆記 (/note-del <id>)" },
-    );
-
-    const ids = this.getConfiguredProviderIds().join(" / ");
-    skills.push({ id: "provider", name: "Provider", description: `切換 provider (${ids})` });
 
     return skills;
   }
@@ -256,7 +241,7 @@ export class CommandHandler {
       "/sessions — 列出所有 sessions",
       "/status — 查看目前 session 狀態",
       "/stop — 中斷目前正在執行的操作",
-      "/resume [id] — 恢復 session",
+      "/resume <session-id> — 恢復指定的 session",
       "/model [name] — 切換模型",
       "/cost — 顯示累計花費 / token 用量",
       "/hud-for-usage — 顯示 context 用量與 rate limit 狀態",
@@ -426,17 +411,26 @@ export class CommandHandler {
       out.context = { used: pct, total, percent: pct };
     }
 
-    // Rate limits: from status file (account-level, kept fresh by HUD monitor)
-    const statusFile = this.readStatusFile() as {
-      limit5h?: { percent?: number; resetIn?: string };
-      limit7d?: { percent?: number; resetIn?: string };
-      model?: string;
-      cost?: number;
-    } | null;
-    if (statusFile?.limit5h) out.limit5h = statusFile.limit5h;
-    if (statusFile?.limit7d) out.limit7d = statusFile.limit7d;
-    if (statusFile?.model) out.model = statusFile.model;
-    if (statusFile?.cost !== undefined && statusFile.cost > 0) out.cost = statusFile.cost;
+    // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
+    if (provider.type.startsWith("anthropic")) {
+      const statusFile = this.readStatusFile() as {
+        limit5h?: { percent?: number; resetIn?: string };
+        limit7d?: { percent?: number; resetIn?: string };
+        model?: string;
+        cost?: number;
+      } | null;
+      if (statusFile?.limit5h) out.limit5h = statusFile.limit5h;
+      if (statusFile?.limit7d) out.limit7d = statusFile.limit7d;
+      if (statusFile?.model) out.model = statusFile.model;
+      if (statusFile?.cost !== undefined && statusFile.cost > 0) out.cost = statusFile.cost;
+    } else if (usage?.rateLimits) {
+      for (const rl of usage.rateLimits) {
+        const percent = Math.round((rl.utilization ?? 0) * 100);
+        const resetIn = rl.resetsAt ? this.formatResetIn(rl.resetsAt) : "";
+        if (rl.rateLimitType === "five_hour") out.limit5h = { percent, resetIn };
+        if (rl.rateLimitType === "seven_day") out.limit7d = { percent, resetIn };
+      }
+    }
 
     if (Object.keys(out).length === 0) {
       this.reply(ctx, "目前無使用資料");
@@ -444,6 +438,21 @@ export class CommandHandler {
     }
 
     this.reply(ctx, JSON.stringify(out));
+  }
+
+  private formatResetIn(epoch: number): string {
+    const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
+    const diff = epochMs - Date.now();
+    if (diff <= 0) return "now";
+    const totalMins = Math.ceil(diff / 60_000);
+    const d = Math.floor(totalMins / 1440);
+    const h = Math.floor((totalMins % 1440) / 60);
+    const m = totalMins % 60;
+    const parts: string[] = [];
+    if (d > 0) parts.push(`${d}d`);
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0 || parts.length === 0) parts.push(`${m}m`);
+    return parts.join(" ");
   }
 
   /** Read Claude Code status line cache (rate limits, context window, cost). */

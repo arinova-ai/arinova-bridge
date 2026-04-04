@@ -14,6 +14,12 @@ importers:
       '@arinova-ai/agent-sdk':
         specifier: ^0.0.15
         version: 0.0.15
+      '@arinova-ai/cli':
+        specifier: 0.0.24-staging.0
+        version: 0.0.24-staging.0
+      '@arinova-ai/theme-sdk':
+        specifier: 0.0.4-staging.0
+        version: 0.0.4-staging.0
       '@inquirer/prompts':
         specifier: ^8.2.1
         version: 8.3.0(@types/node@25.4.0)
@@ -49,6 +55,13 @@ packages:
 
   '@arinova-ai/agent-sdk@0.0.15':
     resolution: {integrity: sha512-JHs3VLhvEUPW+ODeeTD9RgysRZ8MJIp3HaVzMgCPiC1gshLtdqlw2CUkqaW2wK5G9xUkedTBl8NqNmp97mEd0g==}
+
+  '@arinova-ai/cli@0.0.24-staging.0':
+    resolution: {integrity: sha512-M4AcLuNIceaC++PrWHaKZzdUR2Q8A6PAvXmA5Uu7yQC5mXb4EK2P4Q020CtHp+e0v8GqlTCTtWmS5rsI2h+gJg==}
+    hasBin: true
+
+  '@arinova-ai/theme-sdk@0.0.4-staging.0':
+    resolution: {integrity: sha512-bHT7s426XJbcMZQg2LxDi0u+IC4aYKrvW3ck4kPUubtfB32JUIxD/aFN7vB0Ak8bVJb96cM30f3XalmTMfRjKg==}
 
   '@esbuild/aix-ppc64@0.27.3':
     resolution: {integrity: sha512-9fJMTNFTWZMh5qwrBItuziu834eOCUcEqymSH7pY+zoMVEZg3gcPuBNxH1EvfVYe9h0x/Ptw8KBzv7qxb7l8dg==}
@@ -628,6 +641,10 @@ packages:
     resolution: {integrity: sha512-ouuZd4/dm2Sw5Gmqy6bGyNNNe1qt9RpmxveLSO7KcgsTnU7RXfsw+/bukWGo1abgBiMAic068rclZsO4IWmmxQ==}
     engines: {node: '>= 12'}
 
+  commander@12.1.0:
+    resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
+    engines: {node: '>=18'}
+
   decompress-response@6.0.0:
     resolution: {integrity: sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==}
     engines: {node: '>=10'}
@@ -966,6 +983,12 @@ snapshots:
       '@img/sharp-win32-x64': 0.33.5
 
   '@arinova-ai/agent-sdk@0.0.15': {}
+
+  '@arinova-ai/cli@0.0.24-staging.0':
+    dependencies:
+      commander: 12.1.0
+
+  '@arinova-ai/theme-sdk@0.0.4-staging.0': {}
 
   '@esbuild/aix-ppc64@0.27.3':
     optional: true
@@ -1373,6 +1396,8 @@ snapshots:
   chownr@1.1.4: {}
 
   cli-width@4.1.0: {}
+
+  commander@12.1.0: {}
 
   decompress-response@6.0.0:
     dependencies:

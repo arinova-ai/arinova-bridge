@@ -103,7 +103,7 @@ export class AnthropicSdkProvider implements Provider {
 
         if (message.type === "stream_event") {
           // Handle streaming text deltas
-          const event = message.event as Record<string, unknown>;
+          const event = message.event as unknown as Record<string, unknown>;
           if (event.type === "content_block_delta") {
             const delta = event.delta as Record<string, unknown> | undefined;
             if (delta?.type === "text_delta" && typeof delta.text === "string") {

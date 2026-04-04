@@ -45,6 +45,16 @@ export type SendMessageResult = {
   numTurns?: number;
 };
 
+/** Known context window sizes (tokens) per model. Used as fallback when CLI doesn't report contextWindow. */
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  "claude-opus-4-6": 1_000_000,
+  "claude-sonnet-4-6": 1_000_000,
+  "claude-haiku-4-5": 200_000,
+  "claude-haiku-4-5-20251001": 200_000,
+  "claude-sonnet-4-5-20250514": 1_000_000,
+  "claude-opus-4-20250514": 200_000,
+};
+
 const DEFAULT_CLAUDE_PATH = "claude";
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const STALE_DRAIN_TIMEOUT_MS = 5000;
@@ -339,7 +349,8 @@ export class ClaudeProcess {
     if (this.turnContextTokens > 0) {
       this.lastContext = {
         contextTokens: this.turnContextTokens,
-        contextWindow: this.turnContextWindow,
+        contextWindow: this.turnContextWindow
+          ?? (this.resolvedModel ? MODEL_CONTEXT_WINDOWS[this.resolvedModel] : undefined),
         maxOutputTokens: this.turnMaxOutputTokens,
       };
     }

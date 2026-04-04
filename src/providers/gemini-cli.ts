@@ -164,6 +164,7 @@ export class GeminiCliProvider implements Provider {
     return {
       context: {
         contextTokens: conv.inputTokens + conv.cachedInputTokens,
+        contextWindow: 1_000_000,
       },
       window: {
         inputTokens: conv.inputTokens + conv.cachedInputTokens,

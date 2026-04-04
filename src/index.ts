@@ -8,6 +8,21 @@ import { HudMonitor } from "./claude/hud-monitor.js";
 import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 
+function formatResetIn(epoch: number): string {
+  const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
+  const diff = epochMs - Date.now();
+  if (diff <= 0) return "now";
+  const totalMins = Math.ceil(diff / 60_000);
+  const d = Math.floor(totalMins / 1440);
+  const h = Math.floor((totalMins % 1440) / 60);
+  const m = totalMins % 60;
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0 || parts.length === 0) parts.push(`${m}m`);
+  return parts.join(" ");
+}
+
 const logger = createLogger("bridge");
 const config = loadConfig();
 
@@ -86,6 +101,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     // Prefix conversationId with agent name to isolate sessions across agents
     const sessionId = `${agentName}:${conversationId}`;
 
+    console.log(`[onTask] agent=${agentName} conv=${conversationId} content=${JSON.stringify(content)}`);
+
     // Try command handling first
     const result = await commandHandler.handle(content, {
       conversationId: sessionId,
@@ -113,7 +130,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       const cwd = commandHandler.getCwdForConversation(sessionId);
       const model = commandHandler.getModelForConversation(sessionId) ?? agentCfg.model;
 
-      hudWs.sendTask(agentName, { status: "started", task: content.slice(0, 200) });
+      hudWs.sendTask(agentName, { status: "started", task: content });
 
       const sendResult = await msgProvider.sendMessage({
         conversationId: sessionId,
@@ -160,11 +177,21 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           };
         }
 
-        try {
-          const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
-          if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
-          if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
-        } catch { /* status file unavailable */ }
+        // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
+        if (msgProvider.type.startsWith("anthropic")) {
+          try {
+            const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
+            if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
+            if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
+          } catch { /* status file unavailable */ }
+        } else if (hudUsage?.rateLimits) {
+          for (const rl of hudUsage.rateLimits) {
+            const percent = Math.round((rl.utilization ?? 0) * 100);
+            const resetIn = rl.resetsAt ? formatResetIn(rl.resetsAt) : "";
+            if (rl.rateLimitType === "five_hour") hudData.limit5h = { percent, resetIn };
+            if (rl.rateLimitType === "seven_day") hudData.limit7d = { percent, resetIn };
+          }
+        }
 
         hudData.model = formatModelName(hudSessionModel);
         hudWs.send(conversationId, hudData);

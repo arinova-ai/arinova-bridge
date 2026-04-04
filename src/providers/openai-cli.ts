@@ -46,12 +46,13 @@ export class OpenAICliProvider implements Provider {
     this.defaultCwd = config.defaultCwd;
     this.logger = logger;
     this.modelList = config.models ?? [
-      "codex-mini-latest",
+      "gpt-5.4",
+      "gpt-5.4-mini",
       "gpt-5.3-codex",
-      "gpt-5.3-codex-spark",
       "gpt-5.2-codex",
-      "o4-mini",
-      "o3",
+      "gpt-5.2",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
     ];
 
     this.db = initDb(config.dbPath);

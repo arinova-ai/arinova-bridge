@@ -184,7 +184,8 @@ export class CodexRpcClient {
     } else {
       // Fallback: auto-approve any unhandled server request
       this.logger.info(`rpc-client: auto-approving unhandled server request: ${method}`);
-      result = { decision: "accept" } satisfies ApprovalResponse;
+      // Use both decision and action fields to cover different response schemas
+      result = { decision: "accept", action: "accept" };
     }
 
     this.writeLine({ id, result });
