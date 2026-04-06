@@ -101,8 +101,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     // Prefix conversationId with agent name to isolate sessions across agents
     const sessionId = `${agentName}:${conversationId}`;
 
-    console.log(`[onTask] agent=${agentName} conv=${conversationId} content=${JSON.stringify(content)}`);
-
     // Try command handling first
     const result = await commandHandler.handle(content, {
       conversationId: sessionId,
