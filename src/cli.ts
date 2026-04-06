@@ -25,7 +25,12 @@ COMMANDS
   agents   A2A agent management (list, deliver, broadcast, status)
   config   Show current configuration (secrets masked)
   setup    Interactive setup wizard (providers, bot token, statusLine)
+  login    OAuth login for a specific provider (without re-running full setup)
   help     Show this help message
+
+LOGIN SUBCOMMAND
+  login                     Interactive provider selection
+  login <provider-id>       Login to a specific provider (e.g. anthropic-oauth, minimax-oauth)
 
 AGENTS SUBCOMMAND
   agents                                    List all running agents
@@ -172,6 +177,12 @@ function cmdConfig(): void {
 async function cmdSetup(): Promise<void> {
   // Dynamic import to reuse existing setup logic
   await import("./setup.js");
+}
+
+async function cmdLogin(args: string[]): Promise<void> {
+  const { runLogin } = await import("./login.js");
+  const providerId = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
+  await runLogin(providerId);
 }
 
 function parseFlag(args: string[], flag: string): string | undefined {
@@ -372,6 +383,9 @@ async function main(): Promise<void> {
       break;
     case "setup":
       await cmdSetup();
+      break;
+    case "login":
+      await cmdLogin(args.slice(1));
       break;
     case "help":
     case "--help":
