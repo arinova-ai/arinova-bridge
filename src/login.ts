@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { select, confirm } from "@inquirer/prompts";
 import { readConfigFile, type ProviderEntry } from "./config-file.js";
@@ -100,6 +103,86 @@ function loginCli(entry: ProviderEntry): void {
 }
 
 /**
+ * Check if a CLI-based provider is logged in.
+ * Returns { loggedIn, detail } where detail is a human-readable status string.
+ */
+function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail: string } {
+  switch (entry.type) {
+    case "anthropic-cli": {
+      // `claude auth status` returns JSON with loggedIn field
+      const cmd = entry.claudePath ?? "claude";
+      try {
+        const result = spawnSync(cmd, ["auth", "status"], {
+          encoding: "utf-8",
+          timeout: 5000,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        if (result.status === 0 && result.stdout) {
+          const data = JSON.parse(result.stdout);
+          if (data.loggedIn) {
+            return { loggedIn: true, detail: data.email ?? "logged in" };
+          }
+        }
+      } catch { /* ignore */ }
+      return { loggedIn: false, detail: "not logged in" };
+    }
+    case "openai-cli": {
+      // Codex stores auth in ~/.codex/auth.json
+      const authPath = path.join(homedir(), ".codex", "auth.json");
+      try {
+        if (fs.existsSync(authPath)) {
+          const raw = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+          if (raw.tokens?.access_token) {
+            const email = raw.tokens?.id_token
+              ? (() => {
+                  try {
+                    const payload = JSON.parse(Buffer.from(raw.tokens.id_token.split(".")[1], "base64url").toString());
+                    return payload.email as string | undefined;
+                  } catch { return undefined; }
+                })()
+              : undefined;
+            return { loggedIn: true, detail: email ?? "logged in" };
+          }
+        }
+      } catch { /* ignore */ }
+      return { loggedIn: false, detail: "not logged in" };
+    }
+    case "gemini-cli": {
+      // Gemini stores auth in ~/.gemini/ — check if credentials exist
+      const credPath = path.join(homedir(), ".gemini", "credentials.json");
+      try {
+        if (fs.existsSync(credPath)) {
+          return { loggedIn: true, detail: "logged in" };
+        }
+      } catch { /* ignore */ }
+      return { loggedIn: false, detail: "not logged in" };
+    }
+    default:
+      return { loggedIn: false, detail: "unknown" };
+  }
+}
+
+/**
+ * Get display status for a provider in the login menu.
+ */
+function getProviderStatus(entry: ProviderEntry): string {
+  const strategy = loginStrategy(entry);
+  if (strategy === "minimax") {
+    // MiniMax uses our own token store
+    const token = readOAuthToken(entry.id);
+    if (token) {
+      return isTokenExpired(token) ? " (expired)" : ` (valid until ${new Date(token.expiresAt * 1000).toLocaleDateString()})`;
+    }
+    return " (not logged in)";
+  }
+  if (strategy === "cli") {
+    const status = checkCliLoginStatus(entry);
+    return status.loggedIn ? ` (${status.detail})` : " (not logged in)";
+  }
+  return "";
+}
+
+/**
  * Main login flow.
  * @param providerId - optional provider ID to login directly
  */
@@ -149,12 +232,7 @@ export async function runLogin(providerId?: string): Promise<void> {
       const selected = await select<string>({
         message: "Select provider to login",
         choices: loginable.map((p) => {
-          const token = readOAuthToken(p.id);
-          const status = token
-            ? isTokenExpired(token)
-              ? " (expired)"
-              : ` (valid until ${new Date(token.expiresAt * 1000).toLocaleDateString()})`
-            : " (not logged in)";
+          const status = getProviderStatus(p);
           return { name: `${p.displayName}${status}`, value: p.id };
         }),
       });
