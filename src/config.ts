@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { readConfigFile, type ProviderEntry, type AgentEntry } from "./config-file.js";
+import { loadAgentPrompts, buildAgentSystemPrompt } from "./agents/loader.js";
 
 export interface ResolvedAgent {
   name: string;
@@ -8,6 +9,7 @@ export interface ResolvedAgent {
   provider: string;
   cwd: string;
   model?: string;
+  systemPrompt?: string;
 }
 
 export interface BridgeConfig {
@@ -82,6 +84,9 @@ export function loadConfig(): BridgeConfig {
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];
 
+  // Load agent prompt files from ~/.arinova-bridge/agents/*.md
+  const agentPrompts = loadAgentPrompts();
+
   // Build agents list: use config agents array if present, else single agent fallback
   let agents: ResolvedAgent[];
   if (file?.agents && file.agents.length > 0) {
@@ -91,6 +96,7 @@ export function loadConfig(): BridgeConfig {
       provider: a.provider,
       cwd: (a.cwd ?? defaultCwd).replace(/^~/, homedir()),
       model: a.model,
+      systemPrompt: buildAgentSystemPrompt(a.name, agentPrompts) || undefined,
     }));
   } else {
     // Backward compatible: single agent from arinova.botToken
@@ -99,6 +105,7 @@ export function loadConfig(): BridgeConfig {
       botToken,
       provider: defaultProvider,
       cwd: defaultCwd,
+      systemPrompt: buildAgentSystemPrompt(agentName, agentPrompts) || undefined,
     }];
   }
 

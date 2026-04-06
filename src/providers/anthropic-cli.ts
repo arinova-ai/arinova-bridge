@@ -68,7 +68,7 @@ export class AnthropicCliProvider implements Provider {
       }
       entry.lastActivity = Date.now();
     } else {
-      entry = this.store.createSession(conversationId, { cwd, model });
+      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
     }
 
     // Signal is managed inside ClaudeProcess — it clears the old listener

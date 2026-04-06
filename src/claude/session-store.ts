@@ -12,6 +12,7 @@ export interface SessionEntry {
 export interface CreateSessionOpts {
   cwd?: string;
   model?: string;
+  systemPrompt?: string;
   resumeSessionId?: string;
   compact?: boolean;
 }
@@ -52,6 +53,7 @@ export class SessionStore {
     const processOpts: ClaudeProcessOptions = {
       claudePath: this.config.claudePath,
       mcpConfigPath: this.config.mcpConfigPath,
+      systemPrompt: opts?.systemPrompt,
       cwd,
       model,
       resumeSessionId: opts?.resumeSessionId,

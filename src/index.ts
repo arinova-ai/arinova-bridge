@@ -7,6 +7,9 @@ import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
 import { HudMonitor } from "./claude/hud-monitor.js";
 import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
+import { startIpcServer } from "./ipc/server.js";
+import { createIpcRouter, recordTask } from "./ipc/router.js";
+import type { ActiveAgent } from "./ipc/types.js";
 
 function formatResetIn(epoch: number): string {
   const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
@@ -47,7 +50,7 @@ hudMonitor.start();
 const hudWsUrl = config.arinova.serverUrl + "/api/v1/hud";
 
 // Track all agents for shutdown
-const activeAgents: Array<{ agent: ArinovaAgent; name: string; hudWs: HudWebSocket }> = [];
+const activeAgents: ActiveAgent[] = [];
 
 // Start all agents in parallel
 const startResults = await Promise.allSettled(
@@ -66,6 +69,11 @@ if (activeAgents.length === 0) {
 }
 
 logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents.map((a) => a.name).join(", ")}]`);
+
+// Start IPC server for A2A communication
+const ipcRouter = createIpcRouter(activeAgents, providers);
+const stopIpc = startIpcServer(ipcRouter, logger);
+
 
 async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   const agentName = agentCfg.name;
@@ -135,6 +143,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         content,
         cwd,
         model,
+        systemPrompt: agentCfg.systemPrompt,
         onChunk: (text) => ctx.sendChunk(text),
         signal: ctx.signal,
         uploadFile: ctx.uploadFile,
@@ -159,6 +168,17 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         costUsd: hudCost?.totalCostUsd,
         durationMs: sendResult.durationMs,
         numTurns: sendResult.numTurns,
+      });
+
+      // Record for A2A history/watch
+      recordTask({
+        agent: agentName,
+        content: content.length > 200 ? content.slice(0, 200) + "…" : content,
+        responsePreview: sendResult.text.length > 200 ? sendResult.text.slice(0, 200) + "…" : sendResult.text,
+        durationMs: sendResult.durationMs ?? 0,
+        costUsd: hudCost?.totalCostUsd,
+        model: hudSessionModel || undefined,
+        timestamp: Date.now(),
       });
 
       // HUD push: fire-and-forget
@@ -218,13 +238,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   });
 
   await agent.connect();
-  activeAgents.push({ agent, name: agentName, hudWs });
-  logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd}`);
+  activeAgents.push({ agent, name: agentName, hudWs, commandHandler, provider, agentConfig: agentCfg });
+  logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
 }
 
 // Graceful shutdown
 async function shutdown() {
   logger.info("Shutting down...");
+  stopIpc();
   hudMonitor.stop();
   stopRefreshTimer();
 

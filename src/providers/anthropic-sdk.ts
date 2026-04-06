@@ -59,7 +59,7 @@ export class AnthropicSdkProvider implements Provider {
     const content = buildContextPrefix(opts) + opts.content;
 
     // Lazy import to avoid requiring the SDK if not used
-    const { query } = await import("@anthropic-ai/claude-code");
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
     const session = this.getOrCreateSession(conversationId, cwd, model);
     session.lastActivity = Date.now();
@@ -89,6 +89,7 @@ export class AnthropicSdkProvider implements Provider {
           },
           resume: session.sessionId.startsWith("sdk-") ? undefined : session.sessionId,
           ...(this.config.mcpServers ? { mcpServers: this.config.mcpServers } : {}),
+          ...(opts.systemPrompt ? { appendSystemPrompt: opts.systemPrompt } : {}),
         },
       });
 
