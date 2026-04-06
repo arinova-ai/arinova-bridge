@@ -89,6 +89,7 @@ export class AnthropicSdkProvider implements Provider {
           },
           resume: session.sessionId.startsWith("sdk-") ? undefined : session.sessionId,
           ...(this.config.mcpServers ? { mcpServers: this.config.mcpServers } : {}),
+          ...(opts.systemPrompt ? { appendSystemPrompt: opts.systemPrompt } : {}),
         },
       });
 

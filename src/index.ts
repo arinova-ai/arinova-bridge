@@ -145,6 +145,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         content,
         cwd,
         model,
+        systemPrompt: agentCfg.systemPrompt,
         onChunk: (text) => ctx.sendChunk(text),
         signal: ctx.signal,
         uploadFile: ctx.uploadFile,
@@ -240,7 +241,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   await agent.connect();
   activeAgents.push({ agent, name: agentName, hudWs, commandHandler, provider, agentConfig: agentCfg });
-  logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd}`);
+  logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
 }
 
 // Graceful shutdown

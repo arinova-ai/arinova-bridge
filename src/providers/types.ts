@@ -39,6 +39,8 @@ export interface SendMessageOpts {
   content: string;
   cwd?: string;
   model?: string;
+  /** Agent system prompt loaded from agents/*.md files. */
+  systemPrompt?: string;
   onChunk: (text: string) => void;
   signal?: AbortSignal;
   uploadFile?: (file: Uint8Array, fileName: string, fileType?: string) => Promise<UploadResult>;

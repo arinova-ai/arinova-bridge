@@ -77,7 +77,8 @@ export class OpenAICliProvider implements Provider {
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
-    const content = buildContextPrefix(opts) + opts.content;
+    const systemPromptPrefix = opts.systemPrompt ? `<system-prompt>\n${opts.systemPrompt}\n</system-prompt>\n\n` : "";
+    const content = systemPromptPrefix + buildContextPrefix(opts) + opts.content;
     const effectiveCwd = cwd ?? this.getConvCwd(conversationId) ?? this.defaultCwd;
     const effectiveModel = model ?? this.getConvModel(conversationId) ?? undefined;
 

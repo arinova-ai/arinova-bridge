@@ -12,8 +12,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.128
       '@arinova-ai/agent-sdk':
-        specifier: ^0.0.15
-        version: 0.0.15
+        specifier: ^0.0.16-staging.0
+        version: 0.0.16-staging.0
       '@arinova-ai/cli':
         specifier: 0.0.24-staging.0
         version: 0.0.24-staging.0
@@ -53,8 +53,8 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  '@arinova-ai/agent-sdk@0.0.15':
-    resolution: {integrity: sha512-JHs3VLhvEUPW+ODeeTD9RgysRZ8MJIp3HaVzMgCPiC1gshLtdqlw2CUkqaW2wK5G9xUkedTBl8NqNmp97mEd0g==}
+  '@arinova-ai/agent-sdk@0.0.16-staging.0':
+    resolution: {integrity: sha512-s/1EFGmHo4EUqxr2YqHehat9ApdE1TDpDm1f+Vv6Pqrp0dK8HoUl1wXMyFhFb+XIjOzx+FBrmPogNn4JyCXRxw==}
 
   '@arinova-ai/cli@0.0.24-staging.0':
     resolution: {integrity: sha512-M4AcLuNIceaC++PrWHaKZzdUR2Q8A6PAvXmA5Uu7yQC5mXb4EK2P4Q020CtHp+e0v8GqlTCTtWmS5rsI2h+gJg==}
@@ -982,7 +982,7 @@ snapshots:
       '@img/sharp-linux-x64': 0.33.5
       '@img/sharp-win32-x64': 0.33.5
 
-  '@arinova-ai/agent-sdk@0.0.15': {}
+  '@arinova-ai/agent-sdk@0.0.16-staging.0': {}
 
   '@arinova-ai/cli@0.0.24-staging.0':
     dependencies:
