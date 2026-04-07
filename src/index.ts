@@ -11,6 +11,8 @@ import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore, SUMMARY_MAX_TOKENS } from "./session/bridge-session.js";
+import { CronStore } from "./cron/store.js";
+import { CronRunner } from "./cron/runner.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -39,6 +41,13 @@ const bridgeSessionStore = new BridgeSessionStore(
   path.join(homedir(), ".arinova-bridge", "sessions"),
   logger,
 );
+
+// Cron scheduler
+const cronStore = new CronStore(
+  path.join(homedir(), ".arinova-bridge", "cron"),
+  logger,
+);
+const cronRunner = new CronRunner(cronStore);
 
 // Shared resources
 const providers = await createProviders(config, logger);
@@ -94,6 +103,13 @@ for (const { name, provider, agentConfig } of activeAgents) {
 const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore);
 const stopIpc = startIpcServer(ipcRouter, logger);
 
+// Restore cron jobs now that agents + IPC are ready
+cronRunner.setAgents(activeAgents, bridgeSessionStore);
+const restoredCronJobs = cronRunner.restoreAll();
+if (restoredCronJobs > 0) {
+  logger.info(`Restored ${restoredCronJobs} cron job(s)`);
+}
+
 
 async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   const agentName = agentCfg.name;
@@ -116,6 +132,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
   };
+  commandHandler.cronStore = cronStore;
+  commandHandler.cronRunner = cronRunner;
+  commandHandler.agentName = agentName;
 
   // Per-agent HUD WebSocket
   const hudWs = new HudWebSocket(hudWsUrl, agentCfg.botToken, logger);
@@ -305,6 +324,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 // Graceful shutdown
 async function shutdown() {
   logger.info("Shutting down...");
+  cronRunner.stopAll();
   stopIpc();
   hudMonitor.stop();
   stopRefreshTimer();

@@ -5,6 +5,9 @@ import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
 import { type BridgeSessionStore, SUMMARY_MAX_TOKENS } from "../session/bridge-session.js";
+import type { CronStore } from "../cron/store.js";
+import type { CronRunner } from "../cron/runner.js";
+import cron from "node-cron";
 
 export class CommandHandler {
   private providers: Map<string, Provider>;
@@ -20,6 +23,12 @@ export class CommandHandler {
 
   /** Called when a session is cleared (/new, /model reset). */
   onSessionClear?: (conversationId: string) => void;
+
+  /** Cron scheduler (injected after startup). */
+  cronStore?: CronStore;
+  cronRunner?: CronRunner;
+  /** Agent name this handler belongs to (for cron ownership). */
+  agentName?: string;
 
   constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
     this.providers = providers;
@@ -107,6 +116,9 @@ export class CommandHandler {
       case "note-del":
         await this.handleNoteDel(arg, ctx);
         return { handled: true };
+      case "cron":
+        this.handleCron(arg, ctx);
+        return { handled: true };
       default:
         return { handled: false };
     }
@@ -137,6 +149,7 @@ export class CommandHandler {
       { id: "compact", name: "Compact", description: "壓縮對話 context (僅 Anthropic)" },
       { id: "search", name: "Search", description: "搜尋歷史對話 (/search <關鍵字>)" },
       { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
+      { id: "cron", name: "Cron", description: "定時任務排程 (/cron add|list|delete)" },
     ];
 
     return skills;
@@ -272,6 +285,12 @@ export class CommandHandler {
 
     const ids = this.getConfiguredProviderIds().join(" / ");
     lines.push(`/provider [name] — 切換 provider (${ids})`);
+
+    lines.push(
+      "/cron add <expression> <message> — 新增定時任務",
+      "/cron list — 列出所有定時任務",
+      "/cron delete <id|all> — 刪除定時任務",
+    );
 
     lines.push("/help — 列出所有可用指令");
     this.reply(ctx, lines.join("\n"));
@@ -670,6 +689,138 @@ export class CommandHandler {
       this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
+  }
+
+  // --- Cron Command ---
+
+  private handleCron(arg: string, ctx: CommandContext): void {
+    if (!this.cronStore || !this.cronRunner || !this.agentName) {
+      this.reply(ctx, "Cron scheduler 未啟用");
+      return;
+    }
+
+    const parts = arg.split(/\s+/);
+    const sub = parts[0]?.toLowerCase();
+
+    if (!sub || sub === "help") {
+      this.reply(ctx, [
+        "用法:",
+        "  /cron add <cron-expression> <message>",
+        "  /cron list",
+        "  /cron delete <id|all>",
+        "",
+        "Cron expression 範例:",
+        '  "*/5 * * * *"  — 每 5 分鐘',
+        '  "0 9 * * *"    — 每天 09:00',
+        '  "0 */2 * * *"  — 每 2 小時',
+        "",
+        `每個 agent 最多 10 個 cron jobs，最短間隔 1 分鐘。`,
+      ].join("\n"));
+      return;
+    }
+
+    switch (sub) {
+      case "add":
+        this.handleCronAdd(parts.slice(1), ctx);
+        return;
+      case "list":
+      case "ls":
+        this.handleCronList(ctx);
+        return;
+      case "delete":
+      case "del":
+      case "rm":
+        this.handleCronDelete(parts.slice(1), ctx);
+        return;
+      default:
+        this.reply(ctx, `未知的 cron 子指令: ${sub}\n用法: /cron add|list|delete`);
+    }
+  }
+
+  private handleCronAdd(parts: string[], ctx: CommandContext): void {
+    // Parse: 5 cron fields + message
+    // e.g. ["*/5", "*", "*", "*", "*", "check", "email"]
+    if (parts.length < 6) {
+      this.reply(ctx, "用法: /cron add <min> <hour> <dom> <mon> <dow> <message>\n例如: /cron add */5 * * * * 檢查郵件");
+      return;
+    }
+
+    const cronExpr = parts.slice(0, 5).join(" ");
+    const message = parts.slice(5).join(" ");
+
+    // Validate cron expression
+    if (!cron.validate(cronExpr)) {
+      this.reply(ctx, `無效的 cron expression: ${cronExpr}\n格式: <分> <時> <日> <月> <星期>`);
+      return;
+    }
+
+    try {
+      const job = this.cronStore!.add(this.agentName!, cronExpr, message);
+      this.cronRunner!.schedule(job);
+      this.reply(ctx, `已新增 cron job \`${job.id}\`\nSchedule: ${cronExpr}\nMessage: ${message}`);
+    } catch (err) {
+      this.reply(ctx, `新增失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private handleCronList(ctx: CommandContext): void {
+    const jobs = this.cronStore!.listByAgent(this.agentName!);
+
+    if (jobs.length === 0) {
+      this.reply(ctx, "目前沒有 cron jobs\n用 /cron add 來新增");
+      return;
+    }
+
+    const lines = ["Cron Jobs:\n"];
+    for (const job of jobs) {
+      const status = job.enabled ? "✅" : "⏸️";
+      const lastRun = job.lastRunAt
+        ? new Date(job.lastRunAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })
+        : "—";
+      const maxInfo = job.maxRuns !== null ? ` (${job.runCount}/${job.maxRuns})` : ` (${job.runCount}x)`;
+      lines.push(`${status} \`${job.id}\`  \`${job.cronExpr}\`  ${job.message}`);
+      lines.push(`   Last: ${lastRun}${maxInfo}`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private handleCronDelete(parts: string[], ctx: CommandContext): void {
+    const target = parts[0];
+
+    if (!target) {
+      this.reply(ctx, "用法: /cron delete <id|all>");
+      return;
+    }
+
+    if (target.toLowerCase() === "all") {
+      const jobs = this.cronStore!.listByAgent(this.agentName!);
+      for (const job of jobs) {
+        this.cronRunner!.unschedule(job.id);
+      }
+      const count = this.cronStore!.deleteAllByAgent(this.agentName!);
+      this.reply(ctx, `已刪除 ${count} 個 cron job(s)`);
+      return;
+    }
+
+    // Fuzzy match by prefix
+    const jobs = this.cronStore!.listByAgent(this.agentName!);
+    const matches = jobs.filter((j) => j.id.startsWith(target));
+
+    if (matches.length === 0) {
+      this.reply(ctx, `找不到匹配 "${target}" 的 cron job\n用 /cron list 查看`);
+      return;
+    }
+    if (matches.length > 1) {
+      const list = matches.map((j) => `  \`${j.id}\` ${j.cronExpr} ${j.message}`).join("\n");
+      this.reply(ctx, `多個 cron job 匹配 "${target}":\n${list}\n請輸入更完整的 ID`);
+      return;
+    }
+
+    const job = matches[0];
+    this.cronRunner!.unschedule(job.id);
+    this.cronStore!.delete(job.id);
+    this.reply(ctx, `已刪除 cron job \`${job.id}\` (${job.cronExpr} — ${job.message})`);
   }
 
   // --- Search Command ---
