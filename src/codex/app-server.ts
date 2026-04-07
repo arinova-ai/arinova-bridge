@@ -116,7 +116,11 @@ export class CodexAppServer {
 
     const env = this.opts.env ? { ...process.env, ...this.opts.env } : undefined;
 
-    const child = spawn(this.codexPath, ["app-server", "--listen", "stdio://"], {
+    const child = spawn(this.codexPath, [
+      "app-server",
+      "--listen", "stdio://",
+      "-c", 'sandbox_mode="danger-full-access"',
+    ], {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
