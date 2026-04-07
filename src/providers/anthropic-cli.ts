@@ -55,6 +55,16 @@ export class AnthropicCliProvider implements Provider {
     );
   }
 
+  warmup(conversationId: string, opts?: { cwd?: string; model?: string; systemPrompt?: string }): void {
+    const existing = this.store.getSession(conversationId);
+    if (existing && existing.process.isAlive()) return;
+    this.store.createSession(conversationId, {
+      cwd: opts?.cwd,
+      model: opts?.model,
+      systemPrompt: opts?.systemPrompt,
+    });
+  }
+
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
     const content = buildContextPrefix(opts) + opts.content;

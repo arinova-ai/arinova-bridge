@@ -158,11 +158,19 @@ export interface SessionListEntry {
   lastActivity?: number;
 }
 
+export interface WarmupOpts {
+  cwd?: string;
+  model?: string;
+  systemPrompt?: string;
+}
+
 export interface Provider {
   readonly id: ProviderId;
   readonly type: string;
   readonly displayName: string;
 
+  /** Pre-create an LLM session so it's ready for immediate use (e.g. A2A). */
+  warmup(conversationId: string, opts?: WarmupOpts): void;
   sendMessage(opts: SendMessageOpts): Promise<SendResult>;
   interrupt(conversationId: string): void;
   resetSession(conversationId: string, opts?: SessionOpts): Promise<void>;

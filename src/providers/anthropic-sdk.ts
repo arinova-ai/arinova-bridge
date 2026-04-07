@@ -54,6 +54,8 @@ export class AnthropicSdkProvider implements Provider {
     this.startIdleSweep();
   }
 
+  warmup(): void { /* no-op for anthropic-sdk */ }
+
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
     const content = buildContextPrefix(opts) + opts.content;

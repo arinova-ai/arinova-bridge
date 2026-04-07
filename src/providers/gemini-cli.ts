@@ -70,6 +70,8 @@ export class GeminiCliProvider implements Provider {
     this.db = initDb(config.dbPath);
   }
 
+  warmup(): void { /* no-op for gemini-cli */ }
+
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
     const systemPromptPrefix = opts.systemPrompt ? `<system-prompt>\n${opts.systemPrompt}\n</system-prompt>\n\n` : "";

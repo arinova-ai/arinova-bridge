@@ -79,6 +79,17 @@ if (activeAgents.length === 0) {
 
 logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents.map((a) => a.name).join(", ")}]`);
 
+// Pre-create LLM sessions so A2A works immediately after boot
+for (const { name, provider, agentConfig } of activeAgents) {
+  const warmupId = `a2a:1:${name}`;
+  provider.warmup(warmupId, {
+    cwd: agentConfig.cwd,
+    model: agentConfig.model,
+    systemPrompt: agentConfig.systemPrompt,
+  });
+  logger.info(`[${name}] pre-warmed session ${warmupId}`);
+}
+
 // Start IPC server for A2A communication
 const ipcRouter = createIpcRouter(activeAgents, providers);
 const stopIpc = startIpcServer(ipcRouter, logger);
