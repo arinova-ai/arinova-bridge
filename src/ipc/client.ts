@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import type { IpcRequest, IpcResponse } from "./types.js";
 
 const SOCKET_PATH = path.join(homedir(), ".arinova-bridge", "bridge.sock");
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 600_000;
 
 function ensureSocket(): void {
   if (!fs.existsSync(SOCKET_PATH)) {

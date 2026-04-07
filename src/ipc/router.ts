@@ -55,7 +55,7 @@ export async function deliverToAgent(
     const model = opts?.model ?? target.agentConfig.model;
 
     const controller = new AbortController();
-    const timeout = opts?.timeoutMs ?? 60_000;
+    const timeout = opts?.timeoutMs ?? 600_000;
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
