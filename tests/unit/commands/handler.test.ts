@@ -309,20 +309,234 @@ describe("CommandHandler", () => {
   });
 
   describe("/compact", () => {
-    it("works for anthropic provider", async () => {
+    // ── Anthropic provider: native --resume --compact ──
+
+    it("anthropic: uses native reset+resume with compact flag", async () => {
       const ctx = createCtx();
       await handler.handle("/compact", ctx);
+
+      expect(anthropicProvider.getSessionInfo).toHaveBeenCalledWith("conv-1");
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
+        "conv-1",
+        expect.objectContaining({ compact: true }),
+      );
+      expect(anthropicProvider.resumeSession).toHaveBeenCalledWith(
+        "conv-1",
+        "anthropic-oauth-session-id",
+        expect.objectContaining({ compact: true }),
+      );
       expect(ctx.completed).toContain("已壓縮");
     });
 
-    it("rejects for non-anthropic provider", async () => {
-      // Switch to openai
-      const ctx = createCtx("conv-2");
-      await handler.handle("/provider openai-api", ctx);
+    it("anthropic: reports no session when getSessionInfo returns null", async () => {
+      vi.mocked(anthropicProvider.getSessionInfo).mockReturnValue(null);
+      const ctx = createCtx();
+      await handler.handle("/compact", ctx);
 
-      const ctx2 = createCtx("conv-2");
-      await handler.handle("/compact", ctx2);
-      expect(ctx2.completed).toContain("不支援");
+      expect(ctx.completed).toContain("目前無活躍的 session");
+      expect(anthropicProvider.resetSession).not.toHaveBeenCalled();
+    });
+
+    it("anthropic: skips resumeSession when sessionId is absent", async () => {
+      vi.mocked(anthropicProvider.getSessionInfo).mockReturnValue({
+        sessionId: undefined as unknown as string,
+        alive: true,
+        cwd: "/test",
+        model: "sonnet",
+      });
+      const ctx = createCtx();
+      await handler.handle("/compact", ctx);
+
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
+        "conv-1",
+        expect.objectContaining({ compact: true }),
+      );
+      expect(anthropicProvider.resumeSession).not.toHaveBeenCalled();
+      expect(ctx.completed).toContain("已壓縮");
+    });
+
+    // ── Non-Anthropic providers: bridgeSessionStore.compact() ──
+
+    it("openai: compacts via sessionStore and resets session", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function) => {
+          // Simulate the summariser being called with middle messages
+          await summariser(
+            [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }],
+            undefined,
+          );
+        }),
+      };
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      // Switch to openai provider
+      const ctx = createCtx("conv-3");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-3");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-3", expect.any(Function));
+      expect(openaiProvider.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: "conv-3:compact",
+          systemPrompt: expect.stringContaining("summariser"),
+        }),
+      );
+      expect(openaiProvider.resetSession).toHaveBeenCalledWith(
+        "conv-3",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+      expect(ctx2.completed).toContain("已壓縮");
+    });
+
+    it("gemini: compacts via sessionStore and resets session", async () => {
+      const geminiProvider = createMockProvider("gemini-api", "gemini-cli", "Gemini");
+      const providersWithGemini = new Map<string, Provider>();
+      providersWithGemini.set("anthropic-oauth", anthropicProvider);
+      providersWithGemini.set("gemini-api", geminiProvider);
+
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function) => {
+          await summariser(
+            [{ role: "user", content: "test msg" }],
+            "existing summary",
+          );
+        }),
+      };
+      const configWithGemini = {
+        ...createMockConfig(),
+        providers: [
+          { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+          { id: "gemini-api", type: "gemini-cli", displayName: "Gemini", enabled: true, apiKey: "gm-test" },
+        ],
+      };
+      const handlerWithGemini = new CommandHandler(
+        providersWithGemini,
+        configWithGemini,
+        mockSessionStore as any,
+      );
+
+      // Switch to gemini
+      const ctx = createCtx("conv-4");
+      await handlerWithGemini.handle("/provider gemini-api", ctx);
+
+      const ctx2 = createCtx("conv-4");
+      await handlerWithGemini.handle("/compact", ctx2);
+
+      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-4", expect.any(Function));
+      // Summariser should include existing summary in the prompt
+      expect(geminiProvider.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: "conv-4:compact",
+          content: expect.stringContaining("existing summary"),
+        }),
+      );
+      expect(geminiProvider.resetSession).toHaveBeenCalledWith(
+        "conv-4",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+      expect(ctx2.completed).toContain("已壓縮");
+    });
+
+    it("non-anthropic: summariser prompt includes token budget", async () => {
+      let capturedPrompt = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function) => {
+          // Wrap sendMessage to capture the prompt
+          const origSendMessage = openaiProvider.sendMessage;
+          vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+            capturedPrompt = opts.content;
+            return { text: "summary" };
+          });
+          await summariser([{ role: "user", content: "msg" }], undefined);
+          openaiProvider.sendMessage = origSendMessage;
+        }),
+      };
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-5");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-5");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(capturedPrompt).toContain("tokens");
+    });
+
+    // ── Edge cases ──
+
+    it("non-anthropic: fails gracefully when sessionStore is not available", async () => {
+      // Create handler WITHOUT sessionStore
+      const handlerNoStore = new CommandHandler(providers, createMockConfig());
+
+      // Switch to openai
+      const ctx = createCtx("conv-6");
+      await handlerNoStore.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-6");
+      await handlerNoStore.handle("/compact", ctx2);
+
+      expect(ctx2.completed).toContain("session store 未啟用");
+    });
+
+    it("non-anthropic: compact failure replies error and keeps session intact", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async () => {
+          throw new Error("DB write failed");
+        }),
+      };
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-7");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-7");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(ctx2.completed).toContain("compact 失敗");
+      expect(ctx2.completed).toContain("session 維持原狀");
+      expect(ctx2.completed).toContain("DB write failed");
+      // resetSession must NOT be called — session stays as-is
+      expect(openaiProvider.resetSession).not.toHaveBeenCalled();
+    });
+
+    it("non-anthropic: summariser API failure replies error and keeps session intact", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function) => {
+          await summariser([{ role: "user", content: "msg" }], undefined);
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockRejectedValue(new Error("API timeout"));
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-8");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-8");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(ctx2.completed).toContain("compact 失敗");
+      expect(ctx2.completed).toContain("session 維持原狀");
+      expect(ctx2.completed).toContain("API timeout");
+      // resetSession must NOT be called — session stays as-is
+      expect(openaiProvider.resetSession).not.toHaveBeenCalled();
     });
   });
 
