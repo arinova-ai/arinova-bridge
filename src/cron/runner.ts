@@ -112,12 +112,12 @@ export class CronRunner {
         source: `cron:${job.id}`,
         bridgeSessionStore: this.bridgeSessionStore,
       });
+      // Only record on successful delivery
+      this.store.recordRun(job.id);
     } catch (err) {
       log.warn(`cron[${job.id}] deliver failed: ${err instanceof Error ? err.message : String(err)}`);
+      return; // Don't count failed deliveries
     }
-
-    // Record the run
-    this.store.recordRun(job.id);
 
     // Re-check if auto-disabled (max_runs reached)
     const updated = this.store.get(job.id);

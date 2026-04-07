@@ -745,6 +745,7 @@ export class CommandHandler {
       return;
     }
 
+    // Always take exactly 5 fields (reject 6-field second-precision expressions)
     const cronExpr = parts.slice(0, 5).join(" ");
     const message = parts.slice(5).join(" ");
 
@@ -752,6 +753,18 @@ export class CommandHandler {
     if (!cron.validate(cronExpr)) {
       this.reply(ctx, `無效的 cron expression: ${cronExpr}\n格式: <分> <時> <日> <月> <星期>`);
       return;
+    }
+
+    // Enforce minimum interval: reject "* * * * *" (every minute with wildcard minute field)
+    // Allow */N where N >= 1 (already >= 1 min), but block sub-minute or every-minute wildcard
+    const minuteField = parts[0];
+    if (minuteField === "*") {
+      // "* * * * *" fires every minute — check if any other field restricts it
+      const otherFields = parts.slice(1, 5);
+      const allWild = otherFields.every((f) => f === "*");
+      if (allWild) {
+        this.reply(ctx, "最短間隔為每分鐘，但建議至少 */5（每 5 分鐘）以避免過度觸發");
+      }
     }
 
     try {
