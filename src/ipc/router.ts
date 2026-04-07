@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
 
@@ -19,6 +18,7 @@ export interface DeliverResult {
 
 /**
  * Deliver a message to a target agent, processing it as if a user sent it.
+ * Sessions are auto-created on first delivery and reused for subsequent calls.
  */
 export async function deliverToAgent(
   target: ActiveAgent,
@@ -32,51 +32,49 @@ export async function deliverToAgent(
     throw new Error("A2A recursion limit reached");
   }
 
-  const syntheticId = `${A2A_PREFIX}${currentDepth + 1}:${randomUUID()}`;
+  // Use a stable conversationId so sessions persist and are reused across A2A calls.
+  const syntheticId = `${A2A_PREFIX}${currentDepth + 1}:${target.name}`;
   const start = Date.now();
 
-  try {
-    let handled = false;
-    let responseText = "";
+  let handled = false;
+  let responseText = "";
 
-    const cmdResult = await target.commandHandler.handle(content, {
-      conversationId: syntheticId,
-      sendChunk: (text) => { responseText += text; },
-      sendComplete: (text) => { responseText = text; },
-      sendError: (text) => { responseText = `Error: ${text}`; },
-      uploadFile: async () => ({ url: "", fileName: "", fileType: "", fileSize: 0 }),
-    });
+  const cmdResult = await target.commandHandler.handle(content, {
+    conversationId: syntheticId,
+    sendChunk: (text) => { responseText += text; },
+    sendComplete: (text) => { responseText = text; },
+    sendError: (text) => { responseText = `Error: ${text}`; },
+    uploadFile: async () => ({ url: "", fileName: "", fileType: "", fileSize: 0 }),
+  });
 
-    handled = cmdResult.handled;
+  handled = cmdResult.handled;
 
-    if (!handled) {
-      responseText = "";
-      const cwd = opts?.cwd ?? target.agentConfig.cwd;
-      const model = opts?.model ?? target.agentConfig.model;
+  if (!handled) {
+    responseText = "";
+    const cwd = opts?.cwd ?? target.agentConfig.cwd;
+    const model = opts?.model ?? target.agentConfig.model;
 
-      const controller = new AbortController();
-      const timeout = opts?.timeoutMs ?? 60_000;
-      const timer = setTimeout(() => controller.abort(), timeout);
+    const controller = new AbortController();
+    const timeout = opts?.timeoutMs ?? 60_000;
+    const timer = setTimeout(() => controller.abort(), timeout);
 
-      try {
-        const result = await target.provider.sendMessage({
-          conversationId: syntheticId,
-          content,
-          cwd,
-          model,
-          onChunk: (text) => { responseText += text; },
-          signal: controller.signal,
-        });
-        responseText = result.text;
-      } finally {
-        clearTimeout(timer);
-      }
+    try {
+      const result = await target.provider.sendMessage({
+        conversationId: syntheticId,
+        content,
+        cwd,
+        model,
+        systemPrompt: target.agentConfig.systemPrompt,
+        onChunk: (text) => { responseText += text; },
+        signal: controller.signal,
+      });
+      responseText = result.text;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return { text: responseText, durationMs: Date.now() - start };
-  } finally {
-    try { await target.provider.resetSession(syntheticId); } catch { /* best effort */ }
   }
+
+  return { text: responseText, durationMs: Date.now() - start };
 }
 
 // --- Watch subscribers ---
