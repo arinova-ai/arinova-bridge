@@ -2,7 +2,8 @@ import type { SendMessageOpts } from "../providers/types.js";
 
 /**
  * Build a context prefix from group conversation metadata, reply-to info,
- * and recent history. Returns an empty string if there's nothing to prepend.
+ * and bridge session history. Returns an empty string if there's nothing
+ * to prepend.
  *
  * The prefix is designed to be prepended to the user's message so that
  * providers (which may not have access to the chat-level context) can
@@ -22,8 +23,12 @@ export function buildContextPrefix(opts: SendMessageOpts): string {
     parts.push(`[Message from user: ${opts.senderUsername}]`);
   }
 
-  // Recent history (only include if there IS history)
-  if (opts.history?.length) {
+  // Bridge session history (managed by BridgeSessionStore, replaces old
+  // ctx.history which was limited to 5 messages from Arinova SDK).
+  if (opts.bridgeSessionContext) {
+    parts.push(`[Recent history]\n${opts.bridgeSessionContext}\n[/Recent history]`);
+  } else if (opts.history?.length) {
+    // Fallback: use Arinova SDK history if no bridge session context
     const lines = opts.history.map((h) => {
       const sender = h.senderUsername ?? h.senderAgentName ?? h.role;
       return `${sender}: ${h.content}`;

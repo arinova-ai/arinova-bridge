@@ -10,6 +10,9 @@ import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
+import { BridgeSessionStore, SUMMARY_MAX_TOKENS } from "./session/bridge-session.js";
+import { homedir } from "node:os";
+import path from "node:path";
 
 function formatResetIn(epoch: number): string {
   const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
@@ -30,6 +33,12 @@ const logger = createLogger("bridge");
 const config = loadConfig();
 
 logger.info(`Loaded config: defaultProvider=${config.defaultProvider} mcpConfigPath=${config.defaults.mcpConfigPath ?? "(none, will auto-generate)"} agents=${config.agents.length}`);
+
+// Bridge session store — maintains conversation history across provider restarts
+const bridgeSessionStore = new BridgeSessionStore(
+  path.join(homedir(), ".arinova-bridge", "sessions"),
+  logger,
+);
 
 // Shared resources
 const providers = await createProviders(config, logger);
@@ -92,7 +101,10 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     defaults: { ...config.defaults, cwd: agentCfg.cwd },
   };
 
-  const commandHandler = new CommandHandler(providers, agentBridgeConfig);
+  const commandHandler = new CommandHandler(providers, agentBridgeConfig, bridgeSessionStore);
+  commandHandler.onSessionClear = (conversationId) => {
+    bridgeSessionStore.clear(conversationId);
+  };
 
   // Per-agent HUD WebSocket
   const hudWs = new HudWebSocket(hudWsUrl, agentCfg.botToken, logger);
@@ -138,6 +150,17 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       hudWs.sendTask(agentName, { status: "started", task: content });
 
+      // Build context from bridge session BEFORE adding current message
+      // (so the current message isn't duplicated in the history prefix)
+      const bridgeSessionContext = bridgeSessionStore.buildContext(sessionId) || undefined;
+
+      // Record user message in bridge session
+      bridgeSessionStore.addUserMessage(sessionId, content, ctx.senderUsername, {
+        model,
+        userId: ctx.senderUserId,
+        username: ctx.senderUsername,
+      });
+
       const sendResult = await msgProvider.sendMessage({
         conversationId: sessionId,
         content,
@@ -153,9 +176,35 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         senderUsername: ctx.senderUsername,
         members: ctx.members,
         replyTo: ctx.replyTo,
-        history: ctx.history,
+        bridgeSessionContext,
         fetchHistory: ctx.fetchHistory,
       });
+
+      // Record assistant response in bridge session
+      bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });
+
+      // Auto-compact if context exceeds 80% of model's window
+      if (bridgeSessionStore.needsCompact(sessionId, model)) {
+        logger.info(`[${agentName}] context threshold reached for ${sessionId}, compacting...`);
+        await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
+          // Use the same provider to generate a summary
+          let summary = "";
+          const tokenBudget = `請控制在 ${SUMMARY_MAX_TOKENS} tokens 以內。`;
+          const summaryPrompt = existingSummary
+            ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`
+            : `請將以下對話紀錄摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`;
+
+          const compactResult = await msgProvider.sendMessage({
+            conversationId: `${sessionId}:compact`,
+            content: summaryPrompt,
+            cwd,
+            model,
+            onChunk: (text) => { summary = text; },
+            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+          });
+          return compactResult.text;
+        });
+      }
 
       ctx.sendComplete(sendResult.text);
 

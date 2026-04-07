@@ -59,6 +59,8 @@ export interface SendMessageOpts {
   history?: HistoryMessage[];
   /** Fetch full conversation history with pagination. */
   fetchHistory?: (options?: FetchHistoryOptions) => Promise<FetchHistoryResult>;
+  /** Pre-built bridge session context string (replaces history when present). */
+  bridgeSessionContext?: string;
 }
 
 export interface FetchHistoryOptions {

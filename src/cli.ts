@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 
-const VERSION = "0.0.1";
+const VERSION = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+).version as string;
 const PID_FILE = path.join(homedir(), ".arinova-bridge", "bridge.pid");
 
 function showHelp(): void {

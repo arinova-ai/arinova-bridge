@@ -4,10 +4,12 @@ import { homedir } from "node:os";
 import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
+import type { BridgeSessionStore } from "../session/bridge-session.js";
 
 export class CommandHandler {
   private providers: Map<string, Provider>;
   private config: BridgeConfig;
+  private sessionStore?: BridgeSessionStore;
 
   /** Per-conversation provider overrides (set by /provider). */
   private providerOverrides = new Map<string, string>();
@@ -16,9 +18,13 @@ export class CommandHandler {
   /** Per-conversation model overrides (set by /model). */
   private modelOverrides = new Map<string, string>();
 
-  constructor(providers: Map<string, Provider>, config: BridgeConfig) {
+  /** Called when a session is cleared (/new, /model reset). */
+  onSessionClear?: (conversationId: string) => void;
+
+  constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
     this.providers = providers;
     this.config = config;
+    this.sessionStore = sessionStore;
   }
 
   /** Get the effective provider for a conversation. */
@@ -83,6 +89,9 @@ export class CommandHandler {
       case "hud-for-usage":
         this.handleUsage(ctx);
         return { handled: true };
+      case "search":
+        this.handleSearch(arg, ctx);
+        return { handled: true };
       case "provider":
         await this.handleProvider(arg, ctx);
         return { handled: true };
@@ -126,6 +135,7 @@ export class CommandHandler {
       { id: "resume", name: "Resume", description: "恢復指定的 session (/resume <session-id>)" },
       { id: "model", name: "Model", description: "切換模型" },
       { id: "compact", name: "Compact", description: "壓縮對話 context (僅 Anthropic)" },
+      { id: "search", name: "Search", description: "搜尋歷史對話 (/search <關鍵字>)" },
       { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
     ];
 
@@ -157,6 +167,7 @@ export class CommandHandler {
     const model = this.getModelForConversation(ctx.conversationId);
 
     await provider.resetSession(ctx.conversationId, { cwd, model });
+    this.onSessionClear?.(ctx.conversationId);
 
     this.reply(
       ctx,
@@ -252,6 +263,7 @@ export class CommandHandler {
     }
 
     lines.push(
+      "/search <關鍵字> — 搜尋歷史對話",
       "/notes — 列出對話筆記",
       "/note-add <標題> | <內容> — 新增筆記",
       "/note-edit <id> <標題> | <內容> — 編輯筆記",
@@ -632,6 +644,39 @@ export class CommandHandler {
       this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
+  }
+
+  // --- Search Command ---
+
+  private handleSearch(arg: string, ctx: CommandContext): void {
+    if (!this.sessionStore) {
+      this.reply(ctx, "搜尋功能不可用");
+      return;
+    }
+
+    if (!arg) {
+      this.reply(ctx, "用法: /search <關鍵字>\n例如: /search SQLite session");
+      return;
+    }
+
+    const results = this.sessionStore.search(arg, 10);
+
+    if (results.length === 0) {
+      this.reply(ctx, `找不到包含「${arg}」的歷史對話`);
+      return;
+    }
+
+    const lines = [`搜尋「${arg}」— 找到 ${results.length} 筆結果:\n`];
+    for (const msg of results) {
+      const sender = msg.sender ?? msg.role;
+      const time = new Date(msg.timestamp).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      const preview = msg.content.length > 120
+        ? msg.content.slice(0, 120) + "…"
+        : msg.content;
+      lines.push(`**${sender}** _(${time})_\n${preview}\n`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
   }
 
   // --- Provider Command ---
