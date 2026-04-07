@@ -217,6 +217,7 @@ async function cmdAgents(args: string[]): Promise<void> {
   const history = parseFlag(args, "--history");
   const watch = hasFlag(args, "--watch");
   const content = parseFlag(args, "--content");
+  const source = parseFlag(args, "--source");
   const cwd = parseFlag(args, "--cwd");
   const model = parseFlag(args, "--model");
   const wait = parseFlag(args, "--wait");
@@ -228,9 +229,10 @@ async function cmdAgents(args: string[]): Promise<void> {
       console.error("Missing --content flag.\nUsage: arinova-bridge agents --deliver <name> --content \"message\"");
       process.exit(1);
     }
-    const params: { target: string; content: string; cwd?: string; model?: string; wait?: boolean } = {
+    const params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean } = {
       target: deliver, content,
     };
+    if (source) params.source = source;
     if (cwd) params.cwd = cwd;
     if (model) params.model = model;
     if (wait === "false") params.wait = false;

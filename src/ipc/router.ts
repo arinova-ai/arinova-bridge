@@ -1,5 +1,8 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("a2a");
 
 const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
@@ -23,7 +26,7 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string },
+  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -31,6 +34,10 @@ export async function deliverToAgent(
   if (currentDepth >= MAX_DEPTH) {
     throw new Error("A2A recursion limit reached");
   }
+
+  const from = opts?.source ?? "cli";
+  const preview = content.length > 80 ? content.slice(0, 80) + "..." : content;
+  log.info(`${from} → ${target.name}: ${preview}`);
 
   // Use a stable conversationId so sessions persist and are reused across A2A calls.
   const syntheticId = `${A2A_PREFIX}${currentDepth + 1}:${target.name}`;
@@ -74,7 +81,9 @@ export async function deliverToAgent(
     }
   }
 
-  return { text: responseText, durationMs: Date.now() - start };
+  const durationMs = Date.now() - start;
+  log.info(`${from} → ${target.name}: done (${durationMs}ms)`);
+  return { text: responseText, durationMs };
 }
 
 // --- Watch subscribers ---
@@ -165,19 +174,21 @@ function handleListAgents(id: number, agents: ActiveAgent[]): IpcResponse {
 async function handleDeliver(
   id: number,
   agents: ActiveAgent[],
-  params: { target: string; content: string; cwd?: string; model?: string; wait?: boolean },
+  params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean },
 ): Promise<IpcResponse> {
   const target = findAgent(agents, params.target);
   if (!target) return agentNotFound(id, params.target, agents);
 
+  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model };
+
   // Fire-and-forget mode
   if (params.wait === false) {
-    deliverToAgent(target, params.content, { cwd: params.cwd, model: params.model }).catch(() => {});
+    deliverToAgent(target, params.content, deliverOpts).catch(() => {});
     return { id, result: { agent: target.name, queued: true } };
   }
 
   try {
-    const result = await deliverToAgent(target, params.content, { cwd: params.cwd, model: params.model });
+    const result = await deliverToAgent(target, params.content, deliverOpts);
     return { id, result: { agent: target.name, text: result.text, durationMs: result.durationMs } };
   } catch (err) {
     return { id, error: { code: 2, message: err instanceof Error ? err.message : String(err) } };

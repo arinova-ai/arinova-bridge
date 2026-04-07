@@ -37,6 +37,7 @@ export interface IpcDeliverRequest {
   params: {
     target: string;
     content: string;
+    source?: string;  // sender agent/user name for logging
     cwd?: string;
     model?: string;
     wait?: boolean;  // default true; false = fire-and-forget
