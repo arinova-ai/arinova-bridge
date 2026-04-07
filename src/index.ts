@@ -91,7 +91,7 @@ for (const { name, provider, agentConfig } of activeAgents) {
 }
 
 // Start IPC server for A2A communication
-const ipcRouter = createIpcRouter(activeAgents, providers);
+const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore);
 const stopIpc = startIpcServer(ipcRouter, logger);
 
 

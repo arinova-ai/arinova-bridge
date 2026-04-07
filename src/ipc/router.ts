@@ -1,5 +1,6 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
+import type { BridgeSessionStore } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
 
 const log = createLogger("a2a");
@@ -26,7 +27,7 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string },
+  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -61,6 +62,9 @@ export async function deliverToAgent(
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
 
+    // Record user message (A2A inbound) in bridge session
+    opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
+
     const controller = new AbortController();
     const timeout = opts?.timeoutMs ?? 600_000;
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -79,6 +83,9 @@ export async function deliverToAgent(
     } finally {
       clearTimeout(timer);
     }
+
+    // Record assistant response (A2A outbound) in bridge session
+    opts?.bridgeSessionStore?.addAssistantMessage(syntheticId, responseText, target.name, { model });
   }
 
   const durationMs = Date.now() - start;
@@ -120,13 +127,14 @@ function agentNotFound(id: number, name: string, agents: ActiveAgent[]): IpcResp
 export function createIpcRouter(
   agents: ActiveAgent[],
   providers: Map<string, Provider>,
+  bridgeSessionStore?: BridgeSessionStore,
 ): (req: IpcRequest) => Promise<IpcResponse> {
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
       case "list-agents":
         return handleListAgents(req.id, agents);
       case "deliver":
-        return handleDeliver(req.id, agents, req.params);
+        return handleDeliver(req.id, agents, req.params, bridgeSessionStore);
       case "agent-status":
         return handleAgentStatus(req.id, agents, req.params);
       case "ping":
@@ -175,11 +183,12 @@ async function handleDeliver(
   id: number,
   agents: ActiveAgent[],
   params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean },
+  bridgeSessionStore?: BridgeSessionStore,
 ): Promise<IpcResponse> {
   const target = findAgent(agents, params.target);
   if (!target) return agentNotFound(id, params.target, agents);
 
-  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model };
+  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore };
 
   // Fire-and-forget mode
   if (params.wait === false) {
