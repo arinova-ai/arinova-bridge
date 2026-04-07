@@ -39,8 +39,8 @@ export async function deliverToAgent(
   const preview = content.length > 80 ? content.slice(0, 80) + "..." : content;
   log.info(`${from} → ${target.name}: ${preview}`);
 
-  // Use a stable conversationId so sessions persist and are reused across A2A calls.
-  const syntheticId = `${A2A_PREFIX}${currentDepth + 1}:${target.name}`;
+  // Use the same session as Chat — single session per agent
+  const syntheticId = `${target.name}:default`;
   const start = Date.now();
 
   let handled = false;

@@ -81,7 +81,7 @@ logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents
 
 // Pre-create LLM sessions so A2A works immediately after boot
 for (const { name, provider, agentConfig } of activeAgents) {
-  const warmupId = `a2a:1:${name}`;
+  const warmupId = `${name}:default`;
   provider.warmup(warmupId, {
     cwd: agentConfig.cwd,
     model: agentConfig.model,
@@ -129,8 +129,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
-    // Prefix conversationId with agent name to isolate sessions across agents
-    const sessionId = `${agentName}:${conversationId}`;
+    // Single session per agent — Chat and A2A share the same context
+    const sessionId = `${agentName}:default`;
 
     // Try command handling first
     const result = await commandHandler.handle(content, {
