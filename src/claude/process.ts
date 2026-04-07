@@ -160,7 +160,13 @@ export class ClaudeProcess {
       env.PATH = env.PATH.split(":").filter((p) => !p.includes("node_modules/.bin")).join(":");
     }
 
-    log.info(`claude-process: spawning args=${argv.filter(a => a !== "").join(" ")}`);
+    // Redact the long --append-system-prompt value from log output
+    const redactedArgs = argv.filter(a => a !== "");
+    const sysIdx = redactedArgs.indexOf("--append-system-prompt");
+    if (sysIdx !== -1 && sysIdx + 1 < redactedArgs.length) {
+      redactedArgs[sysIdx + 1] = "[...]";
+    }
+    log.info(`claude-process: spawning args=${redactedArgs.join(" ")}`);
 
     const child = spawn(claudePath, argv, {
       env,
