@@ -8,6 +8,7 @@ import { type BridgeSessionStore, SUMMARY_MAX_TOKENS } from "../session/bridge-s
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import cron from "node-cron";
+import { CronExpressionParser } from "cron-parser";
 
 export class CommandHandler {
   private providers: Map<string, Provider>;
@@ -798,8 +799,16 @@ export class CommandHandler {
         ? new Date(job.lastRunAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })
         : "—";
       const maxInfo = job.maxRuns !== null ? ` (${job.runCount}/${job.maxRuns})` : ` (${job.runCount}x)`;
+      let nextRun = "—";
+      if (job.enabled) {
+        try {
+          const expr = CronExpressionParser.parse(job.cronExpr);
+          nextRun = expr.next().toDate().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+        } catch { /* invalid expr, skip */ }
+      }
       lines.push(`${status} \`${job.id}\`  \`${job.cronExpr}\`  ${job.message}`);
       lines.push(`   Last: ${lastRun}${maxInfo}`);
+      lines.push(`   Next: ${nextRun}`);
     }
 
     this.reply(ctx, lines.join("\n"));

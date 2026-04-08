@@ -3,6 +3,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { CronExpressionParser } from "cron-parser";
 
 const VERSION = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
@@ -458,8 +459,16 @@ async function cmdCron(args: string[]): Promise<void> {
         ? new Date(job.lastRunAt).toLocaleString()
         : "—";
       const maxInfo = job.maxRuns !== null ? `${job.runCount}/${job.maxRuns}` : `${job.runCount}x`;
+      let nextRun = "—";
+      if (job.enabled) {
+        try {
+          const expr = CronExpressionParser.parse(job.cronExpr);
+          nextRun = expr.next().toDate().toLocaleString();
+        } catch { /* skip */ }
+      }
       console.log(`  ${status} ${job.id}  ${job.agentName}  ${job.cronExpr}  ${job.message}`);
       console.log(`     Last: ${lastRun}  Runs: ${maxInfo}`);
+      console.log(`     Next: ${nextRun}`);
     }
   }
 }
