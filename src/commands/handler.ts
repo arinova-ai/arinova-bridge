@@ -702,9 +702,16 @@ export class CommandHandler {
     const parts = arg.split(/\s+/);
     const sub = parts[0]?.toLowerCase();
 
-    if (!sub || sub === "help") {
+    if (!sub) {
+      // No subcommand — default to list
+      this.handleCronList(ctx);
+      return;
+    }
+
+    if (sub === "help") {
       this.reply(ctx, [
         "用法:",
+        "  /cron              顯示 cron list",
         "  /cron add <cron-expression> <message>",
         "  /cron list",
         "  /cron delete <id|all>",

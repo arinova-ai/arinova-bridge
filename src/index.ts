@@ -100,7 +100,7 @@ for (const { name, provider, agentConfig } of activeAgents) {
 }
 
 // Start IPC server for A2A communication
-const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore);
+const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner });
 const stopIpc = startIpcServer(ipcRouter, logger);
 
 // Restore cron jobs now that agents + IPC are ready

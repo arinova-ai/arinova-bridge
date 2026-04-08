@@ -25,6 +25,7 @@ COMMANDS
   start    Start the bridge server (writes PID to ~/.arinova-bridge/bridge.pid)
   stop     Stop the running bridge server (sends SIGTERM via PID file)
   agents   A2A agent management (list, deliver, broadcast, status)
+  cron     Cron job management (add, list, delete)
   config   Show current configuration (secrets masked)
   setup    Interactive setup wizard (providers, bot token, statusLine)
   login    OAuth login for a specific provider (without re-running full setup)
@@ -49,6 +50,17 @@ AGENTS SUBCOMMAND
   agents --handoff <from> <to>              Hand off cwd/context from one agent to another
   agents --history [name]                   Show recent task history
   agents --watch                            Stream live agent activity
+
+CRON SUBCOMMAND
+  cron                                      List all cron jobs (all agents)
+  cron add --agent <name> --expr '*/10 * * * *' --message 'check status'
+                                            Add a cron job for an agent
+  cron add --agent <name> --expr '0 9 * * *' --message 'daily report' --max-runs 30
+                                            Add with max execution count
+  cron list                                 List all cron jobs
+  cron list --agent <name>                  List cron jobs for a specific agent
+  cron delete --agent <name> --id <job-id>  Delete a specific cron job
+  cron delete --agent <name> --id all       Delete all cron jobs for an agent
 
 CONFIG FILE
   ~/.arinova-bridge/config.json
@@ -368,6 +380,90 @@ async function cmdAgents(args: string[]): Promise<void> {
   }
 }
 
+async function cmdCron(args: string[]): Promise<void> {
+  const { sendIpcRequest } = await import("./ipc/client.js");
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "add") {
+    const agent = parseFlag(args, "--agent");
+    const expr = parseFlag(args, "--expr");
+    const message = parseFlag(args, "--message");
+    const maxRunsStr = parseFlag(args, "--max-runs");
+
+    if (!agent || !expr || !message) {
+      console.error("Usage: arinova-bridge cron add --agent <name> --expr '<cron>' --message '<msg>' [--max-runs <n>]");
+      process.exit(1);
+    }
+
+    const params: { agent: string; expr: string; message: string; maxRuns?: number } = { agent, expr, message };
+    if (maxRunsStr) {
+      const n = parseInt(maxRunsStr, 10);
+      if (isNaN(n) || n < 1) {
+        console.error("--max-runs must be a positive integer");
+        process.exit(1);
+      }
+      params.maxRuns = n;
+    }
+
+    const resp = await sendIpcRequest({ id: 1, method: "cron-add", params });
+    if ("error" in resp) ipcError(resp);
+
+    const r = resp.result as { id: string; agentName: string; cronExpr: string; message: string };
+    console.log(`Added cron job: ${r.id}`);
+    console.log(`  Agent: ${r.agentName}`);
+    console.log(`  Schedule: ${r.cronExpr}`);
+    console.log(`  Message: ${r.message}`);
+  } else if (sub === "delete" || sub === "del" || sub === "rm") {
+    const agent = parseFlag(args, "--agent");
+    const id = parseFlag(args, "--id");
+
+    if (!agent || !id) {
+      console.error("Usage: arinova-bridge cron delete --agent <name> --id <job-id|all>");
+      process.exit(1);
+    }
+
+    const resp = await sendIpcRequest({ id: 1, method: "cron-delete", params: { agent, id } });
+    if ("error" in resp) ipcError(resp);
+
+    const r = resp.result as { deleted: number; id?: string; agentName: string; cronExpr?: string; message?: string };
+    if (r.id) {
+      console.log(`Deleted cron job: ${r.id} (${r.cronExpr} — ${r.message})`);
+    } else {
+      console.log(`Deleted ${r.deleted} cron job(s) for agent "${r.agentName}"`);
+    }
+  } else {
+    // list (default)
+    const agent = parseFlag(args, "--agent");
+    const params: { agent?: string } = {};
+    if (agent) params.agent = agent;
+
+    const resp = await sendIpcRequest({ id: 1, method: "cron-list", params });
+    if ("error" in resp) ipcError(resp);
+
+    const jobs = resp.result as Array<{
+      id: string; agentName: string; cronExpr: string; message: string;
+      enabled: boolean; runCount: number; maxRuns: number | null;
+      lastRunAt: number | null; createdAt: number;
+    }>;
+
+    if (jobs.length === 0) {
+      console.log("No cron jobs.");
+      return;
+    }
+
+    console.log("Cron Jobs:\n");
+    for (const job of jobs) {
+      const status = job.enabled ? "✅" : "⏸️";
+      const lastRun = job.lastRunAt
+        ? new Date(job.lastRunAt).toLocaleString()
+        : "—";
+      const maxInfo = job.maxRuns !== null ? `${job.runCount}/${job.maxRuns}` : `${job.runCount}x`;
+      console.log(`  ${status} ${job.id}  ${job.agentName}  ${job.cronExpr}  ${job.message}`);
+      console.log(`     Last: ${lastRun}  Runs: ${maxInfo}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0] ?? "help";
@@ -381,6 +477,9 @@ async function main(): Promise<void> {
       break;
     case "agents":
       await cmdAgents(args.slice(1));
+      break;
+    case "cron":
+      await cmdCron(args.slice(1));
       break;
     case "config":
       cmdConfig();

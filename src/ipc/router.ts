@@ -1,7 +1,10 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
+import type { CronStore } from "../cron/store.js";
+import type { CronRunner } from "../cron/runner.js";
 import { createLogger } from "../util/logger.js";
+import cron from "node-cron";
 
 const log = createLogger("a2a");
 
@@ -128,6 +131,7 @@ export function createIpcRouter(
   agents: ActiveAgent[],
   providers: Map<string, Provider>,
   bridgeSessionStore?: BridgeSessionStore,
+  cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
 ): (req: IpcRequest) => Promise<IpcResponse> {
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
@@ -149,6 +153,12 @@ export function createIpcRouter(
         return handleHandoff(req.id, agents, req.params);
       case "history":
         return handleHistory(req.id, req.params);
+      case "cron-add":
+        return handleCronAdd(req.id, agents, req.params, cronDeps);
+      case "cron-list":
+        return handleCronList(req.id, agents, req.params, cronDeps);
+      case "cron-delete":
+        return handleCronDelete(req.id, agents, req.params, cronDeps);
       case "watch":
         // Watch is handled specially by the server (streaming), not here.
         // Return immediate ack.
@@ -397,4 +407,117 @@ function handleHistory(
 
   const result = filtered.slice(-limit);
   return { id, result };
+}
+
+// --- Cron Helpers ---
+
+function cronJobToResult(j: { id: string; agentName: string; cronExpr: string; message: string; enabled: boolean; runCount: number; maxRuns: number | null; lastRunAt: number | null; createdAt: number }) {
+  return { id: j.id, agentName: j.agentName, cronExpr: j.cronExpr, message: j.message, enabled: j.enabled, runCount: j.runCount, maxRuns: j.maxRuns, lastRunAt: j.lastRunAt, createdAt: j.createdAt };
+}
+
+// --- Cron Handlers ---
+
+function handleCronAdd(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent: string; expr: string; message: string; maxRuns?: number },
+  cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
+): IpcResponse {
+  if (!cronDeps) return { id, error: { code: 5, message: "Cron scheduler not enabled" } };
+
+  // Validate agent exists
+  const target = findAgent(agents, params.agent);
+  if (!target) return agentNotFound(id, params.agent, agents);
+
+  // Validate cron expression before touching DB
+  if (!cron.validate(params.expr)) {
+    return { id, error: { code: 6, message: `Invalid cron expression: "${params.expr}"` } };
+  }
+
+  let job;
+  try {
+    job = cronDeps.cronStore.add(target.name, params.expr, params.message, params.maxRuns);
+  } catch (err) {
+    return { id, error: { code: 6, message: err instanceof Error ? err.message : String(err) } };
+  }
+
+  // Schedule — rollback DB if scheduling fails
+  const scheduled = cronDeps.cronRunner.schedule(job);
+  if (!scheduled) {
+    cronDeps.cronStore.delete(job.id);
+    return { id, error: { code: 6, message: `Failed to schedule cron job "${params.expr}"` } };
+  }
+
+  return { id, result: { id: job.id, agentName: job.agentName, cronExpr: job.cronExpr, message: job.message } };
+}
+
+function handleCronList(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent?: string },
+  cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
+): IpcResponse {
+  if (!cronDeps) return { id, error: { code: 5, message: "Cron scheduler not enabled" } };
+
+  // When --agent is provided, validate the agent exists and use canonical name
+  if (params.agent) {
+    const target = findAgent(agents, params.agent);
+    if (!target) return agentNotFound(id, params.agent, agents);
+    const jobs = cronDeps.cronStore.listByAgent(target.name);
+    return { id, result: jobs.map(cronJobToResult) };
+  }
+
+  const jobs = cronDeps.cronStore.listAll();
+
+  const result = jobs.map((j) => ({
+    id: j.id,
+    agentName: j.agentName,
+    cronExpr: j.cronExpr,
+    message: j.message,
+    enabled: j.enabled,
+    runCount: j.runCount,
+    maxRuns: j.maxRuns,
+    lastRunAt: j.lastRunAt,
+    createdAt: j.createdAt,
+  }));
+
+  return { id, result };
+}
+
+function handleCronDelete(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent: string; id: string },
+  cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
+): IpcResponse {
+  if (!cronDeps) return { id, error: { code: 5, message: "Cron scheduler not enabled" } };
+
+  const target = findAgent(agents, params.agent);
+  if (!target) return agentNotFound(id, params.agent, agents);
+
+  if (params.id === "all") {
+    const jobs = cronDeps.cronStore.listByAgent(target.name);
+    for (const job of jobs) {
+      cronDeps.cronRunner.unschedule(job.id);
+    }
+    const count = cronDeps.cronStore.deleteAllByAgent(target.name);
+    return { id, result: { deleted: count, agentName: target.name } };
+  }
+
+  // Fuzzy match by prefix
+  const jobs = cronDeps.cronStore.listByAgent(target.name);
+  const matches = jobs.filter((j) => j.id.startsWith(params.id));
+
+  if (matches.length === 0) {
+    return { id, error: { code: 7, message: `No cron job matching "${params.id}" for agent "${target.name}"` } };
+  }
+  if (matches.length > 1) {
+    const list = matches.map((j) => `${j.id} (${j.cronExpr})`).join(", ");
+    return { id, error: { code: 8, message: `Multiple matches for "${params.id}": ${list}` } };
+  }
+
+  const job = matches[0];
+  cronDeps.cronRunner.unschedule(job.id);
+  cronDeps.cronStore.delete(job.id);
+  return { id, result: { deleted: 1, id: job.id, agentName: target.name, cronExpr: job.cronExpr, message: job.message } };
 }

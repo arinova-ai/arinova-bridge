@@ -91,6 +91,26 @@ export interface IpcHistoryRequest {
   params: { target?: string; limit?: number };
 }
 
+// --- Cron IPC Requests ---
+
+export interface IpcCronAddRequest {
+  id: number;
+  method: "cron-add";
+  params: { agent: string; expr: string; message: string; maxRuns?: number };
+}
+
+export interface IpcCronListRequest {
+  id: number;
+  method: "cron-list";
+  params: { agent?: string };
+}
+
+export interface IpcCronDeleteRequest {
+  id: number;
+  method: "cron-delete";
+  params: { agent: string; id: string };
+}
+
 export type IpcRequest =
   | IpcListAgentsRequest
   | IpcDeliverRequest
@@ -101,7 +121,10 @@ export type IpcRequest =
   | IpcAgentResetRequest
   | IpcHandoffRequest
   | IpcWatchRequest
-  | IpcHistoryRequest;
+  | IpcHistoryRequest
+  | IpcCronAddRequest
+  | IpcCronListRequest
+  | IpcCronDeleteRequest;
 
 // --- IPC Responses ---
 

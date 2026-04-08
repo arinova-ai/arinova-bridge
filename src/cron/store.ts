@@ -53,6 +53,7 @@ export class CronStore {
     getById: ReturnType<InstanceType<typeof Database>["prepare"]>;
     listByAgent: ReturnType<InstanceType<typeof Database>["prepare"]>;
     listEnabled: ReturnType<InstanceType<typeof Database>["prepare"]>;
+    listAll: ReturnType<InstanceType<typeof Database>["prepare"]>;
     deleteById: ReturnType<InstanceType<typeof Database>["prepare"]>;
     deleteByAgent: ReturnType<InstanceType<typeof Database>["prepare"]>;
     countByAgent: ReturnType<InstanceType<typeof Database>["prepare"]>;
@@ -101,6 +102,7 @@ export class CronStore {
       getById: this.db.prepare(`SELECT * FROM cron_jobs WHERE id = ?`),
       listByAgent: this.db.prepare(`SELECT * FROM cron_jobs WHERE agent_name = ? ORDER BY created_at`),
       listEnabled: this.db.prepare(`SELECT * FROM cron_jobs WHERE enabled = 1 ORDER BY agent_name, created_at`),
+      listAll: this.db.prepare(`SELECT * FROM cron_jobs ORDER BY agent_name, created_at`),
       deleteById: this.db.prepare(`DELETE FROM cron_jobs WHERE id = ?`),
       deleteByAgent: this.db.prepare(`DELETE FROM cron_jobs WHERE agent_name = ?`),
       countByAgent: this.db.prepare(`SELECT COUNT(*) AS cnt FROM cron_jobs WHERE agent_name = ?`),
@@ -155,6 +157,11 @@ export class CronStore {
 
   listEnabled(): CronJob[] {
     const rows = this.stmts.listEnabled.all([]) as CronJobRow[];
+    return rows.map((r) => this.rowToJob(r));
+  }
+
+  listAll(): CronJob[] {
+    const rows = this.stmts.listAll.all([]) as CronJobRow[];
     return rows.map((r) => this.rowToJob(r));
   }
 
