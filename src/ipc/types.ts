@@ -111,6 +111,32 @@ export interface IpcCronDeleteRequest {
   params: { agent: string; id: string };
 }
 
+// --- Spawn IPC Requests ---
+
+export interface IpcSpawnAddRequest {
+  id: number;
+  method: "spawn-add";
+  params: {
+    parentAgent: string;
+    targetAgent: string;
+    context: string;
+    model?: string;
+    cwd?: string;
+  };
+}
+
+export interface IpcSpawnListRequest {
+  id: number;
+  method: "spawn-list";
+  params: { agent?: string };
+}
+
+export interface IpcSpawnCancelRequest {
+  id: number;
+  method: "spawn-cancel";
+  params: { id: string };
+}
+
 export type IpcRequest =
   | IpcListAgentsRequest
   | IpcDeliverRequest
@@ -124,7 +150,10 @@ export type IpcRequest =
   | IpcHistoryRequest
   | IpcCronAddRequest
   | IpcCronListRequest
-  | IpcCronDeleteRequest;
+  | IpcCronDeleteRequest
+  | IpcSpawnAddRequest
+  | IpcSpawnListRequest
+  | IpcSpawnCancelRequest;
 
 // --- IPC Responses ---
 

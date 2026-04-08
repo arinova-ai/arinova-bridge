@@ -13,6 +13,8 @@ import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore, SUMMARY_MAX_TOKENS } from "./session/bridge-session.js";
 import { CronStore } from "./cron/store.js";
 import { CronRunner } from "./cron/runner.js";
+import { SpawnStore } from "./spawn/store.js";
+import { SpawnManager } from "./spawn/manager.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -48,6 +50,13 @@ const cronStore = new CronStore(
   logger,
 );
 const cronRunner = new CronRunner(cronStore);
+
+// Spawn manager
+const spawnStore = new SpawnStore(
+  path.join(homedir(), ".arinova-bridge", "spawn"),
+  logger,
+);
+const spawnManager = new SpawnManager(spawnStore);
 
 // Shared resources
 const providers = await createProviders(config, logger);
@@ -100,7 +109,7 @@ for (const { name, provider, agentConfig } of activeAgents) {
 }
 
 // Start IPC server for A2A communication
-const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner });
+const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner }, spawnManager);
 const stopIpc = startIpcServer(ipcRouter, logger);
 
 // Restore cron jobs now that agents + IPC are ready
@@ -109,6 +118,10 @@ const restoredCronJobs = cronRunner.restoreAll();
 if (restoredCronJobs > 0) {
   logger.info(`Restored ${restoredCronJobs} cron job(s)`);
 }
+
+// Initialize spawn manager and recover stale jobs
+spawnManager.setAgents(activeAgents, bridgeSessionStore);
+spawnManager.recoverStale();
 
 
 async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
@@ -134,6 +147,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   };
   commandHandler.cronStore = cronStore;
   commandHandler.cronRunner = cronRunner;
+  commandHandler.spawnManager = spawnManager;
   commandHandler.agentName = agentName;
 
   // Per-agent HUD WebSocket
@@ -330,6 +344,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 async function shutdown() {
   logger.info("Shutting down...");
   cronRunner.stopAll();
+  spawnManager.stopAll();
   stopIpc();
   hudMonitor.stop();
   stopRefreshTimer();

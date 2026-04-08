@@ -7,6 +7,7 @@ import type { CommandContext, CommandResult } from "./types.js";
 import { type BridgeSessionStore, SUMMARY_MAX_TOKENS } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
+import type { SpawnManager } from "../spawn/manager.js";
 import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 
@@ -28,7 +29,9 @@ export class CommandHandler {
   /** Cron scheduler (injected after startup). */
   cronStore?: CronStore;
   cronRunner?: CronRunner;
-  /** Agent name this handler belongs to (for cron ownership). */
+  /** Spawn manager (injected after startup). */
+  spawnManager?: SpawnManager;
+  /** Agent name this handler belongs to (for cron/spawn ownership). */
   agentName?: string;
 
   constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
@@ -120,6 +123,9 @@ export class CommandHandler {
       case "cron":
         this.handleCron(arg, ctx);
         return { handled: true };
+      case "spawn":
+        this.handleSpawn(arg, ctx);
+        return { handled: true };
       default:
         return { handled: false };
     }
@@ -151,6 +157,7 @@ export class CommandHandler {
       { id: "search", name: "Search", description: "搜尋歷史對話 (/search <關鍵字>)" },
       { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
       { id: "cron", name: "Cron", description: "定時任務排程 (/cron add|list|delete)" },
+      { id: "spawn", name: "Spawn", description: "子 Agent 任務派發 (/spawn list|cancel)" },
     ];
 
     return skills;
@@ -291,6 +298,8 @@ export class CommandHandler {
       "/cron add <expression> <message> — 新增定時任務",
       "/cron list — 列出所有定時任務",
       "/cron delete <id|all> — 刪除定時任務",
+      "/spawn list — 列出 spawn 子任務",
+      "/spawn cancel <id> — 取消 spawn 子任務",
     );
 
     lines.push("/help — 列出所有可用指令");
@@ -850,6 +859,78 @@ export class CommandHandler {
     this.cronRunner!.unschedule(job.id);
     this.cronStore!.delete(job.id);
     this.reply(ctx, `已刪除 cron job \`${job.id}\` (${job.cronExpr} — ${job.message})`);
+  }
+
+  // --- Spawn Command ---
+
+  private handleSpawn(arg: string, ctx: CommandContext): void {
+    if (!this.spawnManager || !this.agentName) {
+      this.reply(ctx, "Spawn manager 未啟用");
+      return;
+    }
+
+    const parts = arg.split(/\s+/);
+    const sub = parts[0]?.toLowerCase();
+
+    if (!sub || sub === "help") {
+      this.reply(ctx, [
+        "用法:",
+        "  /spawn list — 列出所有 spawn 子任務",
+        "  /spawn cancel <id> — 取消 spawn 子任務",
+        "",
+        "Spawn 透過 CLI 建立：",
+        "  arinova-bridge spawn --agent <parent> --target <target> --context '...'",
+      ].join("\n"));
+      return;
+    }
+
+    switch (sub) {
+      case "list":
+      case "ls":
+        this.handleSpawnList(ctx);
+        return;
+      case "cancel":
+        this.handleSpawnCancel(parts.slice(1), ctx);
+        return;
+      default:
+        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|cancel`);
+    }
+  }
+
+  private handleSpawnList(ctx: CommandContext): void {
+    const store = (this.spawnManager as any).store as import("../spawn/store.js").SpawnStore;
+    const jobs = store.listByParent(this.agentName!);
+
+    if (jobs.length === 0) {
+      this.reply(ctx, "目前沒有 spawn 子任務");
+      return;
+    }
+
+    const lines = ["Spawn Jobs:\n"];
+    for (const job of jobs) {
+      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      lines.push(`${statusIcon} \`${job.id}\`  → ${job.targetAgent}  ${job.status}  ${duration}`);
+      lines.push(`   ${time}  ${job.context.slice(0, 60)}${job.context.length > 60 ? "…" : ""}`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private handleSpawnCancel(parts: string[], ctx: CommandContext): void {
+    const target = parts[0];
+    if (!target) {
+      this.reply(ctx, "用法: /spawn cancel <id>");
+      return;
+    }
+
+    const cancelled = this.spawnManager!.cancel(target);
+    if (cancelled) {
+      this.reply(ctx, `已取消 spawn job \`${target}\``);
+    } else {
+      this.reply(ctx, `找不到或無法取消 spawn job "${target}"（可能已完成）`);
+    }
   }
 
   // --- Search Command ---

@@ -27,6 +27,7 @@ COMMANDS
   stop     Stop the running bridge server (sends SIGTERM via PID file)
   agents   A2A agent management (list, deliver, broadcast, status)
   cron     Cron job management (add, list, delete)
+  spawn    Session spawn management (add, list, cancel)
   config   Show current configuration (secrets masked)
   setup    Interactive setup wizard (providers, bot token, statusLine)
   login    OAuth login for a specific provider (without re-running full setup)
@@ -62,6 +63,13 @@ CRON SUBCOMMAND
   cron list --agent <name>                  List cron jobs for a specific agent
   cron delete --agent <name> --id <job-id>  Delete a specific cron job
   cron delete --agent <name> --id all       Delete all cron jobs for an agent
+
+SPAWN SUBCOMMAND
+  spawn --agent <parent> --target <target> --context 'task description'
+                                            Spawn a sub-session task
+  spawn list                                List all spawn jobs
+  spawn list --agent <name>                 List spawn jobs for a specific agent
+  spawn cancel --id <job-id>                Cancel a running spawn job
 
 CONFIG FILE
   ~/.arinova-bridge/config.json
@@ -473,6 +481,81 @@ async function cmdCron(args: string[]): Promise<void> {
   }
 }
 
+async function cmdSpawn(args: string[]): Promise<void> {
+  const { sendIpcRequest } = await import("./ipc/client.js");
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "cancel") {
+    const id = parseFlag(args, "--id");
+    if (!id) {
+      console.error("Usage: arinova-bridge spawn cancel --id <job-id>");
+      process.exit(1);
+    }
+    const resp = await sendIpcRequest({ id: 1, method: "spawn-cancel", params: { id } });
+    if ("error" in resp) ipcError(resp);
+    console.log(`Cancelled spawn job: ${id}`);
+  } else if (sub === "list" || !sub) {
+    const agent = parseFlag(args, "--agent");
+    const params: { agent?: string } = {};
+    if (agent) params.agent = agent;
+
+    const resp = await sendIpcRequest({ id: 1, method: "spawn-list", params });
+    if ("error" in resp) ipcError(resp);
+
+    const jobs = resp.result as Array<{
+      id: string; parentAgent: string; targetAgent: string; status: string;
+      durationMs: number | null; model: string | null; costUsd: number | null;
+      createdAt: number; completedAt: number | null;
+      contextPreview: string; resultPreview: string | null;
+    }>;
+
+    if (jobs.length === 0) {
+      console.log("No spawn jobs.");
+      return;
+    }
+
+    console.log("Spawn Jobs:\n");
+    for (const job of jobs) {
+      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      const cost = job.costUsd != null ? ` $${job.costUsd.toFixed(4)}` : "";
+      console.log(`  ${statusIcon} ${job.id}  ${job.parentAgent} → ${job.targetAgent}  ${job.status}  ${duration}${cost}`);
+      console.log(`     Context: ${job.contextPreview}`);
+      if (job.resultPreview) {
+        console.log(`     Result: ${job.resultPreview}`);
+      }
+    }
+  } else {
+    // spawn --agent <parent> --target <target> --context '...'
+    const agent = parseFlag(args, "--agent");
+    const target = parseFlag(args, "--target");
+    const context = parseFlag(args, "--context");
+    const model = parseFlag(args, "--model");
+    const cwd = parseFlag(args, "--cwd");
+
+    if (!agent || !target || !context) {
+      console.error("Usage: arinova-bridge spawn --agent <parent> --target <target> --context 'task description' [--model <model>] [--cwd <path>]");
+      process.exit(1);
+    }
+
+    const params: { parentAgent: string; targetAgent: string; context: string; model?: string; cwd?: string } = {
+      parentAgent: agent,
+      targetAgent: target,
+      context,
+    };
+    if (model) params.model = model;
+    if (cwd) params.cwd = cwd;
+
+    const resp = await sendIpcRequest({ id: 1, method: "spawn-add", params });
+    if ("error" in resp) ipcError(resp);
+
+    const r = resp.result as { id: string; parentAgent: string; targetAgent: string; status: string };
+    console.log(`Spawned: ${r.id}`);
+    console.log(`  ${r.parentAgent} → ${r.targetAgent}  status=${r.status}`);
+    console.log(`\nUse 'arinova-bridge spawn list' to check progress.`);
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0] ?? "help";
@@ -489,6 +572,9 @@ async function main(): Promise<void> {
       break;
     case "cron":
       await cmdCron(args.slice(1));
+      break;
+    case "spawn":
+      await cmdSpawn(args.slice(1));
       break;
     case "config":
       cmdConfig();

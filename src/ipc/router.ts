@@ -3,6 +3,7 @@ import type { Provider } from "../providers/types.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
+import type { SpawnManager } from "../spawn/manager.js";
 import { createLogger } from "../util/logger.js";
 import cron from "node-cron";
 
@@ -133,6 +134,7 @@ export function createIpcRouter(
   providers: Map<string, Provider>,
   bridgeSessionStore?: BridgeSessionStore,
   cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
+  spawnManager?: SpawnManager,
 ): (req: IpcRequest) => Promise<IpcResponse> {
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
@@ -160,6 +162,12 @@ export function createIpcRouter(
         return handleCronList(req.id, agents, req.params, cronDeps);
       case "cron-delete":
         return handleCronDelete(req.id, agents, req.params, cronDeps);
+      case "spawn-add":
+        return handleSpawnAdd(req.id, agents, req.params, spawnManager);
+      case "spawn-list":
+        return handleSpawnList(req.id, agents, req.params, spawnManager);
+      case "spawn-cancel":
+        return handleSpawnCancel(req.id, req.params, spawnManager);
       case "watch":
         // Watch is handled specially by the server (streaming), not here.
         // Return immediate ack.
@@ -523,4 +531,88 @@ function handleCronDelete(
   cronDeps.cronRunner.unschedule(job.id);
   cronDeps.cronStore.delete(job.id);
   return { id, result: { deleted: 1, id: job.id, agentName: target.name, cronExpr: job.cronExpr, message: job.message } };
+}
+
+// --- Spawn Handlers ---
+
+function handleSpawnAdd(
+  id: number,
+  agents: ActiveAgent[],
+  params: { parentAgent: string; targetAgent: string; context: string; model?: string; cwd?: string },
+  spawnManager?: SpawnManager,
+): IpcResponse {
+  if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
+
+  const parent = findAgent(agents, params.parentAgent);
+  if (!parent) return agentNotFound(id, params.parentAgent, agents);
+
+  const target = findAgent(agents, params.targetAgent);
+  if (!target) return agentNotFound(id, params.targetAgent, agents);
+
+  try {
+    const job = spawnManager.spawn({
+      parentAgent: parent.name,
+      targetAgent: target.name,
+      context: params.context,
+      model: params.model,
+      cwd: params.cwd,
+    });
+    return {
+      id,
+      result: {
+        id: job.id,
+        parentAgent: job.parentAgent,
+        targetAgent: job.targetAgent,
+        status: job.status,
+        createdAt: job.createdAt,
+      },
+    };
+  } catch (err) {
+    return { id, error: { code: 10, message: err instanceof Error ? err.message : String(err) } };
+  }
+}
+
+function handleSpawnList(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent?: string },
+  spawnManager?: SpawnManager,
+): IpcResponse {
+  if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
+
+  const store = (spawnManager as any).store;
+  const jobs = params.agent
+    ? store.listByParent(params.agent)
+    : store.listAll();
+
+  return {
+    id,
+    result: jobs.map((j: any) => ({
+      id: j.id,
+      parentAgent: j.parentAgent,
+      targetAgent: j.targetAgent,
+      status: j.status,
+      durationMs: j.durationMs,
+      model: j.model,
+      costUsd: j.costUsd,
+      createdAt: j.createdAt,
+      completedAt: j.completedAt,
+      contextPreview: j.context.length > 100 ? j.context.slice(0, 100) + "…" : j.context,
+      resultPreview: j.result ? (j.result.length > 100 ? j.result.slice(0, 100) + "…" : j.result) : null,
+    })),
+  };
+}
+
+function handleSpawnCancel(
+  id: number,
+  params: { id: string },
+  spawnManager?: SpawnManager,
+): IpcResponse {
+  if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
+
+  const cancelled = spawnManager.cancel(params.id);
+  if (!cancelled) {
+    return { id, error: { code: 11, message: `Spawn job "${params.id}" not found or already completed` } };
+  }
+  return { id, result: { cancelled: true, id: params.id } };
 }
