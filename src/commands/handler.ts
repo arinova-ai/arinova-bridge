@@ -8,6 +8,7 @@ import { type BridgeSessionStore, SUMMARY_MAX_TOKENS } from "../session/bridge-s
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
+import type { ForkManager } from "../fork/manager.js";
 import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 
@@ -31,7 +32,9 @@ export class CommandHandler {
   cronRunner?: CronRunner;
   /** Spawn manager (injected after startup). */
   spawnManager?: SpawnManager;
-  /** Agent name this handler belongs to (for cron/spawn ownership). */
+  /** Fork manager (injected after startup). */
+  forkManager?: ForkManager;
+  /** Agent name this handler belongs to (for cron/spawn/fork ownership). */
   agentName?: string;
 
   constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
@@ -126,6 +129,9 @@ export class CommandHandler {
       case "spawn":
         this.handleSpawn(arg, ctx);
         return { handled: true };
+      case "fork":
+        this.handleFork(arg, ctx);
+        return { handled: true };
       default:
         return { handled: false };
     }
@@ -158,6 +164,7 @@ export class CommandHandler {
       { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
       { id: "cron", name: "Cron", description: "定時任務排程 (/cron add|list|delete)" },
       { id: "spawn", name: "Spawn", description: "子 Agent 任務派發 (/spawn list|cancel)" },
+      { id: "fork", name: "Fork", description: "Fork 分身執行任務 (/fork <task>|list|cancel)" },
     ];
 
     return skills;
@@ -929,6 +936,91 @@ export class CommandHandler {
       this.reply(ctx, `已取消 spawn job \`${target}\``);
     } else {
       this.reply(ctx, `找不到或無法取消 spawn job "${target}"（可能已完成）`);
+    }
+  }
+
+  // --- Fork Command ---
+
+  private handleFork(arg: string, ctx: CommandContext): void {
+    if (!this.forkManager || !this.agentName) {
+      this.reply(ctx, "Fork manager 未啟用");
+      return;
+    }
+
+    const parts = arg.split(/\s+/);
+    const sub = parts[0]?.toLowerCase();
+
+    if (!sub || sub === "help") {
+      this.reply(ctx, [
+        "用法:",
+        "  /fork <task> — Fork 分身執行任務",
+        "  /fork list — 列出所有 fork 任務",
+        "  /fork cancel <id> — 取消 fork 任務",
+        "",
+        "也可透過 CLI 建立：",
+        "  arinova-bridge fork --agent <name> --task '...'",
+      ].join("\n"));
+      return;
+    }
+
+    switch (sub) {
+      case "list":
+      case "ls":
+        this.handleForkList(ctx);
+        return;
+      case "cancel":
+        this.handleForkCancel(parts.slice(1), ctx);
+        return;
+      default:
+        // Treat entire arg as fork task
+        this.handleForkCreate(arg, ctx);
+    }
+  }
+
+  private handleForkCreate(task: string, ctx: CommandContext): void {
+    try {
+      const job = this.forkManager!.fork({
+        parentAgent: this.agentName!,
+        task,
+      });
+      this.reply(ctx, `已建立 fork \`${job.id}\`\n任務: ${task.slice(0, 100)}${task.length > 100 ? "…" : ""}\n\n分身正在背景執行，完成後會自動回報結果。`);
+    } catch (err) {
+      this.reply(ctx, `Fork 建立失敗: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private handleForkList(ctx: CommandContext): void {
+    const jobs = this.forkManager!.listByParent(this.agentName!);
+
+    if (jobs.length === 0) {
+      this.reply(ctx, "目前沒有 fork 任務");
+      return;
+    }
+
+    const lines = ["Fork Jobs:\n"];
+    for (const job of jobs) {
+      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      lines.push(`${statusIcon} \`${job.id}\`  ${job.status}  ${duration}`);
+      lines.push(`   ${time}  ${job.task.slice(0, 60)}${job.task.length > 60 ? "…" : ""}`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private handleForkCancel(parts: string[], ctx: CommandContext): void {
+    const target = parts[0];
+    if (!target) {
+      this.reply(ctx, "用法: /fork cancel <id>");
+      return;
+    }
+
+    const cancelled = this.forkManager!.cancel(target);
+    if (cancelled) {
+      this.reply(ctx, `已取消 fork job \`${target}\``);
+    } else {
+      this.reply(ctx, `找不到或無法取消 fork job "${target}"（可能已完成）`);
     }
   }
 

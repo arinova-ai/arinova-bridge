@@ -15,6 +15,8 @@ import { CronStore } from "./cron/store.js";
 import { CronRunner } from "./cron/runner.js";
 import { SpawnStore } from "./spawn/store.js";
 import { SpawnManager } from "./spawn/manager.js";
+import { ForkStore } from "./fork/store.js";
+import { ForkManager } from "./fork/manager.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -57,6 +59,13 @@ const spawnStore = new SpawnStore(
   logger,
 );
 const spawnManager = new SpawnManager(spawnStore);
+
+// Fork manager
+const forkStore = new ForkStore(
+  path.join(homedir(), ".arinova-bridge", "fork"),
+  logger,
+);
+const forkManager = new ForkManager(forkStore);
 
 // Shared resources
 const providers = await createProviders(config, logger);
@@ -109,7 +118,7 @@ for (const { name, provider, agentConfig } of activeAgents) {
 }
 
 // Start IPC server for A2A communication
-const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner }, spawnManager);
+const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner }, spawnManager, forkManager);
 const stopIpc = startIpcServer(ipcRouter, logger);
 
 // Restore cron jobs now that agents + IPC are ready
@@ -122,6 +131,10 @@ if (restoredCronJobs > 0) {
 // Initialize spawn manager and recover stale jobs
 spawnManager.setAgents(activeAgents, bridgeSessionStore);
 spawnManager.recoverStale();
+
+// Initialize fork manager and recover stale jobs
+forkManager.setAgents(activeAgents, bridgeSessionStore);
+forkManager.recoverStale();
 
 
 async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
@@ -148,6 +161,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   commandHandler.cronStore = cronStore;
   commandHandler.cronRunner = cronRunner;
   commandHandler.spawnManager = spawnManager;
+  commandHandler.forkManager = forkManager;
   commandHandler.agentName = agentName;
 
   // Per-agent HUD WebSocket
@@ -345,6 +359,7 @@ async function shutdown() {
   logger.info("Shutting down...");
   cronRunner.stopAll();
   spawnManager.stopAll();
+  forkManager.stopAll();
   stopIpc();
   hudMonitor.stop();
   stopRefreshTimer();

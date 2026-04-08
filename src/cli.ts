@@ -28,6 +28,7 @@ COMMANDS
   agents   A2A agent management (list, deliver, broadcast, status)
   cron     Cron job management (add, list, delete)
   spawn    Session spawn management (add, list, cancel)
+  fork     Fork agent to execute task in sub-session (add, list, cancel)
   config   Show current configuration (secrets masked)
   setup    Interactive setup wizard (providers, bot token, statusLine)
   login    OAuth login for a specific provider (without re-running full setup)
@@ -70,6 +71,15 @@ SPAWN SUBCOMMAND
   spawn list                                List all spawn jobs
   spawn list --agent <name>                 List spawn jobs for a specific agent
   spawn cancel --id <job-id>                Cancel a running spawn job
+
+FORK SUBCOMMAND
+  fork --agent <name> --task 'task description'
+                                            Fork agent to execute task in sub-session
+  fork --agent <name> --task '...' --model claude-sonnet-4-6 --cwd ~/project
+                                            Fork with custom model and cwd
+  fork list                                 List all fork jobs
+  fork list --agent <name>                  List fork jobs for a specific agent
+  fork cancel --id <job-id>                 Cancel a running fork job
 
 CONFIG FILE
   ~/.arinova-bridge/config.json
@@ -556,6 +566,75 @@ async function cmdSpawn(args: string[]): Promise<void> {
   }
 }
 
+async function cmdFork(args: string[]): Promise<void> {
+  const { sendIpcRequest } = await import("./ipc/client.js");
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "cancel") {
+    const id = parseFlag(args, "--id");
+    if (!id) {
+      console.error("Usage: arinova-bridge fork cancel --id <job-id>");
+      process.exit(1);
+    }
+    const resp = await sendIpcRequest({ id: 1, method: "fork-cancel", params: { id } });
+    if ("error" in resp) ipcError(resp);
+    console.log(`Cancelled fork job: ${id}`);
+  } else if (sub === "list" || (!sub && !hasFlag(args, "--agent"))) {
+    const agent = parseFlag(args, "--agent");
+    const params: { agent?: string } = {};
+    if (agent) params.agent = agent;
+
+    const resp = await sendIpcRequest({ id: 1, method: "fork-list", params });
+    if ("error" in resp) ipcError(resp);
+
+    const jobs = resp.result as Array<{
+      id: string; parentAgent: string; status: string;
+      durationMs: number | null; model: string | null;
+      createdAt: number; completedAt: number | null;
+      taskPreview: string; resultPreview: string | null;
+    }>;
+
+    if (jobs.length === 0) {
+      console.log("No fork jobs.");
+      return;
+    }
+
+    console.log("Fork Jobs:\n");
+    for (const job of jobs) {
+      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      console.log(`  ${statusIcon} ${job.id}  ${job.parentAgent}  ${job.status}  ${duration}`);
+      console.log(`     Task: ${job.taskPreview}`);
+      if (job.resultPreview) {
+        console.log(`     Result: ${job.resultPreview}`);
+      }
+    }
+  } else {
+    // fork --agent <name> --task '...' [--model] [--cwd]
+    const agent = parseFlag(args, "--agent");
+    const task = parseFlag(args, "--task");
+    const model = parseFlag(args, "--model");
+    const cwd = parseFlag(args, "--cwd");
+
+    if (!agent || !task) {
+      console.error("Usage: arinova-bridge fork --agent <name> --task 'task description' [--model <model>] [--cwd <path>]");
+      process.exit(1);
+    }
+
+    const params: { agent: string; task: string; model?: string; cwd?: string } = { agent, task };
+    if (model) params.model = model;
+    if (cwd) params.cwd = cwd;
+
+    const resp = await sendIpcRequest({ id: 1, method: "fork-add", params });
+    if ("error" in resp) ipcError(resp);
+
+    const r = resp.result as { id: string; parentAgent: string; status: string };
+    console.log(`Forked: ${r.id}`);
+    console.log(`  Agent: ${r.parentAgent}  status=${r.status}`);
+    console.log(`\nUse 'arinova-bridge fork list' to check progress.`);
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0] ?? "help";
@@ -575,6 +654,9 @@ async function main(): Promise<void> {
       break;
     case "spawn":
       await cmdSpawn(args.slice(1));
+      break;
+    case "fork":
+      await cmdFork(args.slice(1));
       break;
     case "config":
       cmdConfig();

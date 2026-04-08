@@ -4,6 +4,7 @@ import type { BridgeSessionStore } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
+import type { ForkManager } from "../fork/manager.js";
 import { createLogger } from "../util/logger.js";
 import cron from "node-cron";
 
@@ -135,6 +136,7 @@ export function createIpcRouter(
   bridgeSessionStore?: BridgeSessionStore,
   cronDeps?: { cronStore: CronStore; cronRunner: CronRunner },
   spawnManager?: SpawnManager,
+  forkManager?: ForkManager,
 ): (req: IpcRequest) => Promise<IpcResponse> {
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
@@ -168,6 +170,12 @@ export function createIpcRouter(
         return handleSpawnList(req.id, agents, req.params, spawnManager);
       case "spawn-cancel":
         return handleSpawnCancel(req.id, req.params, spawnManager);
+      case "fork-add":
+        return handleForkAdd(req.id, agents, req.params, forkManager);
+      case "fork-list":
+        return handleForkList(req.id, agents, req.params, forkManager);
+      case "fork-cancel":
+        return handleForkCancel(req.id, req.params, forkManager);
       case "watch":
         // Watch is handled specially by the server (streaming), not here.
         // Return immediate ack.
@@ -612,6 +620,87 @@ function handleSpawnCancel(
   const cancelled = spawnManager.cancel(params.id);
   if (!cancelled) {
     return { id, error: { code: 11, message: `Spawn job "${params.id}" not found or already completed` } };
+  }
+  return { id, result: { cancelled: true, id: params.id } };
+}
+
+// --- Fork Handlers ---
+
+function handleForkAdd(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent: string; task: string; model?: string; cwd?: string },
+  forkManager?: ForkManager,
+): IpcResponse {
+  if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
+
+  const agent = findAgent(agents, params.agent);
+  if (!agent) return agentNotFound(id, params.agent, agents);
+
+  try {
+    const job = forkManager.fork({
+      parentAgent: agent.name,
+      task: params.task,
+      model: params.model,
+      cwd: params.cwd,
+    });
+    return {
+      id,
+      result: {
+        id: job.id,
+        parentAgent: job.parentAgent,
+        status: job.status,
+        createdAt: job.createdAt,
+      },
+    };
+  } catch (err) {
+    return { id, error: { code: 12, message: err instanceof Error ? err.message : String(err) } };
+  }
+}
+
+function handleForkList(
+  id: number,
+  agents: ActiveAgent[],
+  params: { agent?: string },
+  forkManager?: ForkManager,
+): IpcResponse {
+  if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
+
+  let jobs;
+  if (params.agent) {
+    const agent = findAgent(agents, params.agent);
+    if (!agent) return agentNotFound(id, params.agent, agents);
+    jobs = forkManager.listByParent(agent.name);
+  } else {
+    jobs = forkManager.listAll();
+  }
+
+  return {
+    id,
+    result: jobs.map((j) => ({
+      id: j.id,
+      parentAgent: j.parentAgent,
+      status: j.status,
+      durationMs: j.durationMs,
+      model: j.model,
+      createdAt: j.createdAt,
+      completedAt: j.completedAt,
+      taskPreview: j.task.length > 100 ? j.task.slice(0, 100) + "…" : j.task,
+      resultPreview: j.result ? (j.result.length > 100 ? j.result.slice(0, 100) + "…" : j.result) : null,
+    })),
+  };
+}
+
+function handleForkCancel(
+  id: number,
+  params: { id: string },
+  forkManager?: ForkManager,
+): IpcResponse {
+  if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
+
+  const cancelled = forkManager.cancel(params.id);
+  if (!cancelled) {
+    return { id, error: { code: 13, message: `Fork job "${params.id}" not found or already completed` } };
   }
   return { id, result: { cancelled: true, id: params.id } };
 }

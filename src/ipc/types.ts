@@ -137,6 +137,31 @@ export interface IpcSpawnCancelRequest {
   params: { id: string };
 }
 
+// --- Fork IPC Requests ---
+
+export interface IpcForkAddRequest {
+  id: number;
+  method: "fork-add";
+  params: {
+    agent: string;
+    task: string;
+    model?: string;
+    cwd?: string;
+  };
+}
+
+export interface IpcForkListRequest {
+  id: number;
+  method: "fork-list";
+  params: { agent?: string };
+}
+
+export interface IpcForkCancelRequest {
+  id: number;
+  method: "fork-cancel";
+  params: { id: string };
+}
+
 export type IpcRequest =
   | IpcListAgentsRequest
   | IpcDeliverRequest
@@ -153,7 +178,10 @@ export type IpcRequest =
   | IpcCronDeleteRequest
   | IpcSpawnAddRequest
   | IpcSpawnListRequest
-  | IpcSpawnCancelRequest;
+  | IpcSpawnCancelRequest
+  | IpcForkAddRequest
+  | IpcForkListRequest
+  | IpcForkCancelRequest;
 
 // --- IPC Responses ---
 
