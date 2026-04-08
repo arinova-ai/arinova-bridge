@@ -75,19 +75,59 @@ export class AnthropicCliProvider implements Provider {
   }
 
   /**
-   * Queue-mode: chain behind any in-flight turn instead of aborting it.
+   * Queue-mode: waits for the process to be idle before sending.
+   * Unlike directSend, it never aborts the current turn.
    * Used by A2A dispatch so messages are never lost.
    */
   private queuedSend(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId } = opts;
     const prev = this.sendChains.get(conversationId) ?? Promise.resolve();
 
-    const resultPromise = prev.then(() => this.directSend(opts));
+    const resultPromise = prev.then(() => this.idleSend(opts));
 
     // Store the chain; swallow errors so a failed send doesn't block the queue
     this.sendChains.set(conversationId, resultPromise.catch(() => {}));
 
     return resultPromise;
+  }
+
+  /**
+   * Wait for the process to be idle, then send without aborting.
+   */
+  private async idleSend(opts: SendMessageOpts): Promise<SendResult> {
+    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const content = buildContextPrefix(opts) + opts.content;
+
+    let entry = this.store.getSession(conversationId);
+
+    if (!entry || !entry.process.isAlive()) {
+      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
+    }
+
+    // Wait for the process to finish any in-flight turn (Chat or previous A2A)
+    while (entry.process.isBusy()) {
+      await new Promise((r) => setTimeout(r, 500));
+      // Re-check: session may have been destroyed while waiting
+      const refreshed = this.store.getSession(conversationId);
+      if (!refreshed || !refreshed.process.isAlive()) {
+        entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
+        break;
+      }
+      entry = refreshed;
+    }
+
+    entry.lastActivity = Date.now();
+
+    const result = await entry.process.sendMessage(content, (text) => {
+      onChunk(text);
+    }, signal);
+
+    return {
+      text: result.text,
+      sessionId: result.sessionId,
+      durationMs: result.durationMs,
+      numTurns: result.numTurns,
+    };
   }
 
   /**

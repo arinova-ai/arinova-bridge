@@ -296,7 +296,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (ctx.signal.aborted || msg === "Turn aborted by user") {
-        logger.info(`[${agentName}] task cancelled for ${conversationId}`);
+        const reason = ctx.signal.aborted ? "signal aborted (client/SDK)" : `process: ${msg}`;
+        logger.info(`[${agentName}] task cancelled for ${conversationId} — ${reason}`);
         // Ensure the client receives a terminal signal so it doesn't hang.
         // The SDK's abort listener may have already sent agent_error; sendError
         // is guarded against duplicates so this is safe to call unconditionally.
