@@ -150,18 +150,15 @@ describe("SpawnManager", () => {
   });
 
   it("recovers stale jobs on startup", () => {
-    // Manually insert an old running job
+    // Insert a running job (simulating one left from a previous bridge session)
     const job = store.add("lucy", "pan", "stale task");
-    // Hack the created_at to make it old
-    (store as any).db.prepare("UPDATE spawn_jobs SET created_at = ? WHERE id = ?")
-      .run(Date.now() - 40 * 60 * 1000, job.id); // 40 minutes ago
 
     const recovered = manager.recoverStale();
     expect(recovered).toBe(1);
 
     const updated = store.get(job.id)!;
     expect(updated.status).toBe("failed");
-    expect(updated.result).toContain("stale");
+    expect(updated.result).toContain("Stale");
   });
 
   it("stopAll cancels active jobs", () => {

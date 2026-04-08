@@ -73,27 +73,38 @@ export class SpawnManager {
     this.store.close();
   }
 
-  /** Recover stale running jobs on startup (mark as failed). */
+  /** Recover stale running jobs on startup (mark all as failed).
+   *  After a bridge restart, no in-memory promises exist to complete them. */
   recoverStale(): number {
     const running = this.store.listRunning();
-    let recovered = 0;
     for (const job of running) {
-      const elapsed = Date.now() - job.createdAt;
-      if (elapsed > SPAWN_TIMEOUT_MS) {
-        this.store.complete(job.id, "failed", "Timed out (stale from previous bridge session)");
-        recovered++;
-        log.info(`spawn[${job.id}] marked as failed (stale)`);
-      }
+      this.store.complete(job.id, "failed", "Stale — bridge restarted");
+      log.info(`spawn[${job.id}] marked as failed (stale — bridge restarted)`);
     }
-    if (recovered > 0) {
-      log.info(`Recovered ${recovered} stale spawn job(s)`);
+    if (running.length > 0) {
+      log.info(`Recovered ${running.length} stale spawn job(s)`);
     }
-    return recovered;
+    return running.length;
   }
 
   /** Number of active spawn timeouts. */
   get activeCount(): number {
     return this.timeouts.size;
+  }
+
+  /** Public proxy for SpawnStore.listByParent(). */
+  listByParent(agent: string): SpawnJob[] {
+    return this.store.listByParent(agent);
+  }
+
+  /** Public proxy for SpawnStore.listAll(). */
+  listAll(): SpawnJob[] {
+    return this.store.listAll();
+  }
+
+  /** Public proxy for SpawnStore.get(). */
+  getJob(id: string): SpawnJob | null {
+    return this.store.get(id);
   }
 
   // -------------------------------------------------------------------------

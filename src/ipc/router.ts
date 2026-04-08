@@ -580,14 +580,13 @@ function handleSpawnList(
 ): IpcResponse {
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
-  const store = (spawnManager as any).store;
   const jobs = params.agent
-    ? store.listByParent(params.agent)
-    : store.listAll();
+    ? spawnManager.listByParent(params.agent)
+    : spawnManager.listAll();
 
   return {
     id,
-    result: jobs.map((j: any) => ({
+    result: jobs.map((j) => ({
       id: j.id,
       parentAgent: j.parentAgent,
       targetAgent: j.targetAgent,

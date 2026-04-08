@@ -898,8 +898,7 @@ export class CommandHandler {
   }
 
   private handleSpawnList(ctx: CommandContext): void {
-    const store = (this.spawnManager as any).store as import("../spawn/store.js").SpawnStore;
-    const jobs = store.listByParent(this.agentName!);
+    const jobs = this.spawnManager!.listByParent(this.agentName!);
 
     if (jobs.length === 0) {
       this.reply(ctx, "目前沒有 spawn 子任務");
