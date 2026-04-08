@@ -5,7 +5,12 @@ export interface Logger {
 }
 
 function ts(): string {
-  return new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+  return `${hh}:${mm}:${ss}.${ms}`;
 }
 
 export function createLogger(prefix = "bridge"): Logger {
