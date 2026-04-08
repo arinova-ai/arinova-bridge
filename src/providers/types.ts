@@ -61,6 +61,8 @@ export interface SendMessageOpts {
   fetchHistory?: (options?: FetchHistoryOptions) => Promise<FetchHistoryResult>;
   /** Pre-built bridge session context string (replaces history when present). */
   bridgeSessionContext?: string;
+  /** When true, queue behind any in-flight turn instead of aborting it. */
+  queue?: boolean;
 }
 
 export interface FetchHistoryOptions {

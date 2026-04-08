@@ -81,6 +81,7 @@ export async function deliverToAgent(
         systemPrompt: target.agentConfig.systemPrompt,
         onChunk: (text) => { responseText += text; },
         signal: controller.signal,
+        queue: true,
       });
       responseText = result.text;
     } finally {

@@ -36,6 +36,8 @@ export class AnthropicCliProvider implements Provider {
   private store: SessionStore;
   private defaultCwd: string;
   private models: string[] | null;
+  /** Per-conversation promise chain for queued (non-aborting) sends. */
+  private sendChains = new Map<string, Promise<unknown>>();
 
   constructor(config: AnthropicCliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -66,6 +68,32 @@ export class AnthropicCliProvider implements Provider {
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
+    if (opts.queue) {
+      return this.queuedSend(opts);
+    }
+    return this.directSend(opts);
+  }
+
+  /**
+   * Queue-mode: chain behind any in-flight turn instead of aborting it.
+   * Used by A2A dispatch so messages are never lost.
+   */
+  private queuedSend(opts: SendMessageOpts): Promise<SendResult> {
+    const { conversationId } = opts;
+    const prev = this.sendChains.get(conversationId) ?? Promise.resolve();
+
+    const resultPromise = prev.then(() => this.directSend(opts));
+
+    // Store the chain; swallow errors so a failed send doesn't block the queue
+    this.sendChains.set(conversationId, resultPromise.catch(() => {}));
+
+    return resultPromise;
+  }
+
+  /**
+   * Direct send: aborts any in-flight turn (Chat behavior — user cancels).
+   */
+  private async directSend(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
     const content = buildContextPrefix(opts) + opts.content;
 
