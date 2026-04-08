@@ -15,6 +15,7 @@ export interface CreateSessionOpts {
   systemPrompt?: string;
   resumeSessionId?: string;
   compact?: boolean;
+  agentName?: string;
 }
 
 export interface SessionStoreConfig {
@@ -60,6 +61,7 @@ export class SessionStore {
       compact: opts?.compact,
       env: this.config.env,
       logger: this.logger,
+      agentName: opts?.agentName ?? conversationId.split(":")[0],
     };
 
     const proc = new ClaudeProcess(processOpts);

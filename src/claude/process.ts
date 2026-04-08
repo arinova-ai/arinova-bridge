@@ -11,6 +11,7 @@ export type ClaudeProcessOptions = {
   compact?: boolean;
   env?: Record<string, string>;
   logger: Logger;
+  agentName?: string;
 };
 
 export type RateLimitInfo = {
@@ -112,8 +113,11 @@ export class ClaudeProcess {
   private turnSignal: AbortSignal | null = null;
   private turnSignalListener: (() => void) | null = null;
 
+  private readonly logTag: string;
+
   constructor(opts: ClaudeProcessOptions) {
     this.opts = opts;
+    this.logTag = opts.agentName ? `claude-process[${opts.agentName}]` : "claude-process";
   }
 
   start(): void {
@@ -166,7 +170,7 @@ export class ClaudeProcess {
     if (sysIdx !== -1 && sysIdx + 1 < redactedArgs.length) {
       redactedArgs[sysIdx + 1] = "[...]";
     }
-    log.info(`claude-process: spawning args=${redactedArgs.join(" ")}`);
+    log.info(`${this.logTag}: spawning args=${redactedArgs.join(" ")}`);
 
     const child = spawn(claudePath, argv, {
       env,
@@ -191,7 +195,7 @@ export class ClaudeProcess {
       const text = chunk.toString();
       for (const line of text.split("\n")) {
         if (line.trim()) {
-          log.warn(`claude-process: [stderr] ${line.trim()}`);
+          log.warn(`${this.logTag}: [stderr] ${line.trim()}`);
           this.stderrBuf.push(line.trim());
           // Keep only last 20 lines
           if (this.stderrBuf.length > 20) this.stderrBuf.shift();
@@ -200,7 +204,7 @@ export class ClaudeProcess {
     });
 
     child.on("error", (err: NodeJS.ErrnoException) => {
-      log.error(`claude-process: spawn error: ${err.message}`);
+      log.error(`${this.logTag}: spawn error: ${err.message}`);
       this.alive = false;
       this.child = null;
       this.clearTurnTimeout();
@@ -213,9 +217,9 @@ export class ClaudeProcess {
 
     child.on("close", (code) => {
       const stderrTail = this.stderrBuf.join("\n");
-      log.warn(`claude-process: process exited code=${code}`);
+      log.warn(`${this.logTag}: process exited code=${code}`);
       if (stderrTail) {
-        log.error(`claude-process: stderr output:\n${stderrTail}`);
+        log.error(`${this.logTag}: stderr output:\n${stderrTail}`);
       }
       this.alive = false;
       this.child = null;
@@ -275,7 +279,7 @@ export class ClaudeProcess {
 
       this.turnTimeout = setTimeout(() => {
         log.error(
-          `claude-process: turn timeout after ${TURN_TIMEOUT_MS / 1000}s ` +
+          `${this.logTag}: turn timeout after ${TURN_TIMEOUT_MS / 1000}s ` +
           `proseLen=${this.turnProseText.length}`,
         );
         this.completeTurn();
@@ -286,11 +290,11 @@ export class ClaudeProcess {
         message: { role: "user", content: text },
       });
 
-      log.info(`claude-process: sending message (${text.length} chars)`);
+      log.info(`${this.logTag}: sending message (${text.length} chars)`);
 
       this.child!.stdin!.write(msg + "\n", (err) => {
         if (err) {
-          log.error(`claude-process: stdin write error: ${err.message}`);
+          log.error(`${this.logTag}: stdin write error: ${err.message}`);
           this.clearTurnTimeout();
           this.clearSignalListener();
           this.turnResolve = null;
@@ -398,7 +402,7 @@ export class ClaudeProcess {
       this.staleDrainTimer = null;
       if (this.staleResults <= 0) return;
       log.warn(
-        `claude-process: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`,
+        `${this.logTag}: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`,
       );
       this.staleResults = 0;
       void this.restart();
@@ -413,7 +417,7 @@ export class ClaudeProcess {
     try {
       event = JSON.parse(line) as Record<string, unknown>;
     } catch {
-      log.warn(`claude-process: unparseable line: ${line.slice(0, 200)}`);
+      log.warn(`${this.logTag}: unparseable line: ${line.slice(0, 200)}`);
       return;
     }
 
@@ -422,7 +426,7 @@ export class ClaudeProcess {
     if (eventType === "system" && event.subtype === "init") {
       if (typeof event.session_id === "string") {
         this.sessionId = event.session_id as string;
-        log.info(`claude-process: session init sid=${this.sessionId.slice(0, 12)}`);
+        log.info(`${this.logTag}: session init sid=${this.sessionId.slice(0, 12)}`);
       }
       return;
     }
@@ -442,7 +446,7 @@ export class ClaudeProcess {
         };
         this.turnRateLimits.set(rlType, rl);
         if (rl.status !== "allowed") {
-          log.warn(`claude-process: rate limit ${rlType} status=${rl.status} info=${JSON.stringify(info)}`);
+          log.warn(`${this.logTag}: rate limit ${rlType} status=${rl.status} info=${JSON.stringify(info)}`);
         }
       }
       return;
@@ -466,7 +470,7 @@ export class ClaudeProcess {
           this.staleResults = 0;
           this.clearStaleDrainTimer();
         }
-        log.info(`claude-process: discarded stale result (remaining=${this.staleResults})`);
+        log.info(`${this.logTag}: discarded stale result (remaining=${this.staleResults})`);
         return;
       }
     }
@@ -547,10 +551,10 @@ export class ClaudeProcess {
       if (event.is_error || event.subtype === "error_during_execution") {
         const errors = event.errors as string[] | undefined;
         const errorMsg = errors?.join("; ") ?? String(event.result ?? "unknown error");
-        log.error(`claude-process: turn error: ${errorMsg}`);
+        log.error(`${this.logTag}: turn error: ${errorMsg}`);
 
         if (!this.turnProseText.trim()) {
-          log.warn("claude-process: error with no prose output, rejecting");
+          log.warn(`${this.logTag}: error with no prose output, rejecting`);
           this.clearTurnTimeout();
           if (this.turnReject) {
             const reject = this.turnReject;
@@ -564,7 +568,7 @@ export class ClaudeProcess {
       }
 
       log.info(
-        `claude-process: turn complete sid=${this.sessionId.slice(0, 12)} ` +
+        `${this.logTag}: turn complete sid=${this.sessionId.slice(0, 12)} ` +
         `proseLen=${this.turnProseText.length} ` +
         `turns=${numTurns} cost=$${costUsd} dur=${durationMs}ms`,
       );
@@ -573,11 +577,11 @@ export class ClaudeProcess {
       return;
     }
 
-    log.warn(`claude-process: unhandled event type="${eventType}" subtype="${event.subtype ?? ""}"`);
+    log.warn(`${this.logTag}: unhandled event type="${eventType}" subtype="${event.subtype ?? ""}"`);
   }
 
   async restart(): Promise<void> {
-    this.opts.logger.info("claude-process: restarting...");
+    this.opts.logger.info(`${this.logTag}: restarting...`);
     await this.stop();
     this.staleResults = 0;
     this.clearStaleDrainTimer();
