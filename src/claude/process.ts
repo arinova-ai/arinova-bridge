@@ -58,7 +58,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 
 const DEFAULT_CLAUDE_PATH = "claude";
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
-const STALE_DRAIN_TIMEOUT_MS = 10000;
+const STALE_DRAIN_TIMEOUT_MS = 300000;
 
 /**
  * Persistent Claude Code CLI process using the bidirectional stream-json protocol.
