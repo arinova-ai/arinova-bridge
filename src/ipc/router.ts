@@ -202,7 +202,9 @@ async function handleDeliver(
 
   // Fire-and-forget mode
   if (params.wait === false) {
-    deliverToAgent(target, params.content, deliverOpts).catch(() => {});
+    deliverToAgent(target, params.content, deliverOpts).catch((err) => {
+      log.warn(`fire-and-forget deliver to ${target.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
     return { id, result: { agent: target.name, queued: true } };
   }
 

@@ -112,7 +112,13 @@ export class AnthropicSdkProvider implements Provider {
             if (delta?.type === "text_delta" && typeof delta.text === "string") {
               const text = delta.text as string;
               resultText += text;
-              onChunk(text);
+              try {
+                onChunk(text);
+              } catch (chunkErr) {
+                // onChunk failed (e.g. client disconnected) — abort the stream
+                abortController.abort();
+                throw chunkErr;
+              }
             }
           }
         } else if (message.type === "result") {
