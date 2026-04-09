@@ -18,6 +18,11 @@ const MAX_HISTORY = 50;
 // Cleared on session reset so re-injection happens after recovery.
 const a2aContextInjected = new Set<string>();
 
+/** Clear A2A context-injected flag for a session (e.g. after /model or /compact reset). */
+export function clearA2aContextInjected(sessionId: string): void {
+  a2aContextInjected.delete(sessionId);
+}
+
 function parseA2aDepth(conversationId: string): number {
   if (!conversationId.startsWith(A2A_PREFIX)) return 0;
   const parts = conversationId.split(":");
@@ -71,14 +76,15 @@ export async function deliverToAgent(
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
 
-    // Record user message (A2A inbound) in bridge session
-    opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
-
     // Inject bridge context on first A2A message for this session (context recovery)
+    // Must build context BEFORE recording the user message to avoid duplication.
     const isFirstA2a = !a2aContextInjected.has(syntheticId);
     const bridgeSessionContext = isFirstA2a && opts?.bridgeSessionStore
       ? (opts.bridgeSessionStore.buildContext(syntheticId) || undefined)
       : undefined;
+
+    // Record user message (A2A inbound) in bridge session
+    opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
 
     const controller = new AbortController();
     const timeout = opts?.timeoutMs ?? 600_000;

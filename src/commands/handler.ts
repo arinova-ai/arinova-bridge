@@ -410,6 +410,7 @@ export class CommandHandler {
       cwd: this.getCwdForConversation(ctx.conversationId),
       model,
     });
+    this.onSessionClear?.(ctx.conversationId);
 
     this.reply(ctx, `已切換模型為 ${model}\n下次對話將使用新模型（上下文已重置）`);
   }
@@ -471,6 +472,7 @@ export class CommandHandler {
       await provider.resetSession(ctx.conversationId, { cwd, model });
     }
 
+    this.onSessionClear?.(ctx.conversationId);
     this.reply(ctx, "已壓縮對話上下文");
   }
 

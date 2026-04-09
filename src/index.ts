@@ -8,7 +8,7 @@ import { HudMonitor } from "./claude/hud-monitor.js";
 import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
-import { createIpcRouter, recordTask } from "./ipc/router.js";
+import { createIpcRouter, recordTask, clearA2aContextInjected } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "./session/bridge-session.js";
 import { CronStore } from "./cron/store.js";
@@ -162,6 +162,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
     contextInjectedSessions.delete(conversationId);
+    // Also clear A2A injected flag so A2A re-injects context after reset
+    clearA2aContextInjected(conversationId);
   };
   commandHandler.cronStore = cronStore;
   commandHandler.cronRunner = cronRunner;
