@@ -539,6 +539,233 @@ describe("CommandHandler", () => {
       // resetSession must NOT be called — session stays as-is
       expect(openaiProvider.resetSession).not.toHaveBeenCalled();
     });
+
+    // ── Compact v2: compactModel config ──
+
+    it("openai: uses compactModel from agent config instead of session model", async () => {
+      let capturedModel = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "hello" }], undefined);
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedModel = opts.model;
+        return { text: "summary" };
+      });
+
+      const configWithAgent = {
+        ...createMockConfig(),
+        agents: [{ name: "test-agent", botToken: "tok", provider: "openai-cli", compactModel: "gpt-4.1-nano" }],
+      };
+      const handlerWithAgent = new CommandHandler(
+        providers,
+        configWithAgent,
+        mockSessionStore as any,
+      );
+      handlerWithAgent.agentName = "test-agent";
+
+      const ctx = createCtx("conv-cm-1");
+      await handlerWithAgent.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-cm-1");
+      await handlerWithAgent.handle("/compact", ctx2);
+
+      // compact opts should carry the compactModel
+      expect(mockSessionStore.compact).toHaveBeenCalledWith(
+        "conv-cm-1",
+        expect.any(Function),
+        expect.objectContaining({ model: "gpt-4.1-nano" }),
+      );
+      // sendMessage should use the compactModel, not the session model
+      expect(capturedModel).toBe("gpt-4.1-nano");
+      expect(ctx2.completed).toContain("已壓縮");
+    });
+
+    it("openai: falls back to session model when compactModel is not configured", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "msg" }], undefined);
+        }),
+      };
+
+      // agents array is empty — no agentCfg match, so compactModel = undefined ?? model
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-cm-2");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-cm-2");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      // No agentCfg → compactModel = undefined ?? getModelForConversation() = undefined
+      expect(mockSessionStore.compact).toHaveBeenCalledWith(
+        "conv-cm-2",
+        expect.any(Function),
+        expect.objectContaining({ model: undefined }),
+      );
+    });
+
+    it("gemini: uses compactModel from agent config", async () => {
+      const geminiProvider = createMockProvider("gemini-api", "gemini-cli", "Gemini");
+      const providersWithGemini = new Map<string, Provider>();
+      providersWithGemini.set("anthropic-oauth", anthropicProvider);
+      providersWithGemini.set("gemini-api", geminiProvider);
+
+      let capturedModel = "";
+      vi.mocked(geminiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedModel = opts.model;
+        return { text: "gemini summary" };
+      });
+
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "test" }], undefined);
+        }),
+      };
+      const configWithGemini = {
+        ...createMockConfig(),
+        providers: [
+          { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
+          { id: "gemini-api", type: "gemini-cli", displayName: "Gemini", enabled: true, apiKey: "gm-test" },
+        ],
+        agents: [{ name: "gemini-bot", botToken: "tok", provider: "gemini-cli", compactModel: "gemini-2.5-flash-lite" }],
+      };
+      const handlerWithGemini = new CommandHandler(
+        providersWithGemini,
+        configWithGemini,
+        mockSessionStore as any,
+      );
+      handlerWithGemini.agentName = "gemini-bot";
+
+      const ctx = createCtx("conv-cm-3");
+      await handlerWithGemini.handle("/provider gemini-api", ctx);
+      const ctx2 = createCtx("conv-cm-3");
+      await handlerWithGemini.handle("/compact", ctx2);
+
+      expect(capturedModel).toBe("gemini-2.5-flash-lite");
+      expect(ctx2.completed).toContain("已壓縮");
+    });
+
+    // ── Compact v2: buildCompactPrompt integration ──
+
+    it("non-anthropic: task-oriented messages produce task-mode summary prompt", async () => {
+      let capturedContent = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser(
+            [{ role: "user", content: "fix bug in commit a1b2c3d, card ID bd4921d5-xxxx" }],
+            undefined,
+          );
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedContent = opts.content;
+        return { text: "task summary" };
+      });
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-task-1");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-task-1");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      // Task mode: should contain engineering-specific preservation instructions
+      expect(capturedContent).toContain("Summarise this engineering conversation");
+      expect(capturedContent).toContain("Commit hashes");
+      expect(capturedContent).toContain("a1b2c3d");
+    });
+
+    it("non-anthropic: general messages produce general-mode summary prompt", async () => {
+      let capturedContent = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser(
+            [{ role: "user", content: "你好嗎" }, { role: "assistant", content: "我很好" }],
+            undefined,
+          );
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedContent = opts.content;
+        return { text: "general summary" };
+      });
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-gen-1");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-gen-1");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      // General mode: Chinese instruction prompt
+      expect(capturedContent).toContain("請將以下對話摘要成簡潔的重點");
+    });
+
+    it("non-anthropic: summariser uses dedicated :compact conversation ID", async () => {
+      let capturedConvId = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "test" }], undefined);
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedConvId = opts.conversationId;
+        return { text: "summary" };
+      });
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-dedicated-1");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-dedicated-1");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(capturedConvId).toBe("conv-dedicated-1:compact");
+    });
+
+    it("non-anthropic: summariser system prompt instructs summariser role", async () => {
+      let capturedSystemPrompt = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "test" }], undefined);
+        }),
+      };
+      vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedSystemPrompt = opts.systemPrompt;
+        return { text: "summary" };
+      });
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-sys-1");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-sys-1");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(capturedSystemPrompt).toContain("conversation summariser");
+      expect(capturedSystemPrompt).toContain("same language");
+    });
   });
 
   describe("/provider", () => {
@@ -725,6 +952,93 @@ describe("CommandHandler", () => {
       const skills = singleHandler.getSkills();
       const ids = skills.map((s) => s.id);
       expect(ids).toContain("provider");
+    });
+  });
+
+  // ── Smart Session Context: callback lifecycle ──
+
+  describe("session context callbacks", () => {
+    it("/new calls onSessionClear with conversationId", async () => {
+      const onClear = vi.fn();
+      handler.onSessionClear = onClear;
+
+      const ctx = createCtx("conv-new-1");
+      await handler.handle("/new", ctx);
+
+      expect(onClear).toHaveBeenCalledWith("conv-new-1");
+    });
+
+    it("/new does NOT call onSessionReset", async () => {
+      const onReset = vi.fn();
+      handler.onSessionReset = onReset;
+
+      const ctx = createCtx("conv-new-2");
+      await handler.handle("/new", ctx);
+
+      expect(onReset).not.toHaveBeenCalled();
+    });
+
+    it("/model calls onSessionReset (not onSessionClear)", async () => {
+      const onReset = vi.fn();
+      const onClear = vi.fn();
+      handler.onSessionReset = onReset;
+      handler.onSessionClear = onClear;
+
+      const ctx = createCtx("conv-model-1");
+      await handler.handle("/model sonnet", ctx);
+
+      expect(onReset).toHaveBeenCalledWith("conv-model-1");
+      expect(onClear).not.toHaveBeenCalled();
+    });
+
+    it("/compact (anthropic) calls onSessionReset", async () => {
+      const onReset = vi.fn();
+      handler.onSessionReset = onReset;
+
+      const ctx = createCtx("conv-compact-cb-1");
+      await handler.handle("/compact", ctx);
+
+      expect(onReset).toHaveBeenCalledWith("conv-compact-cb-1");
+    });
+
+    it("/compact (non-anthropic) calls onSessionReset on success", async () => {
+      const onReset = vi.fn();
+      const mockSessionStore = {
+        compact: vi.fn(async () => {}),
+      };
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+      handlerWithStore.onSessionReset = onReset;
+
+      const ctx = createCtx("conv-compact-cb-2");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-compact-cb-2");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(onReset).toHaveBeenCalledWith("conv-compact-cb-2");
+    });
+
+    it("/compact (non-anthropic) does NOT call onSessionReset on failure", async () => {
+      const onReset = vi.fn();
+      const mockSessionStore = {
+        compact: vi.fn(async () => { throw new Error("fail"); }),
+      };
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+      handlerWithStore.onSessionReset = onReset;
+
+      const ctx = createCtx("conv-compact-cb-3");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+      const ctx2 = createCtx("conv-compact-cb-3");
+      await handlerWithStore.handle("/compact", ctx2);
+
+      expect(onReset).not.toHaveBeenCalled();
     });
   });
 });
