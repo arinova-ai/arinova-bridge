@@ -159,10 +159,15 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   // After reset/clear, the session is removed so the next message re-injects.
   const contextInjectedSessions = new Set<string>();
 
+  // /new — full clear: wipe DB history + tracking flags
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
     contextInjectedSessions.delete(conversationId);
-    // Also clear A2A injected flag so A2A re-injects context after reset
+    clearA2aContextInjected(conversationId);
+  };
+  // /model, /compact — light reset: clear tracking flags only, preserve DB (summary + messages)
+  commandHandler.onSessionReset = (conversationId) => {
+    contextInjectedSessions.delete(conversationId);
     clearA2aContextInjected(conversationId);
   };
   commandHandler.cronStore = cronStore;

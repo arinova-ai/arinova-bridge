@@ -24,8 +24,10 @@ export class CommandHandler {
   /** Per-conversation model overrides (set by /model). */
   private modelOverrides = new Map<string, string>();
 
-  /** Called when a session is cleared (/new, /model reset). */
+  /** Called when a session is fully cleared (/new) — clears DB + tracking flags. */
   onSessionClear?: (conversationId: string) => void;
+  /** Called when a session is reset (/model, /compact) — clears tracking flags only, preserves DB. */
+  onSessionReset?: (conversationId: string) => void;
 
   /** Cron scheduler (injected after startup). */
   cronStore?: CronStore;
@@ -410,7 +412,7 @@ export class CommandHandler {
       cwd: this.getCwdForConversation(ctx.conversationId),
       model,
     });
-    this.onSessionClear?.(ctx.conversationId);
+    this.onSessionReset?.(ctx.conversationId);
 
     this.reply(ctx, `已切換模型為 ${model}\n下次對話將使用新模型（上下文已重置）`);
   }
@@ -472,7 +474,7 @@ export class CommandHandler {
       await provider.resetSession(ctx.conversationId, { cwd, model });
     }
 
-    this.onSessionClear?.(ctx.conversationId);
+    this.onSessionReset?.(ctx.conversationId);
     this.reply(ctx, "已壓縮對話上下文");
   }
 
