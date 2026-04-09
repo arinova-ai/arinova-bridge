@@ -132,7 +132,7 @@ export function loadConfig(): BridgeConfig {
 function defaultCompactModel(provider: string): string {
   if (provider.startsWith("anthropic")) return "claude-haiku-4-5";
   if (provider.startsWith("codex")) return "gpt-5.1-codex-mini";
-  if (provider.startsWith("openai")) return "gpt-4.1-mini";
+  if (provider.startsWith("openai")) return "gpt-5.1-codex-mini";
   if (provider.startsWith("gemini")) return "gemini-2.5-flash-lite";
   return "claude-haiku-4-5";
 }
