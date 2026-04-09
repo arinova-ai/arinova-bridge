@@ -140,7 +140,7 @@ export class GeminiCliProvider implements Provider {
 
     return {
       sessionId: conv.threadId,
-      alive: conv.status === "busy",
+      alive: conv.status !== "error",
       cwd: conv.cwd ?? this.defaultCwd,
       model: conv.model ?? undefined,
     };

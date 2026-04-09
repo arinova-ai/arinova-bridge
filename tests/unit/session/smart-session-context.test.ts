@@ -111,4 +111,39 @@ describe("Chat path: session respawn detection", () => {
 
     expect(contextInjected.has(SESSION)).toBe(true);
   });
+
+  it("does NOT clear flag for Gemini idle session (alive:true, status ready)", () => {
+    // Gemini's alive should be true when status is "ready" (idle).
+    // Previously alive was conv.status === "busy", which caused false respawn
+    // detection on every idle turn.
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, PROVIDER_SID);
+
+    const geminiIdle: SessionInfo = {
+      sessionId: PROVIDER_SID,
+      alive: true, // status "ready" → alive: true (fixed)
+      cwd: "/workspace",
+    };
+
+    detectRespawn(SESSION, geminiIdle, contextInjected, lastProviderSid);
+
+    expect(contextInjected.has(SESSION)).toBe(true);
+    expect(lastProviderSid.has(SESSION)).toBe(true);
+  });
+
+  it("clears flag for Gemini error session (alive:false, status error)", () => {
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, PROVIDER_SID);
+
+    const geminiError: SessionInfo = {
+      sessionId: PROVIDER_SID,
+      alive: false, // status "error" → alive: false
+      cwd: "/workspace",
+    };
+
+    detectRespawn(SESSION, geminiError, contextInjected, lastProviderSid);
+
+    expect(contextInjected.has(SESSION)).toBe(false);
+    expect(lastProviderSid.has(SESSION)).toBe(false);
+  });
 });
