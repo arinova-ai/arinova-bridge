@@ -9,6 +9,8 @@ export interface ResolvedAgent {
   provider: string;
   cwd: string;
   model?: string;
+  /** Model used for compact summarisation (cheaper/faster). */
+  compactModel?: string;
   systemPrompt?: string;
 }
 
@@ -96,6 +98,7 @@ export function loadConfig(): BridgeConfig {
       provider: a.provider,
       cwd: (a.cwd ?? defaultCwd).replace(/^~/, homedir()),
       model: a.model,
+      compactModel: a.compactModel ?? defaultCompactModel(a.provider),
       systemPrompt: buildAgentSystemPrompt(a.name, agentPrompts) || undefined,
     }));
   } else {
@@ -105,6 +108,7 @@ export function loadConfig(): BridgeConfig {
       botToken,
       provider: defaultProvider,
       cwd: defaultCwd,
+      compactModel: defaultCompactModel(defaultProvider),
       systemPrompt: buildAgentSystemPrompt(agentName, agentPrompts) || undefined,
     }];
   }
@@ -122,4 +126,12 @@ export function loadConfig(): BridgeConfig {
     },
     agents,
   };
+}
+
+/** Pick a cheap/fast compact model based on provider type. */
+function defaultCompactModel(provider: string): string {
+  if (provider.startsWith("anthropic")) return "claude-haiku-4-5";
+  if (provider.startsWith("openai") || provider.startsWith("codex")) return "gpt-4.1-mini";
+  if (provider.startsWith("gemini")) return "gemini-2.5-flash-lite";
+  return "claude-haiku-4-5";
 }

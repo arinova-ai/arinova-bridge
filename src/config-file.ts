@@ -25,6 +25,8 @@ export interface AgentEntry {
   provider: string;
   cwd?: string;
   model?: string;
+  /** Model used for compact summarisation (cheaper/faster model). */
+  compactModel?: string;
 }
 
 export interface ConfigFile {

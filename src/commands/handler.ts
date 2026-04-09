@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
-import { type BridgeSessionStore, SUMMARY_MAX_TOKENS } from "../session/bridge-session.js";
+import { type BridgeSessionStore, getSummaryMaxTokens } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
@@ -444,22 +444,25 @@ export class CommandHandler {
       }
 
       try {
+        const compactModel = model; // /compact uses the current session model
         await this.sessionStore.compact(ctx.conversationId, async (messages, existingSummary) => {
-          const tokenBudget = `請控制在 ${SUMMARY_MAX_TOKENS} tokens 以內。`;
+          const tokenBudget = getSummaryMaxTokens(compactModel);
+          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+          const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
           const summaryPrompt = existingSummary
-            ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`
-            : `請將以下對話紀錄摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`;
+            ? `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
+            : `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nConversation:\n${conversationText}`;
 
           const compactResult = await provider.sendMessage({
             conversationId: `${ctx.conversationId}:compact`,
             content: summaryPrompt,
             cwd,
-            model,
+            model: compactModel,
             onChunk: () => {},
             systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
           });
           return compactResult.text;
-        });
+        }, { model: compactModel });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.reply(ctx, `compact 失敗，session 維持原狀：${msg}`);

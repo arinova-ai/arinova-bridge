@@ -1,6 +1,6 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
-import type { BridgeSessionStore } from "../session/bridge-session.js";
+import { type BridgeSessionStore, getSummaryMaxTokens } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
@@ -104,6 +104,35 @@ export async function deliverToAgent(
 
     // Record assistant response (A2A outbound) in bridge session
     opts?.bridgeSessionStore?.addAssistantMessage(syntheticId, responseText, target.name, { model });
+
+    // A2A compact trigger — same logic as Chat path
+    if (opts?.bridgeSessionStore?.needsCompact(syntheticId, model)) {
+      const compactModel = target.agentConfig.compactModel ?? model;
+      log.info(`${target.name}: A2A context threshold reached for ${syntheticId}, compacting with ${compactModel}...`);
+      try {
+        await opts.bridgeSessionStore.compact(syntheticId, async (messages, existingSummary) => {
+          const tokenBudget = getSummaryMaxTokens(compactModel);
+          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+          const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
+          const summaryPrompt = existingSummary
+            ? `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
+            : `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nConversation:\n${conversationText}`;
+
+          const compactResult = await target.provider.sendMessage({
+            conversationId: `${syntheticId}:compact`,
+            content: summaryPrompt,
+            cwd: opts?.cwd ?? target.agentConfig.cwd,
+            model: compactModel,
+            onChunk: () => {},
+            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+          });
+          return compactResult.text;
+        }, { model: compactModel });
+        a2aContextInjected.delete(syntheticId);
+      } catch (err) {
+        log.warn(`${target.name}: A2A compact failed for ${syntheticId}: ${err}`);
+      }
+    }
   }
 
   const durationMs = Date.now() - start;

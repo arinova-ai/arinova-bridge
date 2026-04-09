@@ -80,10 +80,18 @@ const COMPACT_THRESHOLD = 0.5;
 const PROTECT_FIRST_N = 2;
 
 /** Number of messages to protect at the end of conversation. */
-const PROTECT_LAST_N = 4;
+const PROTECT_LAST_N = 10;
 
-/** Maximum tokens for a compacted summary. */
+/** Fallback maximum tokens for a compacted summary. */
 export const SUMMARY_MAX_TOKENS = 750;
+
+/** Calculate dynamic summary token budget: 5% of context window, min 500, max 2000. */
+export function getSummaryMaxTokens(model?: string): number {
+  const window = model && MODEL_CONTEXT_WINDOWS[model]
+    ? MODEL_CONTEXT_WINDOWS[model]
+    : DEFAULT_CONTEXT_WINDOW;
+  return Math.min(2000, Math.max(500, Math.floor(window * 0.05)));
+}
 
 // ---------------------------------------------------------------------------
 // Tokenizer cache
@@ -439,6 +447,7 @@ export class BridgeSessionStore {
   async compact(
     conversationId: string,
     summariser: (messages: SessionMessage[], existingSummary?: string) => Promise<string>,
+    opts?: { model?: string },
   ): Promise<void> {
     const rows = this.stmts.getMessages.all(conversationId) as MessageRow[];
     const total = rows.length;
@@ -461,14 +470,15 @@ export class BridgeSessionStore {
 
     let summary = await summariser(middleMessages, summaryRow?.compacted_summary ?? undefined);
 
-    // Enforce summary token budget — truncate if exceeded
+    // Enforce dynamic summary token budget — truncate if exceeded
+    const maxTokens = getSummaryMaxTokens(opts?.model);
     const summaryTokens = countTokens(summary);
-    if (summaryTokens > SUMMARY_MAX_TOKENS) {
+    if (summaryTokens > maxTokens) {
       const enc = getEncoder();
       const tokenIds = enc.encode(summary);
-      summary = enc.decode(tokenIds.slice(0, SUMMARY_MAX_TOKENS)) + "\n[...truncated]";
+      summary = enc.decode(tokenIds.slice(0, maxTokens)) + "\n[...truncated]";
       this.logger.warn(
-        `bridge-session: summary exceeded budget (${summaryTokens} > ${SUMMARY_MAX_TOKENS}), truncated`,
+        `bridge-session: summary exceeded budget (${summaryTokens} > ${maxTokens}), truncated`,
       );
     }
 

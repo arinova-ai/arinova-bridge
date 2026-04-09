@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
-import { BridgeSessionStore, SUMMARY_MAX_TOKENS } from "./session/bridge-session.js";
+import { BridgeSessionStore, getSummaryMaxTokens } from "./session/bridge-session.js";
 import { CronStore } from "./cron/store.js";
 import { CronRunner } from "./cron/runner.js";
 import { SpawnStore } from "./spawn/store.js";
@@ -252,27 +252,25 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       // Record assistant response in bridge session
       bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });
 
-      // Auto-compact if context exceeds 80% of model's window
+      // Auto-compact if context exceeds threshold
       if (bridgeSessionStore.needsCompact(sessionId, model)) {
-        logger.info(`[${agentName}] context threshold reached for ${sessionId}, compacting...`);
+        const compactModel = agentCfg.compactModel ?? model;
+        logger.info(`[${agentName}] context threshold reached for ${sessionId}, compacting with ${compactModel}...`);
         await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
-          // Use the same provider to generate a summary
-          let summary = "";
-          const tokenBudget = `請控制在 ${SUMMARY_MAX_TOKENS} tokens 以內。`;
-          const summaryPrompt = existingSummary
-            ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`
-            : `請將以下對話紀錄摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${tokenBudget}\n\n${messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n")}`;
+          const tokenBudget = getSummaryMaxTokens(compactModel);
+          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
 
           const compactResult = await msgProvider.sendMessage({
             conversationId: `${sessionId}:compact`,
             content: summaryPrompt,
             cwd,
-            model,
-            onChunk: (text) => { summary = text; },
+            model: compactModel,
+            onChunk: () => {},
             systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
           });
           return compactResult.text;
-        });
+        }, { model: compactModel });
         // After compaction, next message should re-inject updated context
         contextInjectedSessions.delete(sessionId);
       }
@@ -390,3 +388,43 @@ async function shutdown() {
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+// ---------------------------------------------------------------------------
+// Compact prompt builder — auto-detects task vs conversation style
+// ---------------------------------------------------------------------------
+
+/** Heuristics: task-oriented if messages contain commit hashes, card IDs, code blocks, etc. */
+function isTaskOriented(text: string): boolean {
+  return /\b[0-9a-f]{7,40}\b/.test(text)     // commit hash
+    || /\b[0-9a-f]{8}-/.test(text)            // UUID-style card ID
+    || /```/.test(text)                        // code blocks
+    || /\b(commit|merge|deploy|PR|review|bug|fix|feat)\b/i.test(text);
+}
+
+function buildCompactPrompt(conversationText: string, tokenBudget: number, existingSummary?: string): string {
+  const taskMode = isTaskOriented(conversationText);
+  const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
+
+  if (taskMode) {
+    const taskInstructions = [
+      "Summarise this engineering conversation. Preserve:",
+      "- Commit hashes, card/ticket IDs, PR numbers",
+      "- Key decisions and their rationale",
+      "- Current task status (done / in-progress / blocked)",
+      "- File paths and function names mentioned",
+      "- Action items and owners",
+      budgetNote,
+    ].join("\n");
+
+    return existingSummary
+      ? `${taskInstructions}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
+      : `${taskInstructions}\n\nConversation:\n${conversationText}`;
+  }
+
+  // General conversation mode
+  const generalInstructions = `請將以下對話摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${budgetNote}`;
+
+  return existingSummary
+    ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${budgetNote}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${conversationText}`
+    : `${generalInstructions}\n\n${conversationText}`;
+}
