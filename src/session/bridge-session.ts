@@ -51,6 +51,9 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "gpt-5.2": 1_000_000,
   "gpt-5.1-codex-max": 1_000_000,
   "gpt-5.1-codex-mini": 1_000_000,
+  "gpt-4.1": 1_000_000,
+  "gpt-4.1-mini": 1_000_000,
+  "gpt-4.1-nano": 1_000_000,
   // Gemini
   "gemini-3.1-pro-preview": 1_000_000,
   "gemini-3-pro-preview": 1_000_000,
@@ -85,12 +88,60 @@ const PROTECT_LAST_N = 10;
 /** Fallback maximum tokens for a compacted summary. */
 export const SUMMARY_MAX_TOKENS = 750;
 
+/** Resolve context window for a model, with prefix fallback. */
+function resolveContextWindow(model?: string): number {
+  if (!model) return DEFAULT_CONTEXT_WINDOW;
+  if (MODEL_CONTEXT_WINDOWS[model]) return MODEL_CONTEXT_WINDOWS[model];
+  for (const [key, value] of Object.entries(MODEL_CONTEXT_WINDOWS)) {
+    if (model.startsWith(key) || key.startsWith(model)) return value;
+  }
+  return DEFAULT_CONTEXT_WINDOW;
+}
+
 /** Calculate dynamic summary token budget: 5% of context window, min 500, max 2000. */
 export function getSummaryMaxTokens(model?: string): number {
-  const window = model && MODEL_CONTEXT_WINDOWS[model]
-    ? MODEL_CONTEXT_WINDOWS[model]
-    : DEFAULT_CONTEXT_WINDOW;
+  const window = resolveContextWindow(model);
   return Math.min(2000, Math.max(500, Math.floor(window * 0.05)));
+}
+
+// ---------------------------------------------------------------------------
+// Compact prompt builder — auto-detects task vs conversation style
+// ---------------------------------------------------------------------------
+
+/** Heuristics: task-oriented if messages contain commit hashes, card IDs, code blocks, etc. */
+function isTaskOriented(text: string): boolean {
+  return /\b[0-9a-f]{7,40}\b/.test(text)     // commit hash
+    || /\b[0-9a-f]{8}-/.test(text)            // UUID-style card ID
+    || /```/.test(text)                        // code blocks
+    || /\b(commit|merge|deploy|PR|review|bug|fix|feat)\b/i.test(text);
+}
+
+export function buildCompactPrompt(conversationText: string, tokenBudget: number, existingSummary?: string): string {
+  const taskMode = isTaskOriented(conversationText);
+  const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
+
+  if (taskMode) {
+    const taskInstructions = [
+      "Summarise this engineering conversation. Preserve:",
+      "- Commit hashes, card/ticket IDs, PR numbers",
+      "- Key decisions and their rationale",
+      "- Current task status (done / in-progress / blocked)",
+      "- File paths and function names mentioned",
+      "- Action items and owners",
+      budgetNote,
+    ].join("\n");
+
+    return existingSummary
+      ? `${taskInstructions}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
+      : `${taskInstructions}\n\nConversation:\n${conversationText}`;
+  }
+
+  // General conversation mode
+  const generalInstructions = `請將以下對話摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${budgetNote}`;
+
+  return existingSummary
+    ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${budgetNote}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${conversationText}`
+    : `${generalInstructions}\n\n${conversationText}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -553,12 +604,7 @@ export class BridgeSessionStore {
 
   /** Get the context window size for a given model. */
   getContextWindow(model?: string): number {
-    if (!model) return DEFAULT_CONTEXT_WINDOW;
-    if (MODEL_CONTEXT_WINDOWS[model]) return MODEL_CONTEXT_WINDOWS[model];
-    for (const [key, value] of Object.entries(MODEL_CONTEXT_WINDOWS)) {
-      if (model.startsWith(key) || key.startsWith(model)) return value;
-    }
-    return DEFAULT_CONTEXT_WINDOW;
+    return resolveContextWindow(model);
   }
 
   /** List all active session IDs. */

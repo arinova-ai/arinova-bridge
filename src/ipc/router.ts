@@ -1,6 +1,6 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
-import { type BridgeSessionStore, getSummaryMaxTokens } from "../session/bridge-session.js";
+import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
@@ -113,10 +113,7 @@ export async function deliverToAgent(
         await opts.bridgeSessionStore.compact(syntheticId, async (messages, existingSummary) => {
           const tokenBudget = getSummaryMaxTokens(compactModel);
           const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
-          const summaryPrompt = existingSummary
-            ? `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
-            : `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nConversation:\n${conversationText}`;
+          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
 
           const compactResult = await target.provider.sendMessage({
             conversationId: `${syntheticId}:compact`,

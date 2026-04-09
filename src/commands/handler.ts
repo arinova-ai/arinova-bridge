@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
-import { type BridgeSessionStore, getSummaryMaxTokens } from "../session/bridge-session.js";
+import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
@@ -444,14 +444,12 @@ export class CommandHandler {
       }
 
       try {
-        const compactModel = model; // /compact uses the current session model
+        const agentCfg = this.config.agents.find((a) => a.name === this.agentName);
+        const compactModel = agentCfg?.compactModel ?? model;
         await this.sessionStore.compact(ctx.conversationId, async (messages, existingSummary) => {
           const tokenBudget = getSummaryMaxTokens(compactModel);
           const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
-          const summaryPrompt = existingSummary
-            ? `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nPrevious summary:\n${existingSummary}\n\nNew messages:\n${conversationText}`
-            : `Summarise, preserving key decisions, task status, commit hashes, and action items. ${budgetNote}\n\nConversation:\n${conversationText}`;
+          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
 
           const compactResult = await provider.sendMessage({
             conversationId: `${ctx.conversationId}:compact`,

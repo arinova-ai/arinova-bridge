@@ -52,6 +52,7 @@ function createMockConfig(defaultProvider = "anthropic-oauth"): BridgeConfig {
       idleTimeoutMs: 600000,
       dbPath: "/tmp/test.db",
     },
+    agents: [],
   };
 }
 
@@ -359,7 +360,7 @@ describe("CommandHandler", () => {
 
     it("openai: compacts via sessionStore and resets session", async () => {
       const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function) => {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           // Simulate the summariser being called with middle messages
           await summariser(
             [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }],
@@ -380,7 +381,7 @@ describe("CommandHandler", () => {
       const ctx2 = createCtx("conv-3");
       await handlerWithStore.handle("/compact", ctx2);
 
-      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-3", expect.any(Function));
+      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-3", expect.any(Function), expect.objectContaining({ model: undefined }));
       expect(openaiProvider.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: "conv-3:compact",
@@ -401,7 +402,7 @@ describe("CommandHandler", () => {
       providersWithGemini.set("gemini-api", geminiProvider);
 
       const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function) => {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           await summariser(
             [{ role: "user", content: "test msg" }],
             "existing summary",
@@ -428,7 +429,7 @@ describe("CommandHandler", () => {
       const ctx2 = createCtx("conv-4");
       await handlerWithGemini.handle("/compact", ctx2);
 
-      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-4", expect.any(Function));
+      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-4", expect.any(Function), expect.objectContaining({ model: undefined }));
       // Summariser should include existing summary in the prompt
       expect(geminiProvider.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -446,7 +447,7 @@ describe("CommandHandler", () => {
     it("non-anthropic: summariser prompt includes token budget", async () => {
       let capturedPrompt = "";
       const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function) => {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           // Wrap sendMessage to capture the prompt
           const origSendMessage = openaiProvider.sendMessage;
           vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
@@ -514,7 +515,7 @@ describe("CommandHandler", () => {
 
     it("non-anthropic: summariser API failure replies error and keeps session intact", async () => {
       const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function) => {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           await summariser([{ role: "user", content: "msg" }], undefined);
         }),
       };
