@@ -158,16 +158,20 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   // Track which sessions have already received bridge context injection.
   // After reset/clear, the session is removed so the next message re-injects.
   const contextInjectedSessions = new Set<string>();
+  // Track provider-side session IDs to detect mid-turn respawns
+  const lastProviderSessionId = new Map<string, string>();
 
   // /new — full clear: wipe DB history + tracking flags
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
     contextInjectedSessions.delete(conversationId);
+    lastProviderSessionId.delete(conversationId);
     clearA2aContextInjected(conversationId);
   };
   // /model, /compact — light reset: clear tracking flags only, preserve DB (summary + messages)
   commandHandler.onSessionReset = (conversationId) => {
     contextInjectedSessions.delete(conversationId);
+    lastProviderSessionId.delete(conversationId);
     clearA2aContextInjected(conversationId);
   };
   commandHandler.cronStore = cronStore;
@@ -220,6 +224,20 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       hudWs.sendTask(agentName, { status: "started", task: content });
 
+      // Detect provider session death or respawn → force re-injection
+      const sessionInfo = msgProvider.getSessionInfo(sessionId);
+      const prevProviderSid = lastProviderSessionId.get(sessionId);
+      // Session dead or missing (null) with a previously known session → respawn detected
+      if (prevProviderSid && (!sessionInfo || !sessionInfo.alive)) {
+        contextInjectedSessions.delete(sessionId);
+        lastProviderSessionId.delete(sessionId);
+      }
+      // Session ID changed → provider respawned mid-turn
+      if (sessionInfo && prevProviderSid && sessionInfo.sessionId !== prevProviderSid) {
+        contextInjectedSessions.delete(sessionId);
+        lastProviderSessionId.delete(sessionId);
+      }
+
       // Only inject bridge session context on the first message of a new/reset session.
       // Subsequent messages skip injection — the provider already has the context in-session.
       const isFirstMessage = !contextInjectedSessions.has(sessionId);
@@ -255,6 +273,11 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       // Mark session as context-injected so subsequent messages skip injection
       if (isFirstMessage) contextInjectedSessions.add(sessionId);
+
+      // Track provider session ID to detect mid-turn respawns
+      if (sendResult.sessionId) {
+        lastProviderSessionId.set(sessionId, sendResult.sessionId);
+      }
 
       // Record assistant response in bridge session
       bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });

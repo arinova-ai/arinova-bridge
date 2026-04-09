@@ -17,10 +17,13 @@ const MAX_HISTORY = 50;
 // Track which A2A sessions have already received bridge context injection.
 // Cleared on session reset so re-injection happens after recovery.
 const a2aContextInjected = new Set<string>();
+// Track provider-side session IDs to detect mid-turn respawns (A2A path)
+const lastA2aProviderSessionId = new Map<string, string>();
 
 /** Clear A2A context-injected flag for a session (e.g. after /model or /compact reset). */
 export function clearA2aContextInjected(sessionId: string): void {
   a2aContextInjected.delete(sessionId);
+  lastA2aProviderSessionId.delete(sessionId);
 }
 
 function parseA2aDepth(conversationId: string): number {
@@ -76,6 +79,20 @@ export async function deliverToAgent(
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
 
+    // Detect provider session death or respawn → force re-injection
+    const a2aSessionInfo = target.provider.getSessionInfo(syntheticId);
+    const prevA2aSid = lastA2aProviderSessionId.get(syntheticId);
+    // Session dead or missing (null) with a previously known session → respawn detected
+    if (prevA2aSid && (!a2aSessionInfo || !a2aSessionInfo.alive)) {
+      a2aContextInjected.delete(syntheticId);
+      lastA2aProviderSessionId.delete(syntheticId);
+    }
+    // Session ID changed → provider respawned mid-turn
+    if (a2aSessionInfo && prevA2aSid && a2aSessionInfo.sessionId !== prevA2aSid) {
+      a2aContextInjected.delete(syntheticId);
+      lastA2aProviderSessionId.delete(syntheticId);
+    }
+
     // Inject bridge context on first A2A message for this session (context recovery)
     // Must build context BEFORE recording the user message to avoid duplication.
     const isFirstA2a = !a2aContextInjected.has(syntheticId);
@@ -104,6 +121,10 @@ export async function deliverToAgent(
       });
       responseText = result.text;
       if (isFirstA2a) a2aContextInjected.add(syntheticId);
+      // Track provider session ID to detect mid-turn respawns
+      if (result.sessionId) {
+        lastA2aProviderSessionId.set(syntheticId, result.sessionId);
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -132,6 +153,7 @@ export async function deliverToAgent(
           return compactResult.text;
         }, { model: compactModel });
         a2aContextInjected.delete(syntheticId);
+        lastA2aProviderSessionId.delete(syntheticId);
       } catch (err) {
         log.warn(`${target.name}: A2A compact failed for ${syntheticId}: ${err}`);
       }
@@ -411,6 +433,7 @@ async function handleAgentReset(
     try {
       await target.provider.resetSession(s.conversationId);
       a2aContextInjected.delete(s.conversationId);
+      lastA2aProviderSessionId.delete(s.conversationId);
       reset++;
     } catch { /* best effort */ }
   }
