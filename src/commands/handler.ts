@@ -1097,23 +1097,53 @@ export class CommandHandler {
       return;
     }
 
-    // 1. Interrupt current provider
+    // 1. Compact current session to preserve context across provider switch
     const currentProvider = this.getProviderForConversation(ctx.conversationId);
+    let compactNote = "";
+    if (currentProvider.id !== targetId && this.sessionStore) {
+      try {
+        const cwd = this.getCwdForConversation(ctx.conversationId);
+        const model = this.getModelForConversation(ctx.conversationId);
+        const agentCfg = this.config.agents.find((a) => a.name === this.agentName);
+        const compactModel = agentCfg?.compactModel ?? model;
+        await this.sessionStore.compact(ctx.conversationId, async (messages, existingSummary) => {
+          const tokenBudget = getSummaryMaxTokens(compactModel);
+          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
+
+          const compactResult = await currentProvider.sendMessage({
+            conversationId: `${ctx.conversationId}:compact`,
+            content: summaryPrompt,
+            cwd,
+            model: compactModel,
+            onChunk: () => {},
+            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+          });
+          return compactResult.text;
+        }, { model: compactModel });
+        compactNote = "\nContext 已透過 compact 轉移";
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        compactNote = `\n⚠️ Context compact 失敗（${msg}），對話摘要未轉移`;
+      }
+    }
+
+    // 2. Interrupt current provider
     if (currentProvider.id !== targetId) {
       currentProvider.interrupt(ctx.conversationId);
     }
 
-    // 2. Set override
+    // 3. Set override
     this.providerOverrides.set(ctx.conversationId, targetId);
 
-    // 3. Clear model override (different providers have different models)
+    // 4. Clear model override (different providers have different models)
     this.modelOverrides.delete(ctx.conversationId);
 
-    // 4. Preserve cwd override (cwd is universal)
+    // 5. Preserve cwd override (cwd is universal)
 
     this.reply(
       ctx,
-      `已切換到 ${targetProvider.displayName}\n模型設定已重置\n工作目錄: ${this.getCwdForConversation(ctx.conversationId)}`,
+      `已切換到 ${targetProvider.displayName}\n模型設定已重置\n工作目錄: ${this.getCwdForConversation(ctx.conversationId)}${compactNote}`,
     );
   }
 }
