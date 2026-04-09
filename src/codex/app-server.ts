@@ -452,7 +452,8 @@ export class CodexAppServer {
     state.turnOnChunk = null;
 
     if (params.turn.status !== "completed" && params.turn.error) {
-      reject?.(new Error(`Turn failed: ${params.turn.error}`));
+      const errMsg = typeof params.turn.error === 'string' ? params.turn.error : JSON.stringify(params.turn.error);
+      reject?.(new Error(`Turn failed: ${errMsg}`));
     } else {
       resolve?.(state.turnText || "Done.");
     }
