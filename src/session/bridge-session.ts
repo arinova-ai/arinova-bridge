@@ -247,6 +247,9 @@ export class BridgeSessionStore {
       getMessages: db.prepare(
         "SELECT id, conversation_id, role, content, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id ASC",
       ),
+      getRecentMessages: db.prepare(
+        "SELECT * FROM (SELECT id, conversation_id, role, content, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20) ORDER BY id ASC",
+      ),
       getMessageCount: db.prepare(
         "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?",
       ),
@@ -386,7 +389,8 @@ export class BridgeSessionStore {
       parts.push(`[Conversation summary]\n${summaryRow.compacted_summary}\n[/Conversation summary]`);
     }
 
-    const rows = this.stmts.getMessages.all(conversationId) as MessageRow[];
+    // Only include the most recent 20 messages to keep context prefix manageable
+    const rows = this.stmts.getRecentMessages.all(conversationId) as MessageRow[];
     for (const row of rows) {
       const sender = row.sender ?? row.role;
       parts.push(`${sender}: ${row.content}`);

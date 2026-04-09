@@ -14,6 +14,10 @@ const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
+// Track which A2A sessions have already received bridge context injection.
+// Cleared on session reset so re-injection happens after recovery.
+const a2aContextInjected = new Set<string>();
+
 function parseA2aDepth(conversationId: string): number {
   if (!conversationId.startsWith(A2A_PREFIX)) return 0;
   const parts = conversationId.split(":");
@@ -70,6 +74,12 @@ export async function deliverToAgent(
     // Record user message (A2A inbound) in bridge session
     opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
 
+    // Inject bridge context on first A2A message for this session (context recovery)
+    const isFirstA2a = !a2aContextInjected.has(syntheticId);
+    const bridgeSessionContext = isFirstA2a && opts?.bridgeSessionStore
+      ? (opts.bridgeSessionStore.buildContext(syntheticId) || undefined)
+      : undefined;
+
     const controller = new AbortController();
     const timeout = opts?.timeoutMs ?? 600_000;
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -84,8 +94,10 @@ export async function deliverToAgent(
         onChunk: (text) => { responseText += text; },
         signal: controller.signal,
         queue: true,
+        bridgeSessionContext,
       });
       responseText = result.text;
+      if (isFirstA2a) a2aContextInjected.add(syntheticId);
     } finally {
       clearTimeout(timer);
     }
@@ -366,6 +378,7 @@ async function handleAgentReset(
   for (const s of sessions) {
     try {
       await target.provider.resetSession(s.conversationId);
+      a2aContextInjected.delete(s.conversationId);
       reset++;
     } catch { /* best effort */ }
   }

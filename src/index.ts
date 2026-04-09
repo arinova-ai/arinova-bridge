@@ -155,8 +155,13 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   };
 
   const commandHandler = new CommandHandler(providers, agentBridgeConfig, bridgeSessionStore);
+  // Track which sessions have already received bridge context injection.
+  // After reset/clear, the session is removed so the next message re-injects.
+  const contextInjectedSessions = new Set<string>();
+
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
+    contextInjectedSessions.delete(conversationId);
   };
   commandHandler.cronStore = cronStore;
   commandHandler.cronRunner = cronRunner;
@@ -208,9 +213,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       hudWs.sendTask(agentName, { status: "started", task: content });
 
-      // Build context from bridge session BEFORE adding current message
-      // (so the current message isn't duplicated in the history prefix)
-      const bridgeSessionContext = bridgeSessionStore.buildContext(sessionId) || undefined;
+      // Only inject bridge session context on the first message of a new/reset session.
+      // Subsequent messages skip injection — the provider already has the context in-session.
+      const isFirstMessage = !contextInjectedSessions.has(sessionId);
+      const bridgeSessionContext = isFirstMessage
+        ? (bridgeSessionStore.buildContext(sessionId) || undefined)
+        : undefined;
 
       // Record user message in bridge session
       bridgeSessionStore.addUserMessage(sessionId, content, ctx.senderUsername, {
@@ -238,6 +246,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         fetchHistory: ctx.fetchHistory,
       });
 
+      // Mark session as context-injected so subsequent messages skip injection
+      if (isFirstMessage) contextInjectedSessions.add(sessionId);
+
       // Record assistant response in bridge session
       bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });
 
@@ -262,6 +273,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           });
           return compactResult.text;
         });
+        // After compaction, next message should re-inject updated context
+        contextInjectedSessions.delete(sessionId);
       }
 
       ctx.sendComplete(sendResult.text);
