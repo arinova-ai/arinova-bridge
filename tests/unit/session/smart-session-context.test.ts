@@ -146,4 +146,58 @@ describe("Chat path: session respawn detection", () => {
     expect(contextInjected.has(SESSION)).toBe(false);
     expect(lastProviderSid.has(SESSION)).toBe(false);
   });
+
+  it("tracks provider session ID after sendMessage and detects subsequent respawn", () => {
+    // Simulate: first message succeeds → track provider SID
+    // Then provider respawns → new SID → flag cleared
+    contextInjected.add(SESSION);
+
+    // After sendMessage returns, track the provider SID
+    lastProviderSid.set(SESSION, PROVIDER_SID);
+
+    // Next turn: provider has respawned with a new session
+    const respawned: SessionInfo = {
+      sessionId: "provider-new-999",
+      alive: true,
+      cwd: "/tmp",
+    };
+
+    detectRespawn(SESSION, respawned, contextInjected, lastProviderSid);
+
+    expect(contextInjected.has(SESSION)).toBe(false);
+    // After re-injection and new sendMessage, tracking resumes
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, "provider-new-999");
+
+    // Subsequent turn: same session, no respawn
+    detectRespawn(SESSION, respawned, contextInjected, lastProviderSid);
+    expect(contextInjected.has(SESSION)).toBe(true);
+  });
+
+  it("handles multiple respawn cycles correctly", () => {
+    // Cycle 1: inject → track
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, "sid-v1");
+
+    // Cycle 1: process dies
+    detectRespawn(SESSION, null, contextInjected, lastProviderSid);
+    expect(contextInjected.has(SESSION)).toBe(false);
+
+    // Cycle 2: re-inject → track new SID
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, "sid-v2");
+
+    // Cycle 2: mid-turn respawn (SID changes)
+    const respawned: SessionInfo = { sessionId: "sid-v3", alive: true, cwd: "/tmp" };
+    detectRespawn(SESSION, respawned, contextInjected, lastProviderSid);
+    expect(contextInjected.has(SESSION)).toBe(false);
+
+    // Cycle 3: re-inject → track
+    contextInjected.add(SESSION);
+    lastProviderSid.set(SESSION, "sid-v3");
+
+    // Cycle 3: alive and stable
+    detectRespawn(SESSION, respawned, contextInjected, lastProviderSid);
+    expect(contextInjected.has(SESSION)).toBe(true);
+  });
 });

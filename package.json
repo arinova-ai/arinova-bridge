@@ -9,7 +9,7 @@
     ".env.example"
   ],
   "bin": {
-    "arinova-bridge": "dist/cli.js"
+    "arinova-bridge": "bin/arinova-bridge.js"
   },
   "scripts": {
     "build": "tsc",

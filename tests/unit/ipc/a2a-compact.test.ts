@@ -95,4 +95,20 @@ describe("A2A path: session respawn detection", () => {
 
     expect(a2aContextInjected.has(SYNTHETIC_ID)).toBe(true);
   });
+
+  it("clears flag when A2A session is dead (alive:false)", () => {
+    a2aContextInjected.add(SYNTHETIC_ID);
+    lastA2aProviderSid.set(SYNTHETIC_ID, PROVIDER_SID_V1);
+
+    const deadSession: SessionInfo = {
+      sessionId: PROVIDER_SID_V1,
+      alive: false,
+      cwd: "/tmp",
+    };
+
+    detectA2aRespawn(SYNTHETIC_ID, deadSession, a2aContextInjected, lastA2aProviderSid);
+
+    expect(a2aContextInjected.has(SYNTHETIC_ID)).toBe(false);
+    expect(lastA2aProviderSid.has(SYNTHETIC_ID)).toBe(false);
+  });
 });
