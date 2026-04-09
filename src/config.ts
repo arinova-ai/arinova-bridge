@@ -71,7 +71,7 @@ export function loadConfig(): BridgeConfig {
     10,
   );
 
-  const idleTimeoutMs = file?.defaults?.idleTimeoutMs ?? 600_000;
+  const idleTimeoutMs = file?.defaults?.idleTimeoutMs ?? 3_600_000;
 
   const dbPath =
     process.env.DB_PATH ??
