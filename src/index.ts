@@ -195,29 +195,29 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     // Single session per agent — Chat and A2A share the same context
     const sessionId = `${agentName}:default`;
 
-    // Try command handling first
-    const result = await commandHandler.handle(content, {
-      conversationId: sessionId,
-      sendChunk: ctx.sendChunk,
-      sendComplete: ctx.sendComplete,
-      sendError: ctx.sendError,
-      uploadFile: ctx.uploadFile,
-      attachments: ctx.attachments,
-      conversationType: ctx.conversationType,
-      senderUserId: ctx.senderUserId,
-      senderUsername: ctx.senderUsername,
-      members: ctx.members,
-      fetchHistory: ctx.fetchHistory,
-      // Arinova API calls use original conversationId (not session-scoped)
-      listNotes: (options) => agent.listNotes(conversationId, options),
-      createNote: (body) => agent.createNote(conversationId, body),
-      updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
-      deleteNote: (noteId) => agent.deleteNote(conversationId, noteId),
-    });
-    if (result.handled) return;
-
-    // General message — route to the appropriate provider
     try {
+      // Try command handling first
+      const result = await commandHandler.handle(content, {
+        conversationId: sessionId,
+        sendChunk: ctx.sendChunk,
+        sendComplete: ctx.sendComplete,
+        sendError: ctx.sendError,
+        uploadFile: ctx.uploadFile,
+        attachments: ctx.attachments,
+        conversationType: ctx.conversationType,
+        senderUserId: ctx.senderUserId,
+        senderUsername: ctx.senderUsername,
+        members: ctx.members,
+        fetchHistory: ctx.fetchHistory,
+        // Arinova API calls use original conversationId (not session-scoped)
+        listNotes: (options) => agent.listNotes(conversationId, options),
+        createNote: (body) => agent.createNote(conversationId, body),
+        updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
+        deleteNote: (noteId) => agent.deleteNote(conversationId, noteId),
+      });
+      if (result.handled) return;
+
+      // General message — route to the appropriate provider
       const msgProvider = commandHandler.getProviderForConversation(sessionId);
       const cwd = commandHandler.getCwdForConversation(sessionId);
       const model = commandHandler.getModelForConversation(sessionId) ?? agentCfg.model;
@@ -418,4 +418,8 @@ async function shutdown() {
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+process.on("unhandledRejection", (reason) => {
+  logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+});
 
