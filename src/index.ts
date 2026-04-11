@@ -399,7 +399,15 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
 // Graceful shutdown
 async function shutdown(signal: string) {
-  logger.info(`Shutting down... (signal=${signal}, pid=${process.pid}, uptime=${Math.round(process.uptime())}s)`);
+  let parentInfo = `ppid=${process.ppid}`;
+  try {
+    const { execSync } = await import("child_process");
+    const out = execSync(`ps -p ${process.ppid} -o pid=,command=`, { timeout: 2000 }).toString().trim();
+    parentInfo += `, parent=[${out}]`;
+  } catch {
+    parentInfo += `, parent=[not found]`;
+  }
+  logger.info(`Shutting down... (signal=${signal}, pid=${process.pid}, ${parentInfo}, uptime=${Math.round(process.uptime())}s)`);
   cronRunner.stopAll();
   spawnManager.stopAll();
   forkManager.stopAll();
