@@ -197,6 +197,11 @@ export async function deliverToAgent(
           });
           return compactResult.text;
         }, { model: compactModel });
+        // Reset provider session so it starts fresh with compacted context
+        await target.provider.resetSession(syntheticId, {
+          cwd: opts?.cwd ?? target.agentConfig.cwd,
+          model,
+        });
         a2aContextInjected.delete(syntheticId);
         lastA2aProviderSessionId.delete(syntheticId);
       } catch (err) {

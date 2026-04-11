@@ -301,8 +301,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           });
           return compactResult.text;
         }, { model: compactModel });
-        // After compaction, next message should re-inject updated context
+        // Reset provider session so it starts fresh with compacted context
+        // (mirrors manual /compact behaviour in CommandHandler)
+        await msgProvider.resetSession(sessionId, { cwd, model });
         contextInjectedSessions.delete(sessionId);
+        lastProviderSessionId.delete(sessionId);
+        clearA2aContextInjected(sessionId);
       }
 
       ctx.sendComplete(sendResult.text);
