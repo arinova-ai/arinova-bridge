@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import fs from "node:fs";
+import { homedir } from "node:os";
 
 const CLI_PATH = path.resolve(__dirname, "../../dist/cli.js");
 
@@ -103,11 +105,30 @@ describe("cli.ts", () => {
   });
 
   describe("stop command", () => {
+    const pidFile = path.join(homedir(), ".arinova-bridge", "bridge.pid");
+    let savedPid: string | null = null;
+
+    beforeEach(() => {
+      // Back up real PID file so the test never kills a running bridge
+      try {
+        savedPid = fs.readFileSync(pidFile, "utf-8");
+        fs.unlinkSync(pidFile);
+      } catch {
+        savedPid = null;
+      }
+    });
+
+    afterEach(() => {
+      // Restore the PID file
+      if (savedPid !== null) {
+        fs.writeFileSync(pidFile, savedPid, "utf-8");
+      }
+    });
+
     it("exits with error when no PID file exists", () => {
       const { stderr, exitCode } = runCli("stop");
-      // May or may not fail depending on whether bridge is running
-      // Just verify it doesn't crash
-      expect(typeof exitCode).toBe("number");
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("not running");
     });
   });
 
