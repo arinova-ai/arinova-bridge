@@ -502,6 +502,8 @@ describe("CommandHandler", () => {
 
       const ctx = createCtx("conv-7");
       await handlerWithStore.handle("/provider openai-api", ctx);
+      // Clear mock after /provider switch (which now correctly calls resetSession on target)
+      vi.mocked(openaiProvider.resetSession).mockClear();
 
       const ctx2 = createCtx("conv-7");
       await handlerWithStore.handle("/compact", ctx2);
@@ -509,7 +511,7 @@ describe("CommandHandler", () => {
       expect(ctx2.completed).toContain("compact 失敗");
       expect(ctx2.completed).toContain("session 維持原狀");
       expect(ctx2.completed).toContain("DB write failed");
-      // resetSession must NOT be called — session stays as-is
+      // resetSession must NOT be called during compact failure — session stays as-is
       expect(openaiProvider.resetSession).not.toHaveBeenCalled();
     });
 
@@ -529,6 +531,8 @@ describe("CommandHandler", () => {
 
       const ctx = createCtx("conv-8");
       await handlerWithStore.handle("/provider openai-api", ctx);
+      // Clear mock after /provider switch (which now correctly calls resetSession on target)
+      vi.mocked(openaiProvider.resetSession).mockClear();
 
       const ctx2 = createCtx("conv-8");
       await handlerWithStore.handle("/compact", ctx2);
@@ -536,7 +540,7 @@ describe("CommandHandler", () => {
       expect(ctx2.completed).toContain("compact 失敗");
       expect(ctx2.completed).toContain("session 維持原狀");
       expect(ctx2.completed).toContain("API timeout");
-      // resetSession must NOT be called — session stays as-is
+      // resetSession must NOT be called during compact failure — session stays as-is
       expect(openaiProvider.resetSession).not.toHaveBeenCalled();
     });
 
@@ -840,6 +844,41 @@ describe("CommandHandler", () => {
       const provider = handler.getProviderForConversation("conv-1");
       expect(provider.id).toBe("openai-api");
     });
+
+    it("calls onSessionReset on successful switch", async () => {
+      const onReset = vi.fn();
+      handler.onSessionReset = onReset;
+
+      const ctx = createCtx();
+      await handler.handle("/provider openai-api", ctx);
+
+      expect(onReset).toHaveBeenCalledWith("conv-1");
+    });
+
+    it("resets target provider session on switch", async () => {
+      const ctx = createCtx();
+      await handler.handle("/provider openai-api", ctx);
+
+      expect(openaiProvider.resetSession).toHaveBeenCalledWith(
+        "conv-1",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+    });
+
+    it("resets target session when switching back to a previously used provider", async () => {
+      // Switch to openai
+      const ctx1 = createCtx();
+      await handler.handle("/provider openai-api", ctx1);
+      expect(openaiProvider.resetSession).toHaveBeenCalledTimes(1);
+
+      // Switch back to anthropic
+      const ctx2 = createCtx();
+      await handler.handle("/provider anthropic-oauth", ctx2);
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
+        "conv-1",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+    });
   });
 
   describe("/notes", () => {
@@ -1035,9 +1074,12 @@ describe("CommandHandler", () => {
 
       const ctx = createCtx("conv-compact-cb-3");
       await handlerWithStore.handle("/provider openai-api", ctx);
+      // Clear mock after /provider switch (which correctly calls onSessionReset)
+      onReset.mockClear();
       const ctx2 = createCtx("conv-compact-cb-3");
       await handlerWithStore.handle("/compact", ctx2);
 
+      // /compact failure must NOT call onSessionReset
       expect(onReset).not.toHaveBeenCalled();
     });
   });

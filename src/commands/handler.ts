@@ -1133,13 +1133,20 @@ export class CommandHandler {
       currentProvider.interrupt(ctx.conversationId);
     }
 
-    // 3. Set override
+    // 3. Reset target provider session to avoid stale thread/session reuse
+    const cwd = this.getCwdForConversation(ctx.conversationId);
+    await targetProvider.resetSession(ctx.conversationId, { cwd });
+
+    // 4. Set override
     this.providerOverrides.set(ctx.conversationId, targetId);
 
-    // 4. Clear model override (different providers have different models)
+    // 5. Clear model override (different providers have different models)
     this.modelOverrides.delete(ctx.conversationId);
 
-    // 5. Preserve cwd override (cwd is universal)
+    // 6. Clear smart-injection tracking so next message re-injects context
+    this.onSessionReset?.(ctx.conversationId);
+
+    // 7. Preserve cwd override (cwd is universal)
 
     this.reply(
       ctx,

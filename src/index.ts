@@ -108,6 +108,8 @@ logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents
 
 // Pre-create LLM sessions so A2A works immediately after boot
 for (const { name, provider, agentConfig } of activeAgents) {
+  // Inject agent name into CLI process env so A2A --source auto-fills
+  provider.setEnv("ARINOVA_AGENT_NAME", name);
   const warmupId = `${name}:default`;
   provider.warmup(warmupId, {
     cwd: agentConfig.cwd,
@@ -396,8 +398,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 }
 
 // Graceful shutdown
-async function shutdown() {
-  logger.info("Shutting down...");
+async function shutdown(signal: string) {
+  logger.info(`Shutting down... (signal=${signal}, pid=${process.pid}, uptime=${Math.round(process.uptime())}s)`);
   cronRunner.stopAll();
   spawnManager.stopAll();
   forkManager.stopAll();
@@ -416,10 +418,19 @@ async function shutdown() {
   process.exit(0);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGHUP", () => shutdown("SIGHUP"));
 
 process.on("unhandledRejection", (reason) => {
   logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+});
+
+process.on("uncaughtException", (err) => {
+  logger.error(`Uncaught exception: ${err.stack ?? err.message}`);
+});
+
+process.on("beforeExit", (code) => {
+  logger.info(`beforeExit event (code=${code})`);
 });
 

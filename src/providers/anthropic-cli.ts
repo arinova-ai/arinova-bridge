@@ -36,6 +36,7 @@ export class AnthropicCliProvider implements Provider {
   private store: SessionStore;
   private defaultCwd: string;
   private models: string[] | null;
+  private providerEnv: Record<string, string>;
   /** Per-conversation promise chain for queued (non-aborting) sends. */
   private sendChains = new Map<string, Promise<unknown>>();
 
@@ -44,6 +45,7 @@ export class AnthropicCliProvider implements Provider {
     this.displayName = config.displayName;
     this.defaultCwd = config.defaultCwd;
     this.models = config.models ?? null;
+    this.providerEnv = config.env ?? {};
     this.store = new SessionStore(
       {
         claudePath: config.claudePath,
@@ -51,7 +53,7 @@ export class AnthropicCliProvider implements Provider {
         defaultCwd: config.defaultCwd,
         maxSessions: config.maxSessions,
         idleTimeoutMs: config.idleTimeoutMs,
-        env: config.env,
+        env: this.providerEnv,
       },
       logger,
     );
@@ -263,5 +265,9 @@ export class AnthropicCliProvider implements Provider {
 
   async shutdown(): Promise<void> {
     await this.store.stopAll();
+  }
+
+  setEnv(key: string, value: string): void {
+    this.providerEnv[key] = value;
   }
 }

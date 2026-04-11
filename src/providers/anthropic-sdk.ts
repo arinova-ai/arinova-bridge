@@ -234,6 +234,10 @@ export class AnthropicSdkProvider implements Provider {
     }
   }
 
+  setEnv(_key: string, _value: string): void {
+    // No-op: SDK provider doesn't spawn CLI processes
+  }
+
   private getOrCreateSession(
     conversationId: string,
     cwd?: string,

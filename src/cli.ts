@@ -248,7 +248,7 @@ async function cmdAgents(args: string[]): Promise<void> {
   const history = parseFlag(args, "--history");
   const watch = hasFlag(args, "--watch");
   const content = parseFlag(args, "--content");
-  const source = parseFlag(args, "--source");
+  const source = parseFlag(args, "--source") ?? process.env.ARINOVA_AGENT_NAME;
   const cwd = parseFlag(args, "--cwd");
   const model = parseFlag(args, "--model");
   const wait = parseFlag(args, "--wait");

@@ -208,6 +208,11 @@ export class GeminiCliProvider implements Provider {
     }
   }
 
+  setEnv(key: string, value: string): void {
+    if (!this.customEnv) this.customEnv = {};
+    this.customEnv[key] = value;
+  }
+
   private async runGeminiTurn(
     conversationId: string,
     content: string,

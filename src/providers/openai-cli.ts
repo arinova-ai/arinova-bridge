@@ -39,6 +39,7 @@ export class OpenAICliProvider implements Provider {
   private server: CodexAppServer;
   private logger: Logger;
   private modelList: string[];
+  private providerEnv: Record<string, string>;
 
   constructor(config: OpenAICliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -54,12 +55,13 @@ export class OpenAICliProvider implements Provider {
       "gpt-5.1-codex-max",
       "gpt-5.1-codex-mini",
     ];
+    this.providerEnv = config.env ?? {};
 
     this.db = initDb(config.dbPath);
 
     this.server = new CodexAppServer({
       codexPath: config.codexPath,
-      env: config.env,
+      env: this.providerEnv,
       logger,
     });
 
@@ -267,6 +269,10 @@ export class OpenAICliProvider implements Provider {
 
   async shutdown(): Promise<void> {
     await this.server.shutdown();
+  }
+
+  setEnv(key: string, value: string): void {
+    this.providerEnv[key] = value;
   }
 
   private getConvCwd(conversationId: string): string | null {

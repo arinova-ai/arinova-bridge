@@ -187,4 +187,6 @@ export interface Provider {
   listSessions(): SessionListEntry[];
   supportedModels(): string[] | null;
   shutdown(): Promise<void>;
+  /** Set an environment variable for spawned CLI processes. */
+  setEnv(key: string, value: string): void;
 }

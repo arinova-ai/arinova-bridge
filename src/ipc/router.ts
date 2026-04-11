@@ -6,7 +6,11 @@ import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
 import { createLogger } from "../util/logger.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import cron from "node-cron";
+
+const execFileAsync = promisify(execFile);
 
 const log = createLogger("a2a");
 
@@ -24,6 +28,37 @@ const lastA2aProviderSessionId = new Map<string, string>();
 export function clearA2aContextInjected(sessionId: string): void {
   a2aContextInjected.delete(sessionId);
   lastA2aProviderSessionId.delete(sessionId);
+}
+
+/**
+ * Query the sender agent's long-term memories via Arinova CLI.
+ * Returns formatted memory context string, or undefined if no results / error.
+ */
+async function querySenderMemories(source: string, content: string): Promise<string | undefined> {
+  // Skip non-agent sources (spawn, fork, cron, cli)
+  if (!source || source === "cli" || source.includes(":")) return undefined;
+
+  try {
+    const queryText = content.length > 200 ? content.slice(0, 200) : content;
+    const { stdout } = await execFileAsync("arinova", [
+      "--profile", source,
+      "--json",
+      "memory", "query",
+      "--query", queryText,
+      "--limit", "10",
+    ], { timeout: 10_000 });
+
+    const memories = JSON.parse(stdout);
+    if (!Array.isArray(memories) || memories.length === 0) return undefined;
+
+    const lines = memories.map((m: { content?: string; title?: string }) =>
+      m.title ? `- ${m.title}: ${m.content ?? ""}` : `- ${m.content ?? ""}`
+    );
+    return `[Sender memories — from ${source}]\n${lines.join("\n")}`;
+  } catch (err) {
+    log.warn(`memory query for ${source} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 function parseA2aDepth(conversationId: string): number {
@@ -96,9 +131,19 @@ export async function deliverToAgent(
     // Inject bridge context on first A2A message for this session (context recovery)
     // Must build context BEFORE recording the user message to avoid duplication.
     const isFirstA2a = !a2aContextInjected.has(syntheticId);
-    const bridgeSessionContext = isFirstA2a && opts?.bridgeSessionStore
+    let bridgeSessionContext = isFirstA2a && opts?.bridgeSessionStore
       ? (opts.bridgeSessionStore.buildContext(syntheticId) || undefined)
       : undefined;
+
+    // On first A2A message, query sender's long-term memories and prepend to context
+    if (isFirstA2a && from !== "cli") {
+      const senderMemories = await querySenderMemories(from, content);
+      if (senderMemories) {
+        bridgeSessionContext = bridgeSessionContext
+          ? `${senderMemories}\n\n${bridgeSessionContext}`
+          : senderMemories;
+      }
+    }
 
     // Record user message (A2A inbound) in bridge session
     opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
