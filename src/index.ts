@@ -108,8 +108,6 @@ logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents
 
 // Pre-create LLM sessions so A2A works immediately after boot
 for (const { name, provider, agentConfig } of activeAgents) {
-  // Inject agent name into CLI process env so A2A --source auto-fills
-  provider.setEnv("ARINOVA_AGENT_NAME", name);
   const warmupId = `${name}:default`;
   provider.warmup(warmupId, {
     cwd: agentConfig.cwd,
@@ -407,7 +405,20 @@ async function shutdown(signal: string) {
   } catch {
     parentInfo += `, parent=[not found]`;
   }
+  // Capture process snapshot at signal time to find who sent it
+  let processSnapshot = "";
+  try {
+    const { execSync } = await import("child_process");
+    processSnapshot = execSync(
+      `ps -eo pid,ppid,command | grep -E "arinova-bridge|kill|stop" | grep -v grep`,
+      { timeout: 2000 },
+    ).toString().trim();
+  } catch { /* empty is fine */ }
+
   logger.info(`Shutting down... (signal=${signal}, pid=${process.pid}, ${parentInfo}, uptime=${Math.round(process.uptime())}s)`);
+  if (processSnapshot) {
+    logger.info(`Process snapshot at shutdown:\n${processSnapshot}`);
+  }
   cronRunner.stopAll();
   spawnManager.stopAll();
   forkManager.stopAll();
