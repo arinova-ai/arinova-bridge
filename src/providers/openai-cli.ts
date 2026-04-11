@@ -85,6 +85,9 @@ export class OpenAICliProvider implements Provider {
     const content = systemPromptPrefix + buildContextPrefix(opts) + opts.content;
     const effectiveCwd = cwd ?? this.getConvCwd(conversationId) ?? this.defaultCwd;
     const effectiveModel = model ?? this.getConvModel(conversationId) ?? undefined;
+    // Per-thread agent name — CodexAppServer is a long-running process so we
+    // cannot set env per-turn like Gemini.  Pass via thread config instead.
+    const agentName = conversationId.split(":")[0] || undefined;
 
     // Wire abort signal
     const onAbort = () => this.interrupt(conversationId);
@@ -97,7 +100,7 @@ export class OpenAICliProvider implements Provider {
         conversationId,
         content,
         onChunk,
-        { cwd: effectiveCwd, model: effectiveModel },
+        { cwd: effectiveCwd, model: effectiveModel, agentName },
       );
 
       // Persist thread ID

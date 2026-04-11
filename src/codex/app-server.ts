@@ -232,7 +232,7 @@ export class CodexAppServer {
   /** Start a new thread or resume an existing one for a conversation. */
   async startThread(
     conversationId: string,
-    opts: { cwd?: string; model?: string; resumeThreadId?: string },
+    opts: { cwd?: string; model?: string; resumeThreadId?: string; agentName?: string },
   ): Promise<string> {
     await this.ensureReady();
     const log = this.opts.logger;
@@ -256,6 +256,11 @@ export class CodexAppServer {
     };
     if (opts.model) params.model = opts.model;
     if (opts.cwd) params.cwd = opts.cwd;
+    // Per-thread agent identity so CLI --source fallback works even when
+    // multiple agents share this long-running CodexAppServer process.
+    if (opts.agentName) {
+      params.config = { env: { ARINOVA_AGENT_NAME: opts.agentName } };
+    }
 
     const result = await this.rpc!.request<ThreadStartResult>("thread/start", params);
     const newThreadId = result.thread.id;
@@ -282,7 +287,7 @@ export class CodexAppServer {
   private async resumeThread(
     conversationId: string,
     threadId: string,
-    opts: { cwd?: string; model?: string },
+    opts: { cwd?: string; model?: string; agentName?: string },
   ): Promise<string> {
     const params: ThreadResumeParams = {
       threadId,
@@ -291,6 +296,9 @@ export class CodexAppServer {
     };
     if (opts.model) params.model = opts.model;
     if (opts.cwd) params.cwd = opts.cwd;
+    if (opts.agentName) {
+      params.config = { env: { ARINOVA_AGENT_NAME: opts.agentName } };
+    }
 
     const result = await this.rpc!.request<ThreadStartResult>("thread/resume", params);
     const resumedId = result.thread.id;
@@ -321,11 +329,12 @@ export class CodexAppServer {
     conversationId: string,
     text: string,
     onChunk?: (text: string) => void,
-    opts?: { cwd?: string; model?: string },
+    opts?: { cwd?: string; model?: string; agentName?: string },
   ): Promise<{ text: string; threadId: string }> {
     const threadId = await this.startThread(conversationId, {
       cwd: opts?.cwd,
       model: opts?.model,
+      agentName: opts?.agentName,
       resumeThreadId: this.convToThread.get(conversationId),
     });
 

@@ -227,19 +227,25 @@ export class GeminiCliProvider implements Provider {
 
     this.db.upsertConversation(conversationId, { status: "busy" });
 
+    // Per-turn env: merge provider-level env with per-session agent name
+    const agentName = conversationId.split(":")[0];
+    const turnEnv = agentName
+      ? { ...this.customEnv, ARINOVA_AGENT_NAME: agentName }
+      : this.customEnv;
+
     const isResume = !isRetry && !!conv?.threadId;
     let gemini;
     if (isResume) {
       gemini = spawnGeminiResume(this.geminiPath, conv.threadId!, content, {
         cwd: effectiveCwd,
         model: effectiveModel,
-        env: this.customEnv,
+        env: turnEnv,
       });
     } else {
       gemini = spawnGeminiExec(this.geminiPath, content, {
         cwd: effectiveCwd,
         model: effectiveModel,
-        env: this.customEnv,
+        env: turnEnv,
       });
     }
 

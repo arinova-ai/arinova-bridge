@@ -879,6 +879,149 @@ describe("CommandHandler", () => {
         expect.objectContaining({ cwd: "/default/cwd" }),
       );
     });
+
+    // ── Compact-on-switch: auto compact when switching provider ──
+
+    it("compacts current session on provider switch and shows success note", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "hello" }], undefined);
+        }),
+      };
+      vi.mocked(anthropicProvider.sendMessage).mockResolvedValue({ text: "summary" });
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-switch-1");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      expect(mockSessionStore.compact).toHaveBeenCalledWith(
+        "conv-switch-1",
+        expect.any(Function),
+        expect.any(Object),
+      );
+      expect(ctx.completed).toContain("Context 已透過 compact 轉移");
+      expect(ctx.completed).toContain("已切換到");
+    });
+
+    it("graceful fallback when compact fails during switch — still switches", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async () => {
+          throw new Error("DB locked");
+        }),
+      };
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-switch-2");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      // Switch still completes
+      expect(ctx.completed).toContain("已切換到");
+      // Warning shown
+      expect(ctx.completed).toContain("Context compact 失敗");
+      expect(ctx.completed).toContain("DB locked");
+      // Target session still reset
+      expect(openaiProvider.resetSession).toHaveBeenCalledWith(
+        "conv-switch-2",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+    });
+
+    it("skips compact when switching to the same provider", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async () => {}),
+      };
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+
+      const ctx = createCtx("conv-switch-3");
+      await handlerWithStore.handle("/provider anthropic-oauth", ctx);
+
+      // Same provider — no compact needed
+      expect(mockSessionStore.compact).not.toHaveBeenCalled();
+      expect(ctx.completed).not.toContain("compact");
+    });
+
+    it("skips compact when sessionStore is not available", async () => {
+      // handler without sessionStore (3rd arg omitted)
+      const handlerNoStore = new CommandHandler(providers, createMockConfig());
+
+      const ctx = createCtx("conv-switch-4");
+      await handlerNoStore.handle("/provider openai-api", ctx);
+
+      // Switch completes without error
+      expect(ctx.completed).toContain("已切換到");
+      expect(ctx.completed).not.toContain("compact");
+    });
+
+    it("compact-on-switch uses compactModel from agent config", async () => {
+      let capturedModel = "";
+      const mockSessionStore = {
+        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+          await summariser([{ role: "user", content: "test" }], undefined);
+        }),
+      };
+      vi.mocked(anthropicProvider.sendMessage).mockImplementation(async (opts: any) => {
+        capturedModel = opts.model;
+        return { text: "summary" };
+      });
+
+      const configWithAgent = {
+        ...createMockConfig(),
+        agents: [{ name: "my-agent", botToken: "tok", provider: "anthropic-cli", compactModel: "haiku" }],
+      };
+      const handlerWithAgent = new CommandHandler(
+        providers,
+        configWithAgent,
+        mockSessionStore as any,
+      );
+      handlerWithAgent.agentName = "my-agent";
+
+      const ctx = createCtx("conv-switch-5");
+      await handlerWithAgent.handle("/provider openai-api", ctx);
+
+      expect(capturedModel).toBe("haiku");
+      expect(mockSessionStore.compact).toHaveBeenCalledWith(
+        "conv-switch-5",
+        expect.any(Function),
+        expect.objectContaining({ model: "haiku" }),
+      );
+    });
+
+    it("compact-on-switch calls onSessionReset even when compact fails", async () => {
+      const mockSessionStore = {
+        compact: vi.fn(async () => {
+          throw new Error("fail");
+        }),
+      };
+      const onReset = vi.fn();
+
+      const handlerWithStore = new CommandHandler(
+        providers,
+        createMockConfig(),
+        mockSessionStore as any,
+      );
+      handlerWithStore.onSessionReset = onReset;
+
+      const ctx = createCtx("conv-switch-6");
+      await handlerWithStore.handle("/provider openai-api", ctx);
+
+      // onSessionReset should still be called (smart-injection tracking cleared)
+      expect(onReset).toHaveBeenCalledWith("conv-switch-6");
+    });
   });
 
   describe("/notes", () => {

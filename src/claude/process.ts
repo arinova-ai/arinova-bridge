@@ -158,6 +158,9 @@ export class ClaudeProcess {
     const env = { ...process.env, ...this.opts.env };
     delete env.CLAUDECODE;
     env.CI = "true";
+    // Per-session agent name so A2A --source fallback is correct even when
+    // multiple agents share the same provider instance.
+    if (this.opts.agentName) env.ARINOVA_AGENT_NAME = this.opts.agentName;
     // Strip node_modules/.bin from PATH to avoid picking up local
     // @anthropic-ai/claude-code binary which may be an incompatible version
     if (env.PATH) {
