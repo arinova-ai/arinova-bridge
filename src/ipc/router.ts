@@ -114,13 +114,14 @@ export async function deliverToAgent(
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
+      // Query sender's long-term memories (A2A only, regardless of bridgeSessionStore)
+      let extraContext: string | undefined;
+      if (from !== "cli") {
+        extraContext = await querySenderMemories(from, content);
+      }
+
       if (opts?.bridgeSessionStore) {
         // Full pipeline: context injection, recording, auto-compact
-        let extraContext: string | undefined;
-        if (from !== "cli") {
-          extraContext = await querySenderMemories(from, content);
-        }
-
         const result = await runMessagePipeline({
           provider: target.provider,
           bridgeSessionStore: opts.bridgeSessionStore,
@@ -140,6 +141,7 @@ export async function deliverToAgent(
         responseText = result.text;
       } else {
         // Lightweight path: no session store (e.g. tests, raw IPC)
+        // Still inject sender memories as bridgeSessionContext if available
         const result = await target.provider.sendMessage({
           conversationId: syntheticId,
           content,
@@ -149,6 +151,7 @@ export async function deliverToAgent(
           onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
           signal: controller.signal,
           queue: true,
+          bridgeSessionContext: extraContext,
         });
         responseText = result.text;
       }
