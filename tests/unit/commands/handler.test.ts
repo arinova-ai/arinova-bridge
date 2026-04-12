@@ -1384,4 +1384,91 @@ describe("CommandHandler", () => {
       expect(reply).not.toContain("Result:");
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // /spawn logs
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn logs", () => {
+    function makeJob(overrides: Partial<{
+      id: string; parentAgent: string; status: string;
+    }> = {}) {
+      return {
+        id: overrides.id ?? "log12345",
+        parentAgent: overrides.parentAgent ?? "agent-a",
+        targetAgent: "agent-b",
+        context: "do something",
+        status: overrides.status ?? "running",
+        result: null,
+        createdAt: Date.now(),
+        completedAt: null,
+        durationMs: null,
+        model: null,
+        costUsd: null,
+      };
+    }
+
+    function setupLogsHandler(agentName: string, jobs: ReturnType<typeof makeJob>[], logs: Array<{ content: string; createdAt: number }> = []) {
+      const h = new CommandHandler(providers, createMockConfig());
+      h.agentName = agentName;
+      h.spawnManager = {
+        getJob: vi.fn((id: string) => jobs.find((j) => j.id === id) ?? null),
+        getLogs: vi.fn(() => logs),
+        listByParent: vi.fn(() => []),
+        listAll: vi.fn(() => []),
+        cancel: vi.fn(() => false),
+      } as any;
+      return h;
+    }
+
+    it("shows logs with timestamps", async () => {
+      const job = makeJob({ parentAgent: "agent-a" });
+      const logs = [
+        { content: "Starting task...", createdAt: Date.now() - 5000 },
+        { content: "Processing step 1", createdAt: Date.now() - 2000 },
+      ];
+      const h = setupLogsHandler("agent-a", [job], logs);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs log12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("Starting task...");
+      expect(reply).toContain("Processing step 1");
+      expect(reply).toContain("Spawn Logs:");
+    });
+
+    it("rejects access to other agent's logs", async () => {
+      const job = makeJob({ parentAgent: "agent-b" });
+      const h = setupLogsHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs log12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("找不到");
+    });
+
+    it("shows no-logs hint for running job", async () => {
+      const job = makeJob({ parentAgent: "agent-a", status: "running" });
+      const h = setupLogsHandler("agent-a", [job], []);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs log12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("仍在執行中");
+    });
+
+    it("shows no-logs hint for completed job", async () => {
+      const job = makeJob({ parentAgent: "agent-a", status: "completed" });
+      const h = setupLogsHandler("agent-a", [job], []);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs log12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("無 log 紀錄");
+    });
+
+    it("returns not found for nonexistent job", async () => {
+      const h = setupLogsHandler("agent-a", []);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs nonexist", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("找不到");
+    });
+  });
 });

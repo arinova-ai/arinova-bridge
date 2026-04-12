@@ -62,6 +62,9 @@ export class SpawnStore {
     countRunningByParent: ReturnType<InstanceType<typeof Database>["prepare"]>;
     complete: ReturnType<InstanceType<typeof Database>["prepare"]>;
     cancel: ReturnType<InstanceType<typeof Database>["prepare"]>;
+    appendLog: ReturnType<InstanceType<typeof Database>["prepare"]>;
+    getLogs: ReturnType<InstanceType<typeof Database>["prepare"]>;
+    cleanupLogs: ReturnType<InstanceType<typeof Database>["prepare"]>;
   };
 
   constructor(dbDir: string, private logger: Logger) {
@@ -95,6 +98,17 @@ export class SpawnStore {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_spawn_status ON spawn_jobs (status)
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS spawn_logs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id      TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        created_at  INTEGER NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_spawn_logs_job ON spawn_logs (job_id)
+    `);
   }
 
   private prepareStatements(): void {
@@ -115,6 +129,17 @@ export class SpawnStore {
       cancel: this.db.prepare(`
         UPDATE spawn_jobs SET status = 'cancelled', completed_at = @completedAt, duration_ms = @durationMs
         WHERE id = @id AND status = 'running'
+      `),
+      appendLog: this.db.prepare(`
+        INSERT INTO spawn_logs (job_id, content, created_at) VALUES (@jobId, @content, @createdAt)
+      `),
+      getLogs: this.db.prepare(`
+        SELECT content, created_at FROM spawn_logs WHERE job_id = ? ORDER BY id ASC
+      `),
+      cleanupLogs: this.db.prepare(`
+        DELETE FROM spawn_logs WHERE job_id IN (
+          SELECT id FROM spawn_jobs WHERE completed_at IS NOT NULL AND completed_at < ?
+        )
       `),
     };
   }
@@ -213,6 +238,22 @@ export class SpawnStore {
       durationMs: now - job.createdAt,
     });
     return true;
+  }
+
+  appendLog(jobId: string, content: string): void {
+    this.stmts.appendLog.run({ jobId, content, createdAt: Date.now() });
+  }
+
+  getLogs(jobId: string): Array<{ content: string; createdAt: number }> {
+    const rows = this.stmts.getLogs.all(jobId) as Array<{ content: string; created_at: number }>;
+    return rows.map((r) => ({ content: r.content, createdAt: r.created_at }));
+  }
+
+  /** Remove logs for jobs completed more than `maxAgeMs` ago. */
+  cleanupOldLogs(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): number {
+    const cutoff = Date.now() - maxAgeMs;
+    const result = this.stmts.cleanupLogs.run(cutoff);
+    return result.changes;
   }
 
   close(): void {

@@ -107,6 +107,16 @@ export class SpawnManager {
     return this.store.get(id);
   }
 
+  /** Get intermediate logs for a spawn job. */
+  getLogs(id: string): Array<{ content: string; createdAt: number }> {
+    return this.store.getLogs(id);
+  }
+
+  /** Clean up logs older than 7 days. Returns number of deleted entries. */
+  cleanupOldLogs(): number {
+    return this.store.cleanupOldLogs();
+  }
+
   // -------------------------------------------------------------------------
   // Internal execution
   // -------------------------------------------------------------------------
@@ -134,6 +144,19 @@ export class SpawnManager {
     }, SPAWN_TIMEOUT_MS);
     this.timeouts.set(job.id, timer);
 
+    // Log buffer — flush accumulated chunks every 2 seconds to reduce DB writes
+    let logBuffer = "";
+    let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+    const flushLog = () => {
+      if (logBuffer) {
+        this.store.appendLog(job.id, logBuffer);
+        logBuffer = "";
+      }
+    };
+
+    flushTimer = setInterval(flushLog, 2000);
+
     try {
       // Deliver context to target agent and wait for result
       const result = await deliverToAgent(target, job.context, {
@@ -142,10 +165,13 @@ export class SpawnManager {
         model: job.model ?? undefined,
         bridgeSessionStore: this.bridgeSessionStore,
         timeoutMs: SPAWN_TIMEOUT_MS,
+        onLog: (text) => { logBuffer += text; },
       });
 
-      // Clear timeout
+      // Clear timers and flush remaining log
       clearTimeout(timer);
+      if (flushTimer) clearInterval(flushTimer);
+      flushLog();
       this.timeouts.delete(job.id);
 
       // Check if already cancelled/timed out
@@ -163,8 +189,10 @@ export class SpawnManager {
       // Report result back to parent agent
       this.reportToParent(job, "completed", result.text);
     } catch (err) {
-      // Clear timeout
+      // Clear timers and flush remaining log
       clearTimeout(timer);
+      if (flushTimer) clearInterval(flushTimer);
+      flushLog();
       this.timeouts.delete(job.id);
 
       const msg = err instanceof Error ? err.message : String(err);

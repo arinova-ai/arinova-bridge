@@ -131,6 +131,7 @@ if (restoredCronJobs > 0) {
 // Initialize spawn manager and recover stale jobs
 spawnManager.setAgents(activeAgents, bridgeSessionStore);
 spawnManager.recoverStale();
+spawnManager.cleanupOldLogs();
 
 // Initialize fork manager and recover stale jobs
 forkManager.setAgents(activeAgents, bridgeSessionStore);

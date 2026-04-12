@@ -889,6 +889,7 @@ export class CommandHandler {
         "用法:",
         "  /spawn list — 列出所有 spawn 子任務",
         "  /spawn result <id> — 查看完整回傳內容",
+        "  /spawn logs <id> — 查看執行過程 log",
         "  /spawn cancel <id> — 取消 spawn 子任務",
         "",
         "Spawn 透過 CLI 建立：",
@@ -905,11 +906,15 @@ export class CommandHandler {
       case "result":
         this.handleSpawnResult(parts.slice(1), ctx);
         return;
+      case "logs":
+      case "log":
+        this.handleSpawnLogs(parts.slice(1), ctx);
+        return;
       case "cancel":
         this.handleSpawnCancel(parts.slice(1), ctx);
         return;
       default:
-        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|result|cancel`);
+        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|result|logs|cancel`);
     }
   }
 
@@ -970,6 +975,38 @@ export class CommandHandler {
       lines.push("", "_(Job is still running — no result yet)_");
     } else {
       lines.push("", "_(No result)_");
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private handleSpawnLogs(parts: string[], ctx: CommandContext): void {
+    const jobId = parts[0];
+    if (!jobId) {
+      this.reply(ctx, "用法: /spawn logs <id>");
+      return;
+    }
+
+    const job = this.spawnManager!.getJob(jobId);
+    if (!job || job.parentAgent !== this.agentName) {
+      this.reply(ctx, `找不到 spawn job "${jobId}"`);
+      return;
+    }
+
+    const logs = this.spawnManager!.getLogs(jobId);
+    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+
+    if (logs.length === 0) {
+      const hint = job.status === "running" ? "（��無 log — ���務仍在執行中）" : "（無 log 紀錄）";
+      this.reply(ctx, `${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n\n${hint}`);
+      return;
+    }
+
+    const lines = [`${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n`];
+    for (const entry of logs) {
+      const time = new Date(entry.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      lines.push(`**[${time}]**`);
+      lines.push(entry.content);
     }
 
     this.reply(ctx, lines.join("\n"));

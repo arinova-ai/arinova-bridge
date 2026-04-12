@@ -79,7 +79,7 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore },
+  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -159,7 +159,7 @@ export async function deliverToAgent(
         cwd,
         model,
         systemPrompt: target.agentConfig.systemPrompt,
-        onChunk: (text) => { responseText += text; },
+        onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
         signal: controller.signal,
         queue: true,
         bridgeSessionContext,
@@ -288,6 +288,8 @@ export function createIpcRouter(
         return handleSpawnCancel(req.id, req.params, spawnManager);
       case "spawn-result":
         return handleSpawnResult(req.id, req.params, spawnManager);
+      case "spawn-logs":
+        return handleSpawnLogs(req.id, req.params, spawnManager);
       case "fork-add":
         return handleForkAdd(req.id, agents, req.params, forkManager);
       case "fork-list":
@@ -777,6 +779,29 @@ function handleSpawnResult(
       durationMs: job.durationMs,
       model: job.model,
       costUsd: job.costUsd,
+    },
+  };
+}
+
+function handleSpawnLogs(
+  id: number,
+  params: { id: string },
+  spawnManager?: SpawnManager,
+): IpcResponse {
+  if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
+
+  const job = spawnManager.getJob(params.id);
+  if (!job) {
+    return { id, error: { code: 11, message: `Spawn job "${params.id}" not found` } };
+  }
+
+  const logs = spawnManager.getLogs(params.id);
+  return {
+    id,
+    result: {
+      id: job.id,
+      status: job.status,
+      logs: logs.map((l) => ({ content: l.content, createdAt: l.createdAt })),
     },
   };
 }

@@ -495,7 +495,33 @@ async function cmdSpawn(args: string[]): Promise<void> {
   const { sendIpcRequest } = await import("./ipc/client.js");
   const sub = args[0]?.toLowerCase();
 
-  if (sub === "cancel") {
+  if (sub === "logs") {
+    const id = parseFlag(args, "--id") ?? args[1];
+    if (!id) {
+      console.error("Usage: arinova-bridge spawn logs --id <job-id>");
+      process.exit(1);
+    }
+    const resp = await sendIpcRequest({ id: 1, method: "spawn-logs", params: { id } });
+    if ("error" in resp) ipcError(resp);
+
+    const data = resp.result as {
+      id: string; status: string;
+      logs: Array<{ content: string; createdAt: number }>;
+    };
+
+    const statusIcon = data.status === "running" ? "🔄" : data.status === "completed" ? "✅" : data.status === "failed" ? "❌" : "⏸️";
+    console.log(`${statusIcon} Spawn Logs: ${data.id}  (${data.status})\n`);
+
+    if (data.logs.length === 0) {
+      console.log(data.status === "running" ? "(No logs yet — job is still running)" : "(No logs recorded)");
+    } else {
+      for (const entry of data.logs) {
+        const time = new Date(entry.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+        console.log(`[${time}]`);
+        console.log(entry.content);
+      }
+    }
+  } else if (sub === "cancel") {
     const id = parseFlag(args, "--id");
     if (!id) {
       console.error("Usage: arinova-bridge spawn cancel --id <job-id>");
