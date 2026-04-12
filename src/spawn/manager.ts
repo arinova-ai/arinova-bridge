@@ -16,6 +16,10 @@ export class SpawnManager {
   private bridgeSessionStore?: BridgeSessionStore;
   /** Active spawn timers for timeout enforcement. */
   private timeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Active flush timers for log buffering — tracked for clean shutdown. */
+  private flushTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /** Set to true on shutdown to prevent late DB writes. */
+  private closed = false;
 
   constructor(private store: SpawnStore) {}
 
@@ -64,12 +68,17 @@ export class SpawnManager {
 
   /** Stop all active spawns and close the store. */
   stopAll(): void {
+    this.closed = true;
     for (const [id, timeout] of this.timeouts) {
       clearTimeout(timeout);
       this.store.cancel(id);
       log.info(`spawn[${id}] stopped on shutdown`);
     }
     this.timeouts.clear();
+    for (const [, timer] of this.flushTimers) {
+      clearInterval(timer);
+    }
+    this.flushTimers.clear();
     this.store.close();
   }
 
@@ -146,16 +155,17 @@ export class SpawnManager {
 
     // Log buffer — flush accumulated chunks every 2 seconds to reduce DB writes
     let logBuffer = "";
-    let flushTimer: ReturnType<typeof setInterval> | null = null;
 
     const flushLog = () => {
-      if (logBuffer) {
+      if (this.closed || !logBuffer) return;
+      try {
         this.store.appendLog(job.id, logBuffer);
         logBuffer = "";
-      }
+      } catch { /* DB may be closed during shutdown */ }
     };
 
-    flushTimer = setInterval(flushLog, 2000);
+    const flushTimer = setInterval(flushLog, 2000);
+    this.flushTimers.set(job.id, flushTimer);
 
     try {
       // Deliver context to target agent and wait for result
@@ -170,7 +180,8 @@ export class SpawnManager {
 
       // Clear timers and flush remaining log
       clearTimeout(timer);
-      if (flushTimer) clearInterval(flushTimer);
+      clearInterval(flushTimer);
+      this.flushTimers.delete(job.id);
       flushLog();
       this.timeouts.delete(job.id);
 
@@ -191,7 +202,8 @@ export class SpawnManager {
     } catch (err) {
       // Clear timers and flush remaining log
       clearTimeout(timer);
-      if (flushTimer) clearInterval(flushTimer);
+      clearInterval(flushTimer);
+      this.flushTimers.delete(job.id);
       flushLog();
       this.timeouts.delete(job.id);
 

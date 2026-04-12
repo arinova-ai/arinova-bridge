@@ -997,7 +997,7 @@ export class CommandHandler {
     const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
 
     if (logs.length === 0) {
-      const hint = job.status === "running" ? "（��無 log — ���務仍在執行中）" : "（無 log 紀錄）";
+      const hint = job.status === "running" ? "（尚無 log — 任務仍在執行中）" : "（無 log 紀錄）";
       this.reply(ctx, `${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n\n${hint}`);
       return;
     }

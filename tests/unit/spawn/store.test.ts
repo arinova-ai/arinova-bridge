@@ -151,4 +151,47 @@ describe("SpawnStore", () => {
     expect(jobs[0].context).toBe("persistent task");
     store2.close();
   });
+
+  // ---------------------------------------------------------------------------
+  // Spawn Logs
+  // ---------------------------------------------------------------------------
+
+  it("appends and retrieves logs for a job", () => {
+    const job = store.add("lucy", "pan", "task");
+    store.appendLog(job.id, "step 1 output");
+    store.appendLog(job.id, "step 2 output");
+
+    const logs = store.getLogs(job.id);
+    expect(logs).toHaveLength(2);
+    expect(logs[0].content).toBe("step 1 output");
+    expect(logs[1].content).toBe("step 2 output");
+    expect(logs[0].createdAt).toBeLessThanOrEqual(logs[1].createdAt);
+  });
+
+  it("returns empty logs for job with no log entries", () => {
+    const job = store.add("lucy", "pan", "task");
+    expect(store.getLogs(job.id)).toHaveLength(0);
+  });
+
+  it("cleanupOldLogs removes logs for old completed jobs", () => {
+    const job = store.add("lucy", "pan", "task");
+    store.appendLog(job.id, "some output");
+    // Complete the job
+    store.complete(job.id, "completed", "done");
+
+    // Clean with maxAgeMs = -1000 so cutoff is in the future (anything completed is "old")
+    const deleted = store.cleanupOldLogs(-1000);
+    expect(deleted).toBe(1);
+    expect(store.getLogs(job.id)).toHaveLength(0);
+  });
+
+  it("cleanupOldLogs preserves logs for running jobs", () => {
+    const job = store.add("lucy", "pan", "task");
+    store.appendLog(job.id, "in progress");
+
+    // Running jobs have no completed_at, so cleanup should not touch them
+    const deleted = store.cleanupOldLogs(0);
+    expect(deleted).toBe(0);
+    expect(store.getLogs(job.id)).toHaveLength(1);
+  });
 });
