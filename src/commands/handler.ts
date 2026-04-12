@@ -941,7 +941,7 @@ export class CommandHandler {
     }
 
     const job = this.spawnManager!.getJob(jobId);
-    if (!job) {
+    if (!job || job.parentAgent !== this.agentName) {
       this.reply(ctx, `找不到 spawn job "${jobId}"`);
       return;
     }
@@ -963,6 +963,8 @@ export class CommandHandler {
       lines.push("", "**Result:**", job.result);
     } else if (job.status === "running") {
       lines.push("", "_(Job is still running — no result yet)_");
+    } else {
+      lines.push("", "_(No result)_");
     }
 
     this.reply(ctx, lines.join("\n"));

@@ -684,7 +684,7 @@ describe("CommandHandler", () => {
 
       // Task mode: should contain engineering-specific preservation instructions
       expect(capturedContent).toContain("Summarise this engineering conversation");
-      expect(capturedContent).toContain("Commit hashes");
+      expect(capturedContent).toContain("commit hashes");
       expect(capturedContent).toContain("a1b2c3d");
     });
 
@@ -714,8 +714,8 @@ describe("CommandHandler", () => {
       const ctx2 = createCtx("conv-gen-1");
       await handlerWithStore.handle("/compact", ctx2);
 
-      // General mode: Chinese instruction prompt
-      expect(capturedContent).toContain("請將以下對話摘要成簡潔的重點");
+      // General mode: Chinese structured instruction prompt
+      expect(capturedContent).toContain("請將以下對話整理成以下結構化格式");
     });
 
     it("non-anthropic: summariser uses dedicated :compact conversation ID", async () => {
@@ -1224,6 +1224,88 @@ describe("CommandHandler", () => {
 
       // /compact failure must NOT call onSessionReset
       expect(onReset).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn result
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn result", () => {
+    function makeJob(overrides: Partial<{
+      id: string; parentAgent: string; targetAgent: string; status: string;
+      result: string | null; context: string;
+    }> = {}) {
+      return {
+        id: overrides.id ?? "abc12345",
+        parentAgent: overrides.parentAgent ?? "agent-a",
+        targetAgent: overrides.targetAgent ?? "agent-b",
+        context: overrides.context ?? "do something",
+        status: overrides.status ?? "completed",
+        result: "result" in overrides ? overrides.result! : "done!",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 1234,
+        model: null,
+        costUsd: null,
+      };
+    }
+
+    function setupSpawnHandler(agentName: string, jobs: ReturnType<typeof makeJob>[]) {
+      const h = new CommandHandler(providers, createMockConfig());
+      h.agentName = agentName;
+      h.spawnManager = {
+        getJob: vi.fn((id: string) => jobs.find((j) => j.id === id) ?? null),
+        listByParent: vi.fn(() => []),
+        listAll: vi.fn(() => []),
+        cancel: vi.fn(() => false),
+      } as any;
+      return h;
+    }
+
+    it("shows full result for own completed job", async () => {
+      const job = makeJob({ parentAgent: "agent-a", result: "full result text here" });
+      const h = setupSpawnHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn");
+      await h.handle("/spawn result abc12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("full result text here");
+      expect(reply).toContain("**Result:**");
+    });
+
+    it("rejects access to other agent's job", async () => {
+      const job = makeJob({ parentAgent: "agent-b" });
+      const h = setupSpawnHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn");
+      await h.handle("/spawn result abc12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("找不到");
+    });
+
+    it("shows running hint when job is still running", async () => {
+      const job = makeJob({ parentAgent: "agent-a", status: "running", result: null });
+      const h = setupSpawnHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn");
+      await h.handle("/spawn result abc12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("still running");
+    });
+
+    it("shows no result for cancelled job", async () => {
+      const job = makeJob({ parentAgent: "agent-a", status: "cancelled", result: null });
+      const h = setupSpawnHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn");
+      await h.handle("/spawn result abc12345", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("No result");
+    });
+
+    it("returns not found for nonexistent job id", async () => {
+      const h = setupSpawnHandler("agent-a", []);
+      const ctx = createCtx("conv-spawn");
+      await h.handle("/spawn result nonexist", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("找不到");
     });
   });
 });
