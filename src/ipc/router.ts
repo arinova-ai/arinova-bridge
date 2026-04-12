@@ -1,10 +1,11 @@
 import type { ActiveAgent, IpcRequest, IpcResponse, TaskRecord } from "./types.js";
 import type { Provider } from "../providers/types.js";
-import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
+import type { BridgeSessionStore } from "../session/bridge-session.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
+import { runMessagePipeline, clearContextInjected } from "../pipeline/message-pipeline.js";
 import { createLogger } from "../util/logger.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,16 +19,11 @@ const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
-// Track which A2A sessions have already received bridge context injection.
-// Cleared on session reset so re-injection happens after recovery.
-const a2aContextInjected = new Set<string>();
-// Track provider-side session IDs to detect mid-turn respawns (A2A path)
-const lastA2aProviderSessionId = new Map<string, string>();
-
-/** Clear A2A context-injected flag for a session (e.g. after /model or /compact reset). */
+/** Clear A2A-specific context-injection tracking (delegates to pipeline). */
 export function clearA2aContextInjected(sessionId: string): void {
-  a2aContextInjected.delete(sessionId);
-  lastA2aProviderSessionId.delete(sessionId);
+  // The pipeline now owns the shared tracking state; this is kept as a
+  // compatibility shim so callers in index.ts don't need to change.
+  // Pipeline's clearContextInjected already covers both Chat + A2A.
 }
 
 /**
@@ -110,103 +106,54 @@ export async function deliverToAgent(
   handled = cmdResult.handled;
 
   if (!handled) {
-    responseText = "";
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
-
-    // Detect provider session death or respawn → force re-injection
-    const a2aSessionInfo = target.provider.getSessionInfo(syntheticId);
-    const prevA2aSid = lastA2aProviderSessionId.get(syntheticId);
-    // Session dead or missing (null) with a previously known session → respawn detected
-    if (prevA2aSid && (!a2aSessionInfo || !a2aSessionInfo.alive)) {
-      a2aContextInjected.delete(syntheticId);
-      lastA2aProviderSessionId.delete(syntheticId);
-    }
-    // Session ID changed → provider respawned mid-turn
-    if (a2aSessionInfo && prevA2aSid && a2aSessionInfo.sessionId !== prevA2aSid) {
-      a2aContextInjected.delete(syntheticId);
-      lastA2aProviderSessionId.delete(syntheticId);
-    }
-
-    // Inject bridge context on first A2A message for this session (context recovery)
-    // Must build context BEFORE recording the user message to avoid duplication.
-    const isFirstA2a = !a2aContextInjected.has(syntheticId);
-    let bridgeSessionContext = isFirstA2a && opts?.bridgeSessionStore
-      ? (opts.bridgeSessionStore.buildContext(syntheticId) || undefined)
-      : undefined;
-
-    // On first A2A message, query sender's long-term memories and prepend to context
-    if (isFirstA2a && from !== "cli") {
-      const senderMemories = await querySenderMemories(from, content);
-      if (senderMemories) {
-        bridgeSessionContext = bridgeSessionContext
-          ? `${senderMemories}\n\n${bridgeSessionContext}`
-          : senderMemories;
-      }
-    }
-
-    // Record user message (A2A inbound) in bridge session
-    opts?.bridgeSessionStore?.addUserMessage(syntheticId, content, from, { model });
 
     const controller = new AbortController();
     const timeout = opts?.timeoutMs ?? 600_000;
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const result = await target.provider.sendMessage({
-        conversationId: syntheticId,
-        content,
-        cwd,
-        model,
-        systemPrompt: target.agentConfig.systemPrompt,
-        onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
-        signal: controller.signal,
-        queue: true,
-        bridgeSessionContext,
-      });
-      responseText = result.text;
-      if (isFirstA2a) a2aContextInjected.add(syntheticId);
-      // Track provider session ID to detect mid-turn respawns
-      if (result.sessionId) {
-        lastA2aProviderSessionId.set(syntheticId, result.sessionId);
+      if (opts?.bridgeSessionStore) {
+        // Full pipeline: context injection, recording, auto-compact
+        let extraContext: string | undefined;
+        if (from !== "cli") {
+          extraContext = await querySenderMemories(from, content);
+        }
+
+        const result = await runMessagePipeline({
+          provider: target.provider,
+          bridgeSessionStore: opts.bridgeSessionStore,
+          sessionId: syntheticId,
+          content,
+          agentName: target.name,
+          cwd,
+          model,
+          systemPrompt: target.agentConfig.systemPrompt,
+          compactModel: target.agentConfig.compactModel,
+          onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+          signal: controller.signal,
+          queue: true,
+          extraContext,
+          senderName: from,
+        });
+        responseText = result.text;
+      } else {
+        // Lightweight path: no session store (e.g. tests, raw IPC)
+        const result = await target.provider.sendMessage({
+          conversationId: syntheticId,
+          content,
+          cwd,
+          model,
+          systemPrompt: target.agentConfig.systemPrompt,
+          onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+          signal: controller.signal,
+          queue: true,
+        });
+        responseText = result.text;
       }
     } finally {
       clearTimeout(timer);
-    }
-
-    // Record assistant response (A2A outbound) in bridge session
-    opts?.bridgeSessionStore?.addAssistantMessage(syntheticId, responseText, target.name, { model });
-
-    // A2A compact trigger — same logic as Chat path
-    if (opts?.bridgeSessionStore?.needsCompact(syntheticId, model)) {
-      const compactModel = target.agentConfig.compactModel ?? model;
-      log.info(`${target.name}: A2A context threshold reached for ${syntheticId}, compacting with ${compactModel}...`);
-      try {
-        await opts.bridgeSessionStore.compact(syntheticId, async (messages, existingSummary) => {
-          const tokenBudget = getSummaryMaxTokens(compactModel);
-          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
-
-          const compactResult = await target.provider.sendMessage({
-            conversationId: `${syntheticId}:compact`,
-            content: summaryPrompt,
-            cwd: opts?.cwd ?? target.agentConfig.cwd,
-            model: compactModel,
-            onChunk: () => {},
-            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
-          });
-          return compactResult.text;
-        }, { model: compactModel });
-        // Reset provider session so it starts fresh with compacted context
-        await target.provider.resetSession(syntheticId, {
-          cwd: opts?.cwd ?? target.agentConfig.cwd,
-          model,
-        });
-        a2aContextInjected.delete(syntheticId);
-        lastA2aProviderSessionId.delete(syntheticId);
-      } catch (err) {
-        log.warn(`${target.name}: A2A compact failed for ${syntheticId}: ${err}`);
-      }
     }
   }
 
@@ -486,8 +433,7 @@ async function handleAgentReset(
   for (const s of sessions) {
     try {
       await target.provider.resetSession(s.conversationId);
-      a2aContextInjected.delete(s.conversationId);
-      lastA2aProviderSessionId.delete(s.conversationId);
+      clearContextInjected(s.conversationId);
       reset++;
     } catch { /* best effort */ }
   }

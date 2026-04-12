@@ -10,7 +10,8 @@ import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask, clearA2aContextInjected } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
-import { BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "./session/bridge-session.js";
+import { BridgeSessionStore } from "./session/bridge-session.js";
+import { runMessagePipeline, clearContextInjected } from "./pipeline/message-pipeline.js";
 import { CronStore } from "./cron/store.js";
 import { CronRunner } from "./cron/runner.js";
 import { SpawnStore } from "./spawn/store.js";
@@ -156,23 +157,16 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   };
 
   const commandHandler = new CommandHandler(providers, agentBridgeConfig, bridgeSessionStore);
-  // Track which sessions have already received bridge context injection.
-  // After reset/clear, the session is removed so the next message re-injects.
-  const contextInjectedSessions = new Set<string>();
-  // Track provider-side session IDs to detect mid-turn respawns
-  const lastProviderSessionId = new Map<string, string>();
 
   // /new — full clear: wipe DB history + tracking flags
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
-    contextInjectedSessions.delete(conversationId);
-    lastProviderSessionId.delete(conversationId);
+    clearContextInjected(conversationId);
     clearA2aContextInjected(conversationId);
   };
   // /model, /compact — light reset: clear tracking flags only, preserve DB (summary + messages)
   commandHandler.onSessionReset = (conversationId) => {
-    contextInjectedSessions.delete(conversationId);
-    lastProviderSessionId.delete(conversationId);
+    clearContextInjected(conversationId);
     clearA2aContextInjected(conversationId);
   };
   commandHandler.cronStore = cronStore;
@@ -225,40 +219,16 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       hudWs.sendTask(agentName, { status: "started", task: content });
 
-      // Detect provider session death or respawn → force re-injection
-      const sessionInfo = msgProvider.getSessionInfo(sessionId);
-      const prevProviderSid = lastProviderSessionId.get(sessionId);
-      // Session dead or missing (null) with a previously known session → respawn detected
-      if (prevProviderSid && (!sessionInfo || !sessionInfo.alive)) {
-        contextInjectedSessions.delete(sessionId);
-        lastProviderSessionId.delete(sessionId);
-      }
-      // Session ID changed → provider respawned mid-turn
-      if (sessionInfo && prevProviderSid && sessionInfo.sessionId !== prevProviderSid) {
-        contextInjectedSessions.delete(sessionId);
-        lastProviderSessionId.delete(sessionId);
-      }
-
-      // Only inject bridge session context on the first message of a new/reset session.
-      // Subsequent messages skip injection — the provider already has the context in-session.
-      const isFirstMessage = !contextInjectedSessions.has(sessionId);
-      const bridgeSessionContext = isFirstMessage
-        ? (bridgeSessionStore.buildContext(sessionId) || undefined)
-        : undefined;
-
-      // Record user message in bridge session
-      bridgeSessionStore.addUserMessage(sessionId, content, ctx.senderUsername, {
-        model,
-        userId: ctx.senderUserId,
-        username: ctx.senderUsername,
-      });
-
-      const sendResult = await msgProvider.sendMessage({
-        conversationId: sessionId,
+      const sendResult = await runMessagePipeline({
+        provider: msgProvider,
+        bridgeSessionStore,
+        sessionId,
         content,
+        agentName,
         cwd,
         model,
         systemPrompt: agentCfg.systemPrompt,
+        compactModel: agentCfg.compactModel,
         onChunk: (text) => ctx.sendChunk(text),
         signal: ctx.signal,
         uploadFile: ctx.uploadFile,
@@ -268,47 +238,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         senderUsername: ctx.senderUsername,
         members: ctx.members,
         replyTo: ctx.replyTo,
-        bridgeSessionContext,
         fetchHistory: ctx.fetchHistory,
+        senderName: ctx.senderUsername,
+        userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
       });
 
-      // Mark session as context-injected so subsequent messages skip injection
-      if (isFirstMessage) contextInjectedSessions.add(sessionId);
-
-      // Track provider session ID to detect mid-turn respawns
-      if (sendResult.sessionId) {
-        lastProviderSessionId.set(sessionId, sendResult.sessionId);
-      }
-
-      // Record assistant response in bridge session
-      bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });
-
-      // Auto-compact if context exceeds threshold
-      if (bridgeSessionStore.needsCompact(sessionId, model)) {
-        const compactModel = agentCfg.compactModel ?? model;
-        logger.info(`[${agentName}] context threshold reached for ${sessionId}, compacting with ${compactModel}...`);
-        await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
-          const tokenBudget = getSummaryMaxTokens(compactModel);
-          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
-
-          const compactResult = await msgProvider.sendMessage({
-            conversationId: `${sessionId}:compact`,
-            content: summaryPrompt,
-            cwd,
-            model: compactModel,
-            onChunk: () => {},
-            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
-          });
-          return compactResult.text;
-        }, { model: compactModel });
-        // Reset provider session so it starts fresh with compacted context
-        // (mirrors manual /compact behaviour in CommandHandler)
-        await msgProvider.resetSession(sessionId, { cwd, model });
-        contextInjectedSessions.delete(sessionId);
-        lastProviderSessionId.delete(sessionId);
-        clearA2aContextInjected(sessionId);
-      }
+      if (sendResult.compacted) clearA2aContextInjected(sessionId);
 
       ctx.sendComplete(sendResult.text);
 
