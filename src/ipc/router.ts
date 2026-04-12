@@ -726,9 +726,12 @@ function handleSpawnList(
       completedAt: j.completedAt,
       contextPreview: j.context.length > 100 ? j.context.slice(0, 100) + "…" : j.context,
       resultPreview: j.result
-        ? j.result.length > 100
-          ? j.result.split("\n")[0].slice(0, 100) + `… (${j.result.length} chars, use spawn result ${j.id})`
-          : j.result
+        ? (() => {
+            const firstLine = j.result.split("\n")[0];
+            const truncated = firstLine.length < j.result.length || firstLine.length > 100;
+            const preview = firstLine.slice(0, 100);
+            return truncated ? preview + `… (${j.result.length} chars, use spawn result ${j.id})` : preview;
+          })()
         : null,
     })),
   };

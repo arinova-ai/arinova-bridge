@@ -1256,8 +1256,8 @@ describe("CommandHandler", () => {
       h.agentName = agentName;
       h.spawnManager = {
         getJob: vi.fn((id: string) => jobs.find((j) => j.id === id) ?? null),
-        listByParent: vi.fn(() => []),
-        listAll: vi.fn(() => []),
+        listByParent: vi.fn((agent: string) => jobs.filter((j) => j.parentAgent === agent)),
+        listAll: vi.fn(() => jobs),
         cancel: vi.fn(() => false),
       } as any;
       return h;
@@ -1306,6 +1306,82 @@ describe("CommandHandler", () => {
       await h.handle("/spawn result nonexist", ctx);
       const reply = ctx.completed as string;
       expect(reply).toContain("找不到");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn list — preview display
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn list preview", () => {
+    function makeJob(overrides: Partial<{
+      id: string; parentAgent: string; targetAgent: string; status: string;
+      result: string | null; context: string;
+    }> = {}) {
+      return {
+        id: overrides.id ?? "abc12345",
+        parentAgent: overrides.parentAgent ?? "agent-a",
+        targetAgent: overrides.targetAgent ?? "agent-b",
+        context: overrides.context ?? "do something",
+        status: overrides.status ?? "completed",
+        result: "result" in overrides ? overrides.result! : "done!",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 1234,
+        model: null,
+        costUsd: null,
+      };
+    }
+
+    function setupHandler(agentName: string, jobs: ReturnType<typeof makeJob>[]) {
+      const h = new CommandHandler(providers, createMockConfig());
+      h.agentName = agentName;
+      h.spawnManager = {
+        getJob: vi.fn((id: string) => jobs.find((j) => j.id === id) ?? null),
+        listByParent: vi.fn((agent: string) => jobs.filter((j) => j.parentAgent === agent)),
+        listAll: vi.fn(() => jobs),
+        cancel: vi.fn(() => false),
+      } as any;
+      return h;
+    }
+
+    it("shows result first line only for multi-line result", async () => {
+      const job = makeJob({ parentAgent: "agent-a", result: "first line\nsecond line\nthird" });
+      const h = setupHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn-list");
+      await h.handle("/spawn list", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("first line");
+      expect(reply).not.toContain("second line");
+    });
+
+    it("shows guidance for long result", async () => {
+      const longResult = "x".repeat(200);
+      const job = makeJob({ parentAgent: "agent-a", result: longResult });
+      const h = setupHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn-list");
+      await h.handle("/spawn list", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("/spawn result abc12345");
+    });
+
+    it("shows short single-line result without guidance", async () => {
+      const job = makeJob({ parentAgent: "agent-a", result: "ok" });
+      const h = setupHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn-list");
+      await h.handle("/spawn list", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("Result: ok");
+      expect(reply).not.toContain("/spawn result");
+    });
+
+    it("does not show result line for running job", async () => {
+      const job = makeJob({ parentAgent: "agent-a", status: "running", result: null });
+      const h = setupHandler("agent-a", [job]);
+      const ctx = createCtx("conv-spawn-list");
+      await h.handle("/spawn list", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).not.toContain("Result:");
     });
   });
 });
