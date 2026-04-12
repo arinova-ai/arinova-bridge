@@ -410,7 +410,9 @@ export class CodexAppServer {
     const threadId = this.convToThread.get(conversationId);
     if (!threadId) return null;
     const state = this.threads.get(threadId);
-    if (!state?.totalUsage) return null;
+    if (!state) return null;
+    const usage = state.lastUsage ?? state.totalUsage;
+    if (!usage) return null;
 
     const contextWindow =
       state.modelContextWindow ??
@@ -418,7 +420,7 @@ export class CodexAppServer {
       undefined;
 
     return {
-      contextTokens: state.totalUsage.inputTokens + state.totalUsage.cachedInputTokens,
+      contextTokens: usage.inputTokens + usage.cachedInputTokens,
       contextWindow,
     };
   }
