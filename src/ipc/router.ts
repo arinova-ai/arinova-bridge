@@ -286,6 +286,8 @@ export function createIpcRouter(
         return handleSpawnList(req.id, agents, req.params, spawnManager);
       case "spawn-cancel":
         return handleSpawnCancel(req.id, req.params, spawnManager);
+      case "spawn-result":
+        return handleSpawnResult(req.id, req.params, spawnManager);
       case "fork-add":
         return handleForkAdd(req.id, agents, req.params, forkManager);
       case "fork-list":
@@ -740,6 +742,36 @@ function handleSpawnCancel(
     return { id, error: { code: 11, message: `Spawn job "${params.id}" not found or already completed` } };
   }
   return { id, result: { cancelled: true, id: params.id } };
+}
+
+function handleSpawnResult(
+  id: number,
+  params: { id: string },
+  spawnManager?: SpawnManager,
+): IpcResponse {
+  if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
+
+  const job = spawnManager.getJob(params.id);
+  if (!job) {
+    return { id, error: { code: 11, message: `Spawn job "${params.id}" not found` } };
+  }
+
+  return {
+    id,
+    result: {
+      id: job.id,
+      parentAgent: job.parentAgent,
+      targetAgent: job.targetAgent,
+      status: job.status,
+      context: job.context,
+      result: job.result,
+      createdAt: job.createdAt,
+      completedAt: job.completedAt,
+      durationMs: job.durationMs,
+      model: job.model,
+      costUsd: job.costUsd,
+    },
+  };
 }
 
 // --- Fork Handlers ---

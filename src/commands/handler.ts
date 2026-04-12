@@ -888,6 +888,7 @@ export class CommandHandler {
       this.reply(ctx, [
         "用法:",
         "  /spawn list — 列出所有 spawn 子任務",
+        "  /spawn result <id> — 查看完整回傳內容",
         "  /spawn cancel <id> — 取消 spawn 子任務",
         "",
         "Spawn 透過 CLI 建立：",
@@ -901,11 +902,14 @@ export class CommandHandler {
       case "ls":
         this.handleSpawnList(ctx);
         return;
+      case "result":
+        this.handleSpawnResult(parts.slice(1), ctx);
+        return;
       case "cancel":
         this.handleSpawnCancel(parts.slice(1), ctx);
         return;
       default:
-        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|cancel`);
+        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|result|cancel`);
     }
   }
 
@@ -924,6 +928,41 @@ export class CommandHandler {
       const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
       lines.push(`${statusIcon} \`${job.id}\`  → ${job.targetAgent}  ${job.status}  ${duration}`);
       lines.push(`   ${time}  ${job.context.slice(0, 60)}${job.context.length > 60 ? "…" : ""}`);
+    }
+
+    this.reply(ctx, lines.join("\n"));
+  }
+
+  private handleSpawnResult(parts: string[], ctx: CommandContext): void {
+    const jobId = parts[0];
+    if (!jobId) {
+      this.reply(ctx, "用法: /spawn result <id>");
+      return;
+    }
+
+    const job = this.spawnManager!.getJob(jobId);
+    if (!job) {
+      this.reply(ctx, `找不到 spawn job "${jobId}"`);
+      return;
+    }
+
+    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+    const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+    const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+
+    const lines = [
+      `${statusIcon} Spawn Job: \`${job.id}\``,
+      `Target: ${job.targetAgent}  Status: ${job.status}  Duration: ${duration}`,
+      `Created: ${time}`,
+      "",
+      "**Context:**",
+      job.context,
+    ];
+
+    if (job.result) {
+      lines.push("", "**Result:**", job.result);
+    } else if (job.status === "running") {
+      lines.push("", "_(Job is still running — no result yet)_");
     }
 
     this.reply(ctx, lines.join("\n"));

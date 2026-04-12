@@ -504,6 +504,40 @@ async function cmdSpawn(args: string[]): Promise<void> {
     const resp = await sendIpcRequest({ id: 1, method: "spawn-cancel", params: { id } });
     if ("error" in resp) ipcError(resp);
     console.log(`Cancelled spawn job: ${id}`);
+  } else if (sub === "result") {
+    const id = parseFlag(args, "--id") ?? args[1];
+    if (!id) {
+      console.error("Usage: arinova-bridge spawn result --id <job-id>");
+      process.exit(1);
+    }
+    const resp = await sendIpcRequest({ id: 1, method: "spawn-result", params: { id } });
+    if ("error" in resp) ipcError(resp);
+
+    const job = resp.result as {
+      id: string; parentAgent: string; targetAgent: string; status: string;
+      context: string; result: string | null;
+      createdAt: number; completedAt: number | null;
+      durationMs: number | null; model: string | null; costUsd: number | null;
+    };
+
+    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+    const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+    const cost = job.costUsd != null ? `$${job.costUsd.toFixed(4)}` : "—";
+    const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+
+    console.log(`${statusIcon} Spawn Job: ${job.id}`);
+    console.log(`  Parent: ${job.parentAgent}  Target: ${job.targetAgent}`);
+    console.log(`  Status: ${job.status}  Duration: ${duration}  Cost: ${cost}`);
+    console.log(`  Created: ${time}`);
+    if (job.model) console.log(`  Model: ${job.model}`);
+    console.log(`\n--- Context ---\n${job.context}`);
+    if (job.result) {
+      console.log(`\n--- Result ---\n${job.result}`);
+    } else if (job.status === "running") {
+      console.log(`\n(Job is still running — no result yet)`);
+    } else {
+      console.log(`\n(No result)`);
+    }
   } else if (sub === "list" || !sub) {
     const agent = parseFlag(args, "--agent");
     const params: { agent?: string } = {};

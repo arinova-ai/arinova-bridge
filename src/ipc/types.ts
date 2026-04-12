@@ -137,6 +137,12 @@ export interface IpcSpawnCancelRequest {
   params: { id: string };
 }
 
+export interface IpcSpawnResultRequest {
+  id: number;
+  method: "spawn-result";
+  params: { id: string };
+}
+
 // --- Fork IPC Requests ---
 
 export interface IpcForkAddRequest {
@@ -179,6 +185,7 @@ export type IpcRequest =
   | IpcSpawnAddRequest
   | IpcSpawnListRequest
   | IpcSpawnCancelRequest
+  | IpcSpawnResultRequest
   | IpcForkAddRequest
   | IpcForkListRequest
   | IpcForkCancelRequest;
