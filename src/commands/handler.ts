@@ -928,6 +928,11 @@ export class CommandHandler {
       const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
       lines.push(`${statusIcon} \`${job.id}\`  → ${job.targetAgent}  ${job.status}  ${duration}`);
       lines.push(`   ${time}  ${job.context.slice(0, 60)}${job.context.length > 60 ? "…" : ""}`);
+      if (job.result) {
+        const firstLine = job.result.split("\n")[0].slice(0, 80);
+        const truncated = job.result.length > 80;
+        lines.push(`   Result: ${firstLine}${truncated ? `… (/spawn result ${job.id})` : ""}`);
+      }
     }
 
     this.reply(ctx, lines.join("\n"));

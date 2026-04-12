@@ -725,7 +725,11 @@ function handleSpawnList(
       createdAt: j.createdAt,
       completedAt: j.completedAt,
       contextPreview: j.context.length > 100 ? j.context.slice(0, 100) + "…" : j.context,
-      resultPreview: j.result ? (j.result.length > 100 ? j.result.slice(0, 100) + "…" : j.result) : null,
+      resultPreview: j.result
+        ? j.result.length > 100
+          ? j.result.split("\n")[0].slice(0, 100) + `… (${j.result.length} chars, use spawn result ${j.id})`
+          : j.result
+        : null,
     })),
   };
 }

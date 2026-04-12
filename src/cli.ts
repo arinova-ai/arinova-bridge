@@ -567,6 +567,8 @@ async function cmdSpawn(args: string[]): Promise<void> {
       console.log(`     Context: ${job.contextPreview}`);
       if (job.resultPreview) {
         console.log(`     Result: ${job.resultPreview}`);
+      } else if (job.status === "running") {
+        console.log(`     Result: (running…)`);
       }
     }
   } else {
