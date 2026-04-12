@@ -271,4 +271,32 @@ describe("buildCompactPrompt", () => {
     // Should detect task mode from existing summary containing UUID
     expect(prompt).toContain("Summarise this engineering conversation");
   });
+
+  // ── Negative: general summary with dates/numbers stays general ──
+
+  it("general summary with date-like numbers (20260412) does NOT trigger task mode", () => {
+    const existingSummary = "## 重點摘要\n- 2026年4月12日討論了旅行，預算 20260412 元";
+    const newText = "user: 明天出發嗎\nassistant: 對";
+    const prompt = buildCompactPrompt(newText, 1000, existingSummary);
+
+    // Pure digits should NOT be treated as commit hashes
+    expect(prompt).toContain("請將以下對話整理成以下結構化格式");
+    expect(prompt).not.toContain("Summarise this engineering conversation");
+  });
+
+  it("general summary with numeric codes (1234567, 9876543) does NOT trigger task mode", () => {
+    const existingSummary = "## 重點摘要\n- 訂單編號 1234567，追蹤碼 9876543";
+    const newText = "user: 訂單到了嗎\nassistant: 還在配送中";
+    const prompt = buildCompactPrompt(newText, 1000, existingSummary);
+
+    expect(prompt).toContain("請將以下對話整理成以下結構化格式");
+    expect(prompt).not.toContain("Summarise this engineering conversation");
+  });
+
+  it("real commit hash (with hex letters) still triggers task mode", () => {
+    // a1b2c3d contains letters — should still detect
+    const text = "user: 看一下 a1b2c3d 這個 commit";
+    const prompt = buildCompactPrompt(text, 1000);
+    expect(prompt).toContain("Summarise this engineering conversation");
+  });
 });

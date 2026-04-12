@@ -110,7 +110,8 @@ export function getSummaryMaxTokens(model?: string): number {
 
 /** Heuristics: task-oriented if messages contain commit hashes, card IDs, code blocks, etc. */
 function isTaskOriented(text: string): boolean {
-  return /\b[0-9a-f]{7,40}\b/.test(text)     // commit hash
+  // Commit hash: 7-40 hex chars that contain at least one letter (excludes pure digits like dates)
+  return /\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/.test(text)
     || /\b[0-9a-f]{8}-/.test(text)            // UUID-style card ID
     || /```/.test(text)                        // code blocks
     || /\b(commit|merge|deploy|PR|review|bug|fix|feat)\b/i.test(text);
