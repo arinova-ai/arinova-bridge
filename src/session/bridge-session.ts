@@ -117,17 +117,30 @@ function isTaskOriented(text: string): boolean {
 }
 
 export function buildCompactPrompt(conversationText: string, tokenBudget: number, existingSummary?: string): string {
-  const taskMode = isTaskOriented(conversationText);
+  const taskMode = isTaskOriented(conversationText + (existingSummary ?? ""));
   const budgetNote = `Token budget: ${tokenBudget} tokens max.`;
 
   if (taskMode) {
     const taskInstructions = [
-      "Summarise this engineering conversation. Preserve:",
-      "- Commit hashes, card/ticket IDs, PR numbers",
-      "- Key decisions and their rationale",
-      "- Current task status (done / in-progress / blocked)",
-      "- File paths and function names mentioned",
-      "- Action items and owners",
+      "Summarise this engineering conversation into the EXACT structured format below.",
+      "Use bullet points under each heading. Omit a section if nothing applies — do NOT leave it empty.",
+      "Preserve: commit hashes, card/ticket IDs, PR numbers, file paths, function names.",
+      "",
+      "## Active Task",
+      "- [task description, current status: done / in-progress / blocked]",
+      "",
+      "## Key Decisions",
+      "- [decision and rationale]",
+      "",
+      "## Modified Files",
+      "- [file path — what changed]",
+      "",
+      "## Pending",
+      "- [action item — owner]",
+      "",
+      "## Context",
+      "- [other important context that doesn't fit above]",
+      "",
       budgetNote,
     ].join("\n");
 
@@ -136,11 +149,24 @@ export function buildCompactPrompt(conversationText: string, tokenBudget: number
       : `${taskInstructions}\n\nConversation:\n${conversationText}`;
   }
 
-  // General conversation mode
-  const generalInstructions = `請將以下對話摘要成簡潔的重點，保留關鍵決策、任務狀態和重要上下文。${budgetNote}`;
+  // General conversation mode — structured
+  const generalInstructions = [
+    "請將以下對話整理成以下結構化格式。每個標題下用 bullet points 列出重點。若該區段無內容則省略，不要留空。",
+    "",
+    "## 重點摘要",
+    "- [核心討論內容]",
+    "",
+    "## 決策紀錄",
+    "- [決策及原因]",
+    "",
+    "## 待辦事項",
+    "- [待完成項目 — 負責人]",
+    "",
+    budgetNote,
+  ].join("\n");
 
   return existingSummary
-    ? `以下是先前的對話摘要和後續的對話紀錄。請將它們合併成一份簡潔的摘要，保留關鍵決策、任務狀態和重要上下文。${budgetNote}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${conversationText}`
+    ? `${generalInstructions}\n\n先前摘要:\n${existingSummary}\n\n後續對話:\n${conversationText}`
     : `${generalInstructions}\n\n${conversationText}`;
 }
 
