@@ -324,6 +324,15 @@ export class ClaudeProcess {
     this.turnResolve = null;
     this.turnReject = null;
     this.turnOnText = null;
+
+    // Send SIGINT to the Claude CLI process so it actually stops the current
+    // turn (e.g. sub-agent tasks, tool execution).  Without this the process
+    // keeps running and the bridge waits for a stale result that may never
+    // arrive promptly, causing the "stuck after abort" symptom.
+    if (this.child?.pid && !this.child.killed) {
+      this.child.kill("SIGINT");
+    }
+
     reject(new Error("Turn aborted by user"));
   }
 
@@ -509,8 +518,8 @@ export class ClaudeProcess {
       return;
     }
 
-    // Silently skip tool calls and tool results (prose-only strategy)
-    if (eventType === "assistant" || eventType === "user") {
+    // Silently skip tool calls, tool results, and system progress events
+    if (eventType === "assistant" || eventType === "user" || eventType === "system") {
       return;
     }
 

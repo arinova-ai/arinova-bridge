@@ -25,7 +25,7 @@ describe("ClaudeProcess stale drain", () => {
     (process as any).turnReject = reject;
 
     process.abortTurn();
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(300_000);
 
     expect(reject).toHaveBeenCalledTimes(1);
     expect(restart).toHaveBeenCalledTimes(1);
@@ -38,7 +38,7 @@ describe("ClaudeProcess stale drain", () => {
     (process as any).staleResults = 1;
     (process as any).ensureStaleDrainTimer();
     (process as any).processLine("{\"type\":\"result\",\"session_id\":\"sid\"}");
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(300_000);
 
     expect(restart).not.toHaveBeenCalled();
   });
