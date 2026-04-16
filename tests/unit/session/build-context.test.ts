@@ -3,6 +3,7 @@ import { BridgeSessionStore } from "../../../src/session/bridge-session.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 // ---------------------------------------------------------------------------
 // buildContext() — LIMIT 20, summary inclusion, message formatting
@@ -121,6 +122,45 @@ describe("BridgeSessionStore.buildContext()", () => {
     const thirdIdx = ctx.indexOf("third");
     expect(firstIdx).toBeLessThan(secondIdx);
     expect(secondIdx).toBeLessThan(thirdIdx);
+  });
+
+  it("uses user_message for historical user messages but keeps latest full content", () => {
+    const fullTagged = `
+<system-prompt>ignore</system-prompt>
+<user-current-message>
+請幫我整理這段訊息
+</user-current-message>
+`;
+
+    store.addUserMessage(convId, fullTagged, "alice");
+    store.addAssistantMessage(convId, "收到", "bot");
+    store.addUserMessage(convId, `${fullTagged}\n<extra>latest wrapper</extra>`, "alice");
+
+    const ctx = store.buildContext(convId);
+    const lines = ctx.split("\n");
+    const latestBlock = ctx.slice(ctx.lastIndexOf("alice: "));
+
+    expect(lines[0]).toBe("alice: 請幫我整理這段訊息");
+    expect(ctx).toContain("bot: 收到");
+    expect(latestBlock).toContain("<user-current-message>");
+    expect(latestBlock).toContain("<extra>latest wrapper</extra>");
+  });
+
+  it("falls back to content when historical user_message is null", () => {
+    const db = new Database(path.join(tmpDir, "sessions.db"));
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO sessions (conversation_id, compacted_summary, model, user_id, username, message_count, total_tokens, created_at, updated_at)
+      VALUES (?, NULL, NULL, NULL, NULL, 1, 0, ?, ?)
+    `).run(convId, now, now);
+    db.prepare(`
+      INSERT INTO messages (conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason)
+      VALUES (?, 'user', ?, NULL, 'legacy-user', ?, 0, NULL)
+    `).run(convId, "<legacy>full content</legacy>", now);
+    db.close();
+
+    const ctx = store.buildContext(convId);
+    expect(ctx).toContain("legacy-user: <legacy>full content</legacy>");
   });
 });
 

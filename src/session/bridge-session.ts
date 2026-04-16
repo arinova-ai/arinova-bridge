@@ -12,6 +12,7 @@ export interface SessionMessage {
   id?: number;
   role: "user" | "assistant";
   content: string;
+  userMessage?: string;
   /** Who sent this message (username or agent name). */
   sender?: string;
   timestamp: number;
@@ -27,6 +28,7 @@ interface MessageRow {
   conversation_id: string;
   role: string;
   content: string;
+  user_message: string | null;
   sender: string | null;
   timestamp: number;
   token_count: number | null;
@@ -197,6 +199,11 @@ function countTokens(text: string, model?: string): number {
   }
 }
 
+function extractUserCurrentMessage(content: string): string {
+  const match = content.match(/<user-current-message>\s*([\s\S]*?)\s*<\/user-current-message>/i);
+  return (match?.[1] ?? content).trim();
+}
+
 // ---------------------------------------------------------------------------
 // BridgeSessionStore — SQLite backed
 // ---------------------------------------------------------------------------
@@ -236,6 +243,7 @@ export class BridgeSessionStore {
         conversation_id TEXT NOT NULL,
         role            TEXT NOT NULL,
         content         TEXT NOT NULL,
+        user_message    TEXT,
         sender          TEXT,
         timestamp       INTEGER NOT NULL,
         token_count     INTEGER,
@@ -285,6 +293,7 @@ export class BridgeSessionStore {
 
     // Migrate: add columns if missing (for existing databases)
     const migrations = [
+      "ALTER TABLE messages ADD COLUMN user_message TEXT",
       "ALTER TABLE messages ADD COLUMN token_count INTEGER",
       "ALTER TABLE messages ADD COLUMN finish_reason TEXT",
       "ALTER TABLE sessions ADD COLUMN model TEXT",
@@ -327,14 +336,18 @@ export class BridgeSessionStore {
         FROM sessions ORDER BY updated_at DESC
       `),
       insertMessage: db.prepare(`
-        INSERT INTO messages (conversation_id, role, content, sender, timestamp, token_count, finish_reason)
-        VALUES (@convId, @role, @content, @sender, @timestamp, @tokenCount, @finishReason)
+        INSERT INTO messages (
+          conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason
+        )
+        VALUES (
+          @convId, @role, @content, @userMessage, @sender, @timestamp, @tokenCount, @finishReason
+        )
       `),
       getMessages: db.prepare(
-        "SELECT id, conversation_id, role, content, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+        "SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id ASC",
       ),
       getRecentMessages: db.prepare(
-        "SELECT * FROM (SELECT id, conversation_id, role, content, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20) ORDER BY id ASC",
+        "SELECT * FROM (SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20) ORDER BY id ASC",
       ),
       getMessageCount: db.prepare(
         "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?",
@@ -365,7 +378,7 @@ export class BridgeSessionStore {
       ),
       // FTS5 search
       ftsSearch: db.prepare(`
-        SELECT m.id, m.conversation_id, m.role, m.content, m.sender, m.timestamp,
+        SELECT m.id, m.conversation_id, m.role, m.content, m.user_message, m.sender, m.timestamp,
                m.token_count, m.finish_reason
         FROM messages_fts fts
         JOIN messages m ON m.id = fts.rowid
@@ -374,7 +387,7 @@ export class BridgeSessionStore {
         LIMIT @limit
       `),
       ftsSearchInSession: db.prepare(`
-        SELECT m.id, m.conversation_id, m.role, m.content, m.sender, m.timestamp,
+        SELECT m.id, m.conversation_id, m.role, m.content, m.user_message, m.sender, m.timestamp,
                m.token_count, m.finish_reason
         FROM messages_fts fts
         JOIN messages m ON m.id = fts.rowid
@@ -392,6 +405,7 @@ export class BridgeSessionStore {
       id: row.id,
       role: row.role as "user" | "assistant",
       content: row.content,
+      userMessage: row.user_message ?? undefined,
       sender: row.sender ?? undefined,
       timestamp: row.timestamp,
       tokenCount: row.token_count ?? undefined,
@@ -428,10 +442,12 @@ export class BridgeSessionStore {
       username: opts?.username ?? sender,
     });
     const tokens = countTokens(content, model);
+    const userMessage = extractUserCurrentMessage(content);
     this.stmts.insertMessage.run({
       convId: conversationId,
       role: "user",
       content,
+      userMessage,
       sender: sender ?? null,
       timestamp: Date.now(),
       tokenCount: tokens,
@@ -453,6 +469,7 @@ export class BridgeSessionStore {
       convId: conversationId,
       role: "assistant",
       content,
+      userMessage: null,
       sender: sender ?? null,
       timestamp: Date.now(),
       tokenCount: tokens,
@@ -477,9 +494,15 @@ export class BridgeSessionStore {
 
     // Only include the most recent 20 messages to keep context prefix manageable
     const rows = this.stmts.getRecentMessages.all(conversationId) as MessageRow[];
+    const latestMessageId = rows.at(-1)?.id;
     for (const row of rows) {
       const sender = row.sender ?? row.role;
-      parts.push(`${sender}: ${row.content}`);
+      const isLatestMessage = row.id === latestMessageId;
+      const historicalUserMessage = row.user_message?.trim();
+      const messageContent = row.role === "user" && !isLatestMessage
+        ? (historicalUserMessage || row.content)
+        : row.content;
+      parts.push(`${sender}: ${messageContent}`);
     }
 
     return parts.join("\n");
