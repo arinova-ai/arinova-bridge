@@ -1,5 +1,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import type { Logger } from "../util/logger.js";
+
+/**
+ * A single tool call report, emitted immediately after each tool completes.
+ * Mirrors `@arinova-ai/agent-sdk`'s `ToolCallReport` so ClaudeProcess does
+ * not need to depend on the SDK directly; the caller wires the reporter to
+ * `ArinovaAgent.reportToolCall()`.
+ */
+export interface ToolCallReport {
+  sessionId: string;
+  turnId: string;
+  seqOrder: number;
+  toolName: string;
+  input: Record<string, unknown>;
+  output?: unknown;
+  durationMs?: number;
+  success: boolean;
+  error?: string;
+}
 
 export type ClaudeProcessOptions = {
   claudePath?: string;
@@ -12,6 +31,12 @@ export type ClaudeProcessOptions = {
   env?: Record<string, string>;
   logger: Logger;
   agentName?: string;
+  /**
+   * Invoked once per tool call completion. Fired fire-and-forget from the
+   * stream handler — errors are logged and swallowed so a failing reporter
+   * cannot break the turn.
+   */
+  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 };
 
 export type RateLimitInfo = {
@@ -60,6 +85,13 @@ const DEFAULT_CLAUDE_PATH = "claude";
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const STALE_DRAIN_TIMEOUT_MS = 300000;
 
+interface PendingToolCall {
+  toolName: string;
+  input: Record<string, unknown>;
+  startedAt: number;
+  seqOrder: number;
+}
+
 /**
  * Find the modelUsage entry that matches opts.model. opts.model may be an
  * alias ("opus") or a full/dated id ("claude-opus-4-5-20251022"), while
@@ -77,6 +109,32 @@ function matchModelUsageEntry(
     if (hay === needle || hay.includes(needle) || needle.includes(hay)) return info;
   }
   return undefined;
+}
+
+/**
+ * Flatten a tool_result `content` value into a string for error reporting.
+ * Claude emits either a plain string or an array of `{type:"text",text}` blocks.
+ */
+function toolResultContentToString(content: unknown): string {
+  if (content === undefined || content === null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (block && typeof block === "object") {
+          const b = block as Record<string, unknown>;
+          if (typeof b.text === "string") return b.text;
+        }
+        return typeof block === "string" ? block : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 /**
@@ -125,6 +183,12 @@ export class ClaudeProcess {
   private turnProseText = "";
   private turnOnText: ((text: string) => void) | null = null;
   private turnTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** UUID generated at sendMessage() time; shared across tool calls in the turn. */
+  private turnId: string | null = null;
+  /** In-flight tool calls keyed by tool_use id, awaiting their tool_result block. */
+  private pendingToolCalls = new Map<string, PendingToolCall>();
+  /** 0-based counter assigned to tool calls in the order they are started. */
+  private turnToolCallSeq = 0;
   /** Number of aborted turn results still expected from the process. */
   private staleResults = 0;
   private staleDrainTimer: ReturnType<typeof setTimeout> | null = null;
@@ -295,6 +359,9 @@ export class ClaudeProcess {
     this.turnContextWindow = undefined;
     this.turnMaxOutputTokens = undefined;
     this.turnRateLimits.clear();
+    this.turnId = randomUUID();
+    this.pendingToolCalls.clear();
+    this.turnToolCallSeq = 0;
 
     // Attach signal listener for this turn
     if (signal) {
@@ -563,8 +630,20 @@ export class ClaudeProcess {
       return;
     }
 
-    // Silently skip tool calls, tool results, and system progress events
-    if (eventType === "assistant" || eventType === "user" || eventType === "system") {
+    // assistant event: may contain tool_use blocks — record tool call start.
+    if (eventType === "assistant") {
+      this.captureToolUses(event);
+      return;
+    }
+
+    // user event: may contain tool_result blocks — finalise + report each call.
+    if (eventType === "user") {
+      this.captureToolResults(event);
+      return;
+    }
+
+    // System progress events carry no user-visible signal.
+    if (eventType === "system") {
       return;
     }
 
@@ -698,6 +777,72 @@ export class ClaudeProcess {
         resolve();
       }, 5000).unref();
     });
+  }
+
+  private captureToolUses(event: Record<string, unknown>): void {
+    if (!this.turnId) return;
+    const message = event.message as { content?: unknown } | undefined;
+    const blocks = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+    for (const raw of blocks) {
+      if (!raw || typeof raw !== "object") continue;
+      const block = raw as Record<string, unknown>;
+      if (block.type !== "tool_use") continue;
+      const id = typeof block.id === "string" ? block.id : "";
+      if (!id) continue;
+      const toolName = typeof block.name === "string" ? block.name : "";
+      const input = (block.input && typeof block.input === "object"
+        ? (block.input as Record<string, unknown>)
+        : {});
+      this.pendingToolCalls.set(id, {
+        toolName,
+        input,
+        startedAt: Date.now(),
+        seqOrder: this.turnToolCallSeq++,
+      });
+    }
+  }
+
+  private captureToolResults(event: Record<string, unknown>): void {
+    const reporter = this.opts.reportToolCall;
+    const message = event.message as { content?: unknown } | undefined;
+    const blocks = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+    for (const raw of blocks) {
+      if (!raw || typeof raw !== "object") continue;
+      const block = raw as Record<string, unknown>;
+      if (block.type !== "tool_result") continue;
+      const useId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      if (!useId) continue;
+      const pending = this.pendingToolCalls.get(useId);
+      if (!pending) continue;
+      this.pendingToolCalls.delete(useId);
+
+      const isError = block.is_error === true;
+      const rawOutput = (block as { content?: unknown }).content;
+      const report: ToolCallReport = {
+        sessionId: this.sessionId,
+        turnId: this.turnId ?? "",
+        seqOrder: pending.seqOrder,
+        toolName: pending.toolName,
+        input: pending.input,
+        durationMs: Date.now() - pending.startedAt,
+        success: !isError,
+      };
+      if (isError) {
+        report.error = toolResultContentToString(rawOutput);
+      } else if (rawOutput !== undefined) {
+        report.output = rawOutput;
+      }
+
+      if (reporter) {
+        Promise.resolve()
+          .then(() => reporter(report))
+          .catch((err) => {
+            this.opts.logger.warn(
+              `${this.logTag}: reportToolCall failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+      }
+    }
   }
 
   isAlive(): boolean {
