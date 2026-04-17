@@ -109,6 +109,7 @@ export class ClaudeProcess {
   /** Number of aborted turn results still expected from the process. */
   private staleResults = 0;
   private staleDrainTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartPromise: Promise<void> | null = null;
   /** Signal and listener for the current turn (cleared on abort/complete). */
   private turnSignal: AbortSignal | null = null;
   private turnSignalListener: (() => void) | null = null;
@@ -227,6 +228,13 @@ export class ClaudeProcess {
       this.alive = false;
       this.child = null;
       this.clearTurnTimeout();
+      if (this.staleResults > 0) {
+        this.opts.logger.info(
+          `${this.logTag}: process exited while draining stale results, restarting`,
+        );
+        this.scheduleRestart();
+        return;
+      }
       if (this.turnReject) {
         const errDetail = stderrTail ? `\nstderr: ${stderrTail}` : "";
         this.turnReject(new Error(`Claude process exited unexpectedly (code ${code})${errDetail}`));
@@ -331,6 +339,7 @@ export class ClaudeProcess {
     // arrive promptly, causing the "stuck after abort" symptom.
     if (this.child?.pid && !this.child.killed) {
       this.child.kill("SIGINT");
+      this.alive = false;
     }
 
     reject(new Error("Turn aborted by user"));
@@ -416,9 +425,26 @@ export class ClaudeProcess {
       log.warn(
         `${this.logTag}: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`,
       );
-      this.staleResults = 0;
-      void this.restart();
+      this.scheduleRestart();
     }, STALE_DRAIN_TIMEOUT_MS);
+  }
+
+  private scheduleRestart(): Promise<void> {
+    this.clearStaleDrainTimer();
+    if (this.restartPromise) return this.restartPromise;
+
+    this.restartPromise = this.restart()
+      .catch((err) => {
+        this.opts.logger.error(
+          `${this.logTag}: restart failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      })
+      .finally(() => {
+        this.restartPromise = null;
+      });
+
+    return this.restartPromise;
   }
 
   private processLine(line: string): void {
