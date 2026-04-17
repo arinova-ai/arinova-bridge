@@ -130,37 +130,63 @@ describe("ClaudeProcess resolvedModel", () => {
     });
   }
 
-  it("picks the model with the most output tokens (Opus beats Haiku sub-agent)", () => {
+  it("uses opts.model even when a Haiku sub-agent has more cumulative output tokens", () => {
     const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
     (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 120, maxOutputTokens: 8_192 },
-      "claude-opus-4": { contextWindow: 200_000, outputTokens: 4_300, maxOutputTokens: 32_000 },
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 999_999, maxOutputTokens: 8_192 },
+      "claude-opus-4":    { contextWindow: 200_000, outputTokens: 120,     maxOutputTokens: 32_000 },
     }));
 
     expect(process.getModel()).toBe("claude-opus-4");
     expect(process.getContext()?.maxOutputTokens).toBe(32_000);
   });
 
-  it("picks Sonnet when Sonnet has the most output tokens", () => {
+  it("matches opts.model alias to a full modelUsage key (opus -> claude-opus-4-5-20251022)", () => {
+    const process = new ClaudeProcess({ logger, model: "opus" });
+    (process as any).turnResolve = () => {};
+    (process as any).turnContextTokens = 10_000;
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5":         { contextWindow: 200_000, outputTokens: 500, maxOutputTokens: 8_192 },
+      "claude-opus-4-5-20251022": { contextWindow: 200_000, outputTokens: 100, maxOutputTokens: 32_000 },
+    }));
+
+    expect(process.getModel()).toBe("opus");
+    expect(process.getContext()?.maxOutputTokens).toBe(32_000);
+  });
+
+  it("uses opts.model for Sonnet regardless of Haiku cumulative usage", () => {
     const process = new ClaudeProcess({ logger, model: "claude-sonnet-4" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
     (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 50, maxOutputTokens: 8_192 },
-      "claude-sonnet-4": { contextWindow: 200_000, outputTokens: 2_100, maxOutputTokens: 64_000 },
+      "claude-haiku-4-5":  { contextWindow: 200_000, outputTokens: 5_000, maxOutputTokens: 8_192 },
+      "claude-sonnet-4":   { contextWindow: 200_000, outputTokens: 50,    maxOutputTokens: 64_000 },
     }));
 
     expect(process.getModel()).toBe("claude-sonnet-4");
     expect(process.getContext()?.maxOutputTokens).toBe(64_000);
   });
 
-  it("falls back to opts.model when modelUsage has no outputTokens field", () => {
+  it("falls back to largest-outputTokens model when opts.model is unset", () => {
+    const process = new ClaudeProcess({ logger });
+    (process as any).turnResolve = () => {};
+    (process as any).turnContextTokens = 10_000;
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 50,    maxOutputTokens: 8_192 },
+      "claude-opus-4":    { contextWindow: 200_000, outputTokens: 4_300, maxOutputTokens: 32_000 },
+    }));
+
+    expect(process.getModel()).toBe("claude-opus-4");
+    expect(process.getContext()?.maxOutputTokens).toBe(32_000);
+  });
+
+  it("keeps opts.model as resolvedModel when modelUsage has no matching key", () => {
     const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
     (process as any).turnResolve = () => {};
     (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000 },
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
     }));
 
     expect(process.getModel()).toBe("claude-opus-4");
@@ -171,7 +197,7 @@ describe("ClaudeProcess resolvedModel", () => {
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
     (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
+      "claude-haiku-4-5": { contextWindow: 200_000,   outputTokens: 10 },
       "claude-opus-4":    { contextWindow: 1_000_000, outputTokens: 500 },
     }));
 

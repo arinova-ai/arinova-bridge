@@ -61,6 +61,25 @@ const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const STALE_DRAIN_TIMEOUT_MS = 300000;
 
 /**
+ * Find the modelUsage entry that matches opts.model. opts.model may be an
+ * alias ("opus") or a full/dated id ("claude-opus-4-5-20251022"), while
+ * modelUsage keys are usually full ids. Tries exact match first, then a
+ * bidirectional substring match so "opus" matches "claude-opus-4-5".
+ */
+function matchModelUsageEntry(
+  modelUsage: Record<string, Record<string, unknown>>,
+  model: string,
+): Record<string, unknown> | undefined {
+  if (modelUsage[model]) return modelUsage[model];
+  const needle = model.toLowerCase();
+  for (const [key, info] of Object.entries(modelUsage)) {
+    const hay = key.toLowerCase();
+    if (hay === needle || hay.includes(needle) || needle.includes(hay)) return info;
+  }
+  return undefined;
+}
+
+/**
  * Persistent Claude Code CLI process using the bidirectional stream-json protocol.
  *
  * Keeps a single long-running `claude` process and sends/receives
@@ -566,30 +585,41 @@ export class ClaudeProcess {
         this.turnDurationMs = event.duration_ms as number;
       }
 
-      // Extract contextWindow/maxOutputTokens from modelUsage.
-      // resolvedModel picks the model with the most outputTokens — contextWindow
-      // cannot distinguish primary vs sub-agent models on anthropic-oauth
-      // (all three share 200k, so the first JSON key wins and haiku leaks into hud).
+      // Resolve the primary turn model for hud_update.
+      // opts.model is the user's explicit selection — trust it. modelUsage is
+      // only used to pull contextWindow (max across models) and the matching
+      // entry's maxOutputTokens. Falling back to "model with most outputTokens"
+      // is unreliable because outputTokens is a session-cumulative value, so a
+      // Haiku sub-agent used for compact/summarize can eventually outrank the
+      // primary Opus/Sonnet across multiple turns.
       const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
       if (modelUsage) {
-        let bestModelId: string | undefined;
-        let bestOutputTokens = -1;
-        let bestMaxOutputTokens: number | undefined;
-        for (const [modelId, info] of Object.entries(modelUsage)) {
+        for (const info of Object.values(modelUsage)) {
           const cw = typeof info.contextWindow === "number" ? info.contextWindow : 0;
           if (cw > (this.turnContextWindow ?? 0)) this.turnContextWindow = cw;
-
-          if (typeof info.outputTokens === "number" && info.outputTokens > bestOutputTokens) {
-            bestOutputTokens = info.outputTokens;
-            bestModelId = modelId;
-            bestMaxOutputTokens = typeof info.maxOutputTokens === "number" ? info.maxOutputTokens : undefined;
-          }
         }
-        if (bestModelId) {
-          this.resolvedModel = bestModelId;
-          if (bestMaxOutputTokens !== undefined) this.turnMaxOutputTokens = bestMaxOutputTokens;
-        } else if (this.opts.model) {
+
+        if (this.opts.model) {
           this.resolvedModel = this.opts.model;
+          const match = matchModelUsageEntry(modelUsage, this.opts.model);
+          if (match && typeof match.maxOutputTokens === "number") {
+            this.turnMaxOutputTokens = match.maxOutputTokens;
+          }
+        } else {
+          let bestModelId: string | undefined;
+          let bestOutputTokens = -1;
+          let bestMaxOutputTokens: number | undefined;
+          for (const [modelId, info] of Object.entries(modelUsage)) {
+            if (typeof info.outputTokens === "number" && info.outputTokens > bestOutputTokens) {
+              bestOutputTokens = info.outputTokens;
+              bestModelId = modelId;
+              bestMaxOutputTokens = typeof info.maxOutputTokens === "number" ? info.maxOutputTokens : undefined;
+            }
+          }
+          if (bestModelId) {
+            this.resolvedModel = bestModelId;
+            if (bestMaxOutputTokens !== undefined) this.turnMaxOutputTokens = bestMaxOutputTokens;
+          }
         }
       }
 
