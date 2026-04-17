@@ -117,3 +117,65 @@ describe("ClaudeProcess stale drain", () => {
     expect(restart).not.toHaveBeenCalled();
   });
 });
+
+describe("ClaudeProcess resolvedModel", () => {
+  function makeResultLine(modelUsage: Record<string, Record<string, unknown>>): string {
+    return JSON.stringify({
+      type: "result",
+      session_id: "sid",
+      total_cost_usd: 0,
+      num_turns: 1,
+      duration_ms: 1,
+      modelUsage,
+    });
+  }
+
+  it("picks the model with the most output tokens (Opus beats Haiku sub-agent)", () => {
+    const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
+    (process as any).turnResolve = () => {};
+    (process as any).turnContextTokens = 10_000;
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 120, maxOutputTokens: 8_192 },
+      "claude-opus-4": { contextWindow: 200_000, outputTokens: 4_300, maxOutputTokens: 32_000 },
+    }));
+
+    expect(process.getModel()).toBe("claude-opus-4");
+    expect(process.getContext()?.maxOutputTokens).toBe(32_000);
+  });
+
+  it("picks Sonnet when Sonnet has the most output tokens", () => {
+    const process = new ClaudeProcess({ logger, model: "claude-sonnet-4" });
+    (process as any).turnResolve = () => {};
+    (process as any).turnContextTokens = 10_000;
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 50, maxOutputTokens: 8_192 },
+      "claude-sonnet-4": { contextWindow: 200_000, outputTokens: 2_100, maxOutputTokens: 64_000 },
+    }));
+
+    expect(process.getModel()).toBe("claude-sonnet-4");
+    expect(process.getContext()?.maxOutputTokens).toBe(64_000);
+  });
+
+  it("falls back to opts.model when modelUsage has no outputTokens field", () => {
+    const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
+    (process as any).turnResolve = () => {};
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5": { contextWindow: 200_000 },
+    }));
+
+    expect(process.getModel()).toBe("claude-opus-4");
+  });
+
+  it("still tracks the largest contextWindow across models", () => {
+    const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
+    (process as any).turnResolve = () => {};
+    (process as any).turnContextTokens = 10_000;
+    (process as any).processLine(makeResultLine({
+      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
+      "claude-opus-4":    { contextWindow: 1_000_000, outputTokens: 500 },
+    }));
+
+    expect(process.getContext()?.contextWindow).toBe(1_000_000);
+    expect(process.getModel()).toBe("claude-opus-4");
+  });
+});

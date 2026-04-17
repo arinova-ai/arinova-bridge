@@ -566,17 +566,30 @@ export class ClaudeProcess {
         this.turnDurationMs = event.duration_ms as number;
       }
 
-      // Extract contextWindow/maxOutputTokens from modelUsage
+      // Extract contextWindow/maxOutputTokens from modelUsage.
+      // resolvedModel picks the model with the most outputTokens — contextWindow
+      // cannot distinguish primary vs sub-agent models on anthropic-oauth
+      // (all three share 200k, so the first JSON key wins and haiku leaks into hud).
       const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
       if (modelUsage) {
+        let bestModelId: string | undefined;
+        let bestOutputTokens = -1;
+        let bestMaxOutputTokens: number | undefined;
         for (const [modelId, info] of Object.entries(modelUsage)) {
-          // Only use the largest contextWindow (primary model, not sub-agent models like haiku)
           const cw = typeof info.contextWindow === "number" ? info.contextWindow : 0;
-          if (cw > (this.turnContextWindow ?? 0)) {
-            this.turnContextWindow = cw;
-            this.resolvedModel = modelId;
+          if (cw > (this.turnContextWindow ?? 0)) this.turnContextWindow = cw;
+
+          if (typeof info.outputTokens === "number" && info.outputTokens > bestOutputTokens) {
+            bestOutputTokens = info.outputTokens;
+            bestModelId = modelId;
+            bestMaxOutputTokens = typeof info.maxOutputTokens === "number" ? info.maxOutputTokens : undefined;
           }
-          if (typeof info.maxOutputTokens === "number") this.turnMaxOutputTokens = info.maxOutputTokens;
+        }
+        if (bestModelId) {
+          this.resolvedModel = bestModelId;
+          if (bestMaxOutputTokens !== undefined) this.turnMaxOutputTokens = bestMaxOutputTokens;
+        } else if (this.opts.model) {
+          this.resolvedModel = this.opts.model;
         }
       }
 
