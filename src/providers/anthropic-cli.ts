@@ -7,6 +7,7 @@ import type {
   CostInfo,
   UsageInfo,
   SessionListEntry,
+  WarmupOpts,
 } from "./types.js";
 import { SessionStore } from "../claude/session-store.js";
 import { buildContextPrefix } from "../util/context.js";
@@ -69,13 +70,14 @@ export class AnthropicCliProvider implements Provider {
     );
   }
 
-  warmup(conversationId: string, opts?: { cwd?: string; model?: string; systemPrompt?: string }): void {
+  warmup(conversationId: string, opts?: WarmupOpts): void {
     const existing = this.store.getSession(conversationId);
     if (existing && existing.process.isAlive()) return;
     this.store.createSession(conversationId, {
       cwd: opts?.cwd,
       model: opts?.model,
       systemPrompt: opts?.systemPrompt,
+      reportToolCall: opts?.reportToolCall,
     });
   }
 
@@ -107,13 +109,13 @@ export class AnthropicCliProvider implements Provider {
    * Wait for the process to be idle, then send without aborting.
    */
   private async idleSend(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const { conversationId, cwd, model, onChunk, signal, reportToolCall } = opts;
     const content = buildContextPrefix(opts) + opts.content;
 
     let entry = this.store.getSession(conversationId);
 
     if (!entry || !entry.process.isAlive()) {
-      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
+      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
     }
 
     // Wait for the process to finish any in-flight turn (Chat or previous A2A)
@@ -122,7 +124,7 @@ export class AnthropicCliProvider implements Provider {
       // Re-check: session may have been destroyed while waiting
       const refreshed = this.store.getSession(conversationId);
       if (!refreshed || !refreshed.process.isAlive()) {
-        entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
+        entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
         break;
       }
       entry = refreshed;
@@ -150,7 +152,7 @@ export class AnthropicCliProvider implements Provider {
    * on a dead agent after a CLI crash.
    */
   private async directSend(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, cwd, model, onChunk, signal } = opts;
+    const { conversationId, cwd, model, onChunk, signal, reportToolCall } = opts;
     const content = buildContextPrefix(opts) + opts.content;
 
     const attempt = async (entry: ReturnType<SessionStore["getSession"]>) => {
@@ -172,7 +174,7 @@ export class AnthropicCliProvider implements Provider {
       }
       entry.lastActivity = Date.now();
     } else {
-      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
+      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
     }
 
     try {
@@ -193,6 +195,7 @@ export class AnthropicCliProvider implements Provider {
         cwd,
         model,
         systemPrompt: opts.systemPrompt,
+        reportToolCall,
       });
       const result = await attempt(respawned);
       return {

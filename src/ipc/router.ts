@@ -137,6 +137,7 @@ export async function deliverToAgent(
           queue: true,
           extraContext,
           senderName: from,
+          reportToolCall: (report) => target.agent.reportToolCall(report),
         });
         responseText = result.text;
       } else {
@@ -152,6 +153,7 @@ export async function deliverToAgent(
           signal: controller.signal,
           queue: true,
           bridgeSessionContext: extraContext,
+          reportToolCall: (report) => target.agent.reportToolCall(report),
         });
         responseText = result.text;
       }

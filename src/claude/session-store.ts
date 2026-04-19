@@ -1,4 +1,4 @@
-import { ClaudeProcess, type ClaudeProcessOptions } from "./process.js";
+import { ClaudeProcess, type ClaudeProcessOptions, type ToolCallReport } from "./process.js";
 import type { Logger } from "../util/logger.js";
 
 export interface SessionEntry {
@@ -16,6 +16,12 @@ export interface CreateSessionOpts {
   resumeSessionId?: string;
   compact?: boolean;
   agentName?: string;
+  /**
+   * Optional tool-call reporter forwarded to ClaudeProcess. Set once at
+   * process construction; subsequent createSession calls only take effect
+   * when a fresh process is spawned.
+   */
+  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 }
 
 export interface SessionStoreConfig {
@@ -62,6 +68,7 @@ export class SessionStore {
       env: this.config.env,
       logger: this.logger,
       agentName: opts?.agentName ?? conversationId.split(":")[0],
+      reportToolCall: opts?.reportToolCall,
     };
 
     const proc = new ClaudeProcess(processOpts);

@@ -1,4 +1,4 @@
-import type { Provider, SendMessageOpts, SendResult } from "../providers/types.js";
+import type { Provider, SendMessageOpts, SendResult, ToolCallReport } from "../providers/types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
 
@@ -70,6 +70,13 @@ export interface PipelineContext {
   senderName?: string;
   /** Extra metadata for addUserMessage. */
   userMessageMeta?: Record<string, unknown>;
+
+  /**
+   * Per-tool-call reporter forwarded to the provider so each tool result
+   * gets pushed to the Arinova server's tool_call_logs table. Wired by the
+   * caller to `agent.reportToolCall(report)`.
+   */
+  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 }
 
 export interface PipelineResult {
@@ -151,6 +158,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     fetchHistory: ctx.fetchHistory,
     bridgeSessionContext,
     queue: ctx.queue,
+    reportToolCall: ctx.reportToolCall,
   });
 
   // Step 5: Mark session as context-injected + track provider session ID

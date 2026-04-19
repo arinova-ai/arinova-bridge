@@ -108,12 +108,17 @@ if (activeAgents.length === 0) {
 logger.info(`Bridge started — ${activeAgents.length} agent(s): [${activeAgents.map((a) => a.name).join(", ")}]`);
 
 // Pre-create LLM sessions so A2A works immediately after boot
-for (const { name, provider, agentConfig } of activeAgents) {
+for (const { name, provider, agentConfig, agent } of activeAgents) {
   const warmupId = `${name}:default`;
   provider.warmup(warmupId, {
     cwd: agentConfig.cwd,
     model: agentConfig.model,
     systemPrompt: agentConfig.systemPrompt,
+    // Wire the tool-call reporter at warmup so the pre-spawned process
+    // reports tool calls from the very first turn — without this, warmup
+    // would create a process whose reporter is undefined and subsequent
+    // sendMessage calls cannot retrofit it (opts are captured at construction).
+    reportToolCall: (report) => agent.reportToolCall(report),
   });
   logger.info(`[${name}] pre-warmed session ${warmupId}`);
 }
@@ -241,6 +246,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         fetchHistory: ctx.fetchHistory,
         senderName: ctx.senderUsername,
         userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
+        reportToolCall: (report) => agent.reportToolCall(report),
       });
 
       if (sendResult.compacted) clearA2aContextInjected(sessionId);

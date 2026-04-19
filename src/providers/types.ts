@@ -1,3 +1,7 @@
+import type { ToolCallReport } from "../claude/process.js";
+
+export type { ToolCallReport };
+
 export type ProviderId = string;
 
 export interface UploadResult {
@@ -63,6 +67,12 @@ export interface SendMessageOpts {
   bridgeSessionContext?: string;
   /** When true, queue behind any in-flight turn instead of aborting it. */
   queue?: boolean;
+  /**
+   * Invoked once per tool call completion (fire-and-forget). Plumbed through
+   * to ClaudeProcess so each `tool_result` block can be reported to the
+   * Arinova server's tool_call_logs table. Errors are logged and swallowed.
+   */
+  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 }
 
 export interface FetchHistoryOptions {
@@ -164,6 +174,13 @@ export interface WarmupOpts {
   cwd?: string;
   model?: string;
   systemPrompt?: string;
+  /**
+   * Wire the tool-call reporter at warmup so the pre-spawned ClaudeProcess
+   * reports tool calls from the very first sendMessage. Without this, warmup
+   * creates a process whose `processOpts.reportToolCall` is undefined, and
+   * subsequent sendMessage calls cannot retroactively attach the reporter.
+   */
+  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 }
 
 export interface Provider {
