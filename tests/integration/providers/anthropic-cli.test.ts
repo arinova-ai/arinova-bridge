@@ -1,24 +1,38 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AnthropicCliProvider } from "../../../src/providers/anthropic-cli.js";
 
+type ProcBehavior = {
+  send?: (text: string, onText?: (t: string) => void) => Promise<any>;
+  alive?: boolean;
+};
+/** FIFO of per-instance process behaviors; tests push before creating sessions. */
+const procScripts: ProcBehavior[] = [];
+/** All mock process instances created during the current test. */
+const procInstances: any[] = [];
+
 // Mock ClaudeProcess — must use function keyword, not arrow
 vi.mock("../../../src/claude/process.js", () => {
   return {
     ClaudeProcess: vi.fn(function (this: any) {
+      const script = procScripts.shift() ?? {};
       this.start = vi.fn();
       this.stop = vi.fn(async () => {});
-      this.sendMessage = vi.fn(async (text: string, onText?: (t: string) => void) => {
-        onText?.("Hello ");
-        onText?.("world!");
-        return { text: "Hello world!", sessionId: "sid-abc" };
-      });
-      this.isAlive = vi.fn(() => true);
+      this.sendMessage = vi.fn(
+        script.send ??
+          (async (_text: string, onText?: (t: string) => void) => {
+            onText?.("Hello ");
+            onText?.("world!");
+            return { text: "Hello world!", sessionId: "sid-abc" };
+          }),
+      );
+      this.isAlive = vi.fn(() => script.alive ?? true);
       this.isBusy = vi.fn(() => false);
       this.abortTurn = vi.fn();
       this.getSessionId = vi.fn(() => "sid-abc");
       this.getTotalCost = vi.fn(() => 0.1);
       this.getCwd = vi.fn(() => "/test");
       this.getModel = vi.fn(() => "sonnet");
+      procInstances.push(this);
     }),
   };
 });
@@ -34,6 +48,8 @@ describe("AnthropicCliProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    procScripts.length = 0;
+    procInstances.length = 0;
     provider = new AnthropicCliProvider(
       {
         providerId: "anthropic-oauth",
@@ -199,6 +215,120 @@ describe("AnthropicCliProvider", () => {
       await provider.resetSession("conv-1");
       const ok = await provider.resumeSession("conv-1", "sid-abc");
       expect(ok).toBe(true);
+    });
+  });
+
+  describe("directSend respawn on process death", () => {
+    it("respawns and retries when sendMessage rejects with 'Claude process is not running'", async () => {
+      procScripts.push({
+        send: async () => {
+          throw new Error("Claude process is not running");
+        },
+      });
+      procScripts.push({
+        send: async (_text, onText) => {
+          onText?.("recovered");
+          return { text: "recovered", sessionId: "sid-new" };
+        },
+      });
+
+      const chunks: string[] = [];
+      const result = await provider.sendMessage({
+        conversationId: "conv-crash",
+        content: "ping",
+        onChunk: (t) => chunks.push(t),
+      });
+
+      expect(result.text).toBe("recovered");
+      expect(result.sessionId).toBe("sid-new");
+      expect(chunks).toEqual(["recovered"]);
+      // First process created, dies, second process spawned → 2 instances.
+      expect(procInstances).toHaveLength(2);
+    });
+
+    it("respawns when process exits mid-turn", async () => {
+      procScripts.push({
+        send: async () => {
+          throw new Error("Claude process exited unexpectedly (code 0)");
+        },
+      });
+      procScripts.push({
+        send: async () => ({ text: "after restart", sessionId: "sid-new" }),
+      });
+
+      const result = await provider.sendMessage({
+        conversationId: "conv-exit",
+        content: "ping",
+        onChunk: () => {},
+      });
+
+      expect(result.text).toBe("after restart");
+      expect(procInstances).toHaveLength(2);
+    });
+
+    it("does NOT retry non-process-death errors", async () => {
+      procScripts.push({
+        send: async () => {
+          throw new Error("Another message is already in-flight");
+        },
+      });
+
+      await expect(
+        provider.sendMessage({
+          conversationId: "conv-other",
+          content: "ping",
+          onChunk: () => {},
+        }),
+      ).rejects.toThrow("Another message is already in-flight");
+      // No respawn attempted.
+      expect(procInstances).toHaveLength(1);
+    });
+
+    it("does NOT retry when caller aborted the signal", async () => {
+      const ctrl = new AbortController();
+      procScripts.push({
+        send: async () => {
+          ctrl.abort();
+          throw new Error("Claude process is not running");
+        },
+      });
+
+      await expect(
+        provider.sendMessage({
+          conversationId: "conv-abort",
+          content: "ping",
+          onChunk: () => {},
+          signal: ctrl.signal,
+        }),
+      ).rejects.toThrow("Claude process is not running");
+      expect(procInstances).toHaveLength(1);
+    });
+
+    it("caps retries at 1 — if respawned process also dies, surface the error", async () => {
+      procScripts.push({
+        send: async () => {
+          throw new Error("Claude process is not running");
+        },
+      });
+      procScripts.push({
+        send: async () => {
+          throw new Error("Claude process exited unexpectedly (code 1)");
+        },
+      });
+      // A third script — if retry loop were unbounded, it would reach this and succeed.
+      procScripts.push({
+        send: async () => ({ text: "should not reach", sessionId: "sid-3" }),
+      });
+
+      await expect(
+        provider.sendMessage({
+          conversationId: "conv-cap",
+          content: "ping",
+          onChunk: () => {},
+        }),
+      ).rejects.toThrow("Claude process exited unexpectedly");
+      // Exactly 2 spawn attempts — original + 1 retry.
+      expect(procInstances).toHaveLength(2);
     });
   });
 

@@ -24,6 +24,16 @@ export interface AnthropicCliConfig {
   models?: string[];
 }
 
+/** Errors raised from ClaudeProcess when the CLI is dead or dies mid-turn. */
+function isProcessDeadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Claude process is not running") ||
+    msg.includes("Claude process exited unexpectedly") ||
+    msg.includes("Claude process error")
+  );
+}
+
 /**
  * anthropic-cli provider: spawns a persistent `claude` CLI process.
  * Works for Anthropic OAuth, Anthropic-compatible providers (MiniMax, etc.)
@@ -134,10 +144,24 @@ export class AnthropicCliProvider implements Provider {
 
   /**
    * Direct send: aborts any in-flight turn (Chat behavior — user cancels).
+   *
+   * If the underlying Claude process has died (or dies during the send),
+   * respawn once and retry. This keeps the task path from getting stuck
+   * on a dead agent after a CLI crash.
    */
   private async directSend(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
     const content = buildContextPrefix(opts) + opts.content;
+
+    const attempt = async (entry: ReturnType<SessionStore["getSession"]>) => {
+      if (!entry) throw new Error("Claude process is not running");
+      // Signal is managed inside ClaudeProcess — it clears the old listener
+      // before attaching the new one, preventing stale signals from aborting
+      // the wrong turn.
+      return entry.process.sendMessage(content, (text) => {
+        onChunk(text);
+      }, signal);
+    };
 
     let entry = this.store.getSession(conversationId);
 
@@ -151,19 +175,33 @@ export class AnthropicCliProvider implements Provider {
       entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt });
     }
 
-    // Signal is managed inside ClaudeProcess — it clears the old listener
-    // before attaching the new one, preventing stale signals from aborting
-    // the wrong turn.
-    const result = await entry.process.sendMessage(content, (text) => {
-      onChunk(text);
-    }, signal);
+    try {
+      const result = await attempt(entry);
+      return {
+        text: result.text,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        numTurns: result.numTurns,
+      };
+    } catch (err) {
+      // Don't retry user-aborted turns or non-process-death errors.
+      if (signal?.aborted) throw err;
+      if (!isProcessDeadError(err)) throw err;
 
-    return {
-      text: result.text,
-      sessionId: result.sessionId,
-      durationMs: result.durationMs,
-      numTurns: result.numTurns,
-    };
+      // Respawn once. If the fresh process also dies, surface the error.
+      const respawned = this.store.createSession(conversationId, {
+        cwd,
+        model,
+        systemPrompt: opts.systemPrompt,
+      });
+      const result = await attempt(respawned);
+      return {
+        text: result.text,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        numTurns: result.numTurns,
+      };
+    }
   }
 
   interrupt(conversationId: string): void {
