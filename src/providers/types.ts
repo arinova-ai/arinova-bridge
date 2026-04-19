@@ -4,6 +4,9 @@ export type { ToolCallReport };
 
 export type ProviderId = string;
 
+/** Fire-and-forget reporter for completed tool calls. */
+export type ReportToolCall = (report: ToolCallReport) => void | Promise<void>;
+
 export interface UploadResult {
   url: string;
   fileName: string;

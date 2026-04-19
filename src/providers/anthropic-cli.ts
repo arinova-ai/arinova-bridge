@@ -72,7 +72,10 @@ export class AnthropicCliProvider implements Provider {
 
   warmup(conversationId: string, opts?: WarmupOpts): void {
     const existing = this.store.getSession(conversationId);
-    if (existing && existing.process.isAlive()) return;
+    if (existing && existing.process.isAlive()) {
+      if (opts?.reportToolCall) existing.process.setReportToolCall(opts.reportToolCall);
+      return;
+    }
     this.store.createSession(conversationId, {
       cwd: opts?.cwd,
       model: opts?.model,
@@ -130,6 +133,8 @@ export class AnthropicCliProvider implements Provider {
       entry = refreshed;
     }
 
+    // Keep the reporter fresh — covers reused-alive sessions and resume paths
+    if (reportToolCall) entry.process.setReportToolCall(reportToolCall);
     entry.lastActivity = Date.now();
 
     const result = await entry.process.sendMessage(content, (text) => {
@@ -176,6 +181,9 @@ export class AnthropicCliProvider implements Provider {
     } else {
       entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
     }
+
+    // Keep the reporter fresh — covers reused-alive sessions and resume paths
+    if (reportToolCall) entry.process.setReportToolCall(reportToolCall);
 
     try {
       const result = await attempt(entry);

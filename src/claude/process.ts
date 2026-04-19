@@ -204,6 +204,15 @@ export class ClaudeProcess {
     this.logTag = opts.agentName ? `claude-process[${opts.agentName}]` : "claude-process";
   }
 
+  /**
+   * Update the tool-call reporter on an already-live process. Used so callers
+   * can refresh the reporter on each turn (e.g. after a resume that recreated
+   * the session without a reporter).
+   */
+  setReportToolCall(reporter: ClaudeProcessOptions["reportToolCall"]): void {
+    this.opts.reportToolCall = reporter;
+  }
+
   start(): void {
     if (this.child) return;
 

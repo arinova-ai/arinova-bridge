@@ -48,6 +48,8 @@ export interface PipelineContext {
   onChunk: (text: string) => void;
   /** Abort signal. */
   signal?: AbortSignal;
+  /** Fire-and-forget reporter for completed tool calls (Claude providers only). */
+  reportToolCall?: SendMessageOpts["reportToolCall"];
 
   // --- Optional Chat-specific fields (passed through to sendMessage) ---
   uploadFile?: SendMessageOpts["uploadFile"];

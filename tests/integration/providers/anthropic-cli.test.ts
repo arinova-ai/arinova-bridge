@@ -9,12 +9,15 @@ type ProcBehavior = {
 const procScripts: ProcBehavior[] = [];
 /** All mock process instances created during the current test. */
 const procInstances: any[] = [];
+/** Constructor opts received by each mock ClaudeProcess (aligned with procInstances). */
+const procCtorOpts: any[] = [];
 
 // Mock ClaudeProcess — must use function keyword, not arrow
 vi.mock("../../../src/claude/process.js", () => {
   return {
-    ClaudeProcess: vi.fn(function (this: any) {
+    ClaudeProcess: vi.fn(function (this: any, opts: any) {
       const script = procScripts.shift() ?? {};
+      this.opts = opts;
       this.start = vi.fn();
       this.stop = vi.fn(async () => {});
       this.sendMessage = vi.fn(
@@ -32,7 +35,9 @@ vi.mock("../../../src/claude/process.js", () => {
       this.getTotalCost = vi.fn(() => 0.1);
       this.getCwd = vi.fn(() => "/test");
       this.getModel = vi.fn(() => "sonnet");
+      this.setReportToolCall = vi.fn((reporter: any) => { this.opts.reportToolCall = reporter; });
       procInstances.push(this);
+      procCtorOpts.push(opts);
     }),
   };
 });
@@ -50,6 +55,7 @@ describe("AnthropicCliProvider", () => {
     vi.clearAllMocks();
     procScripts.length = 0;
     procInstances.length = 0;
+    procCtorOpts.length = 0;
     provider = new AnthropicCliProvider(
       {
         providerId: "anthropic-oauth",
@@ -329,6 +335,82 @@ describe("AnthropicCliProvider", () => {
       ).rejects.toThrow("Claude process exited unexpectedly");
       // Exactly 2 spawn attempts — original + 1 retry.
       expect(procInstances).toHaveLength(2);
+    });
+  });
+
+  describe("reportToolCall wiring", () => {
+    it("threads reportToolCall from sendMessage to the ClaudeProcess constructor", async () => {
+      const reporter = vi.fn();
+
+      await provider.sendMessage({
+        conversationId: "conv-report",
+        content: "hi",
+        onChunk: () => {},
+        reportToolCall: reporter,
+      });
+
+      expect(procCtorOpts).toHaveLength(1);
+      expect(procCtorOpts[0].reportToolCall).toBe(reporter);
+    });
+
+    it("refreshes reportToolCall on an already-alive session via setReportToolCall", async () => {
+      const firstReporter = vi.fn();
+      const secondReporter = vi.fn();
+
+      await provider.sendMessage({
+        conversationId: "conv-refresh",
+        content: "first",
+        onChunk: () => {},
+        reportToolCall: firstReporter,
+      });
+      await provider.sendMessage({
+        conversationId: "conv-refresh",
+        content: "second",
+        onChunk: () => {},
+        reportToolCall: secondReporter,
+      });
+
+      // Only one process created (session reused), but setter called twice.
+      expect(procInstances).toHaveLength(1);
+      expect(procInstances[0].setReportToolCall).toHaveBeenCalledWith(firstReporter);
+      expect(procInstances[0].setReportToolCall).toHaveBeenCalledWith(secondReporter);
+      // Latest reporter wins.
+      expect(procInstances[0].opts.reportToolCall).toBe(secondReporter);
+    });
+
+    it("passes reportToolCall to the respawned process after a crash", async () => {
+      const reporter = vi.fn();
+      procScripts.push({
+        send: async () => {
+          throw new Error("Claude process is not running");
+        },
+      });
+      procScripts.push({
+        send: async () => ({ text: "ok", sessionId: "sid-new" }),
+      });
+
+      await provider.sendMessage({
+        conversationId: "conv-crash-report",
+        content: "ping",
+        onChunk: () => {},
+        reportToolCall: reporter,
+      });
+
+      expect(procCtorOpts).toHaveLength(2);
+      expect(procCtorOpts[0].reportToolCall).toBe(reporter);
+      expect(procCtorOpts[1].reportToolCall).toBe(reporter);
+    });
+
+    it("warmup forwards reportToolCall to the ClaudeProcess constructor", () => {
+      const reporter = vi.fn();
+      provider.warmup("conv-warm", {
+        cwd: "/w",
+        model: "sonnet",
+        reportToolCall: reporter,
+      });
+
+      expect(procCtorOpts).toHaveLength(1);
+      expect(procCtorOpts[0].reportToolCall).toBe(reporter);
     });
   });
 
