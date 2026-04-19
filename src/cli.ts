@@ -115,6 +115,38 @@ MULTI-AGENT MODE
 
   Without "agents", the bridge runs in single-agent mode using arinova.botToken.
 
+AGENT PROMPT FILES
+  Drop Markdown files into ~/.arinova-bridge/agents/ to inject system prompts.
+
+  Naming rules:
+    <name>.md              Per-agent prompt (filename must match agent name).
+    _shared.md             Injected into every agent (no frontmatter needed).
+    _shared_<group>.md     Group-scoped shared prompt. Requires an "include"
+                           frontmatter listing agents it applies to; files
+                           without a valid include list are skipped with a
+                           warning at startup.
+
+  Full frontmatter example (_shared_engineering.md):
+
+    ---
+    include:
+      - pan
+      - bella
+    ---
+    # Engineering shared prompt
+
+    You are part of the engineering track...
+
+  Inline form is also accepted:  include: [pan, bella]
+
+  Prompt assembly order per agent:
+    1. _shared.md (and legacy _*.md files), concatenated
+    2. Matching _shared_<group>.md bodies (in filename-sorted order)
+    3. <name>.md body
+
+  Prompts are read once at bridge startup and cached; restart the bridge to
+  reload after editing these files.
+
 ENVIRONMENT VARIABLES
   ARINOVA_SERVER_URL    Override WebSocket server URL
   ARINOVA_BOT_TOKEN     Override bot token (single-agent mode)
