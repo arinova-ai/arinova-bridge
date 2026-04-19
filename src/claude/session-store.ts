@@ -7,13 +7,6 @@ export interface SessionEntry {
   cwd: string;
   model?: string;
   lastSessionId?: string;
-  /**
-   * Sticky reporter — captured at createSession() so all rebuild paths
-   * (resumeSession, AnthropicCliProvider.resetSession) can re-attach the
-   * same callback and avoid silently dropping tool_call_logs after a
-   * /resume, /compact, or auto-compact cycle.
-   */
-  reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
 }
 
 export interface CreateSessionOpts {
@@ -86,7 +79,6 @@ export class SessionStore {
       lastActivity: Date.now(),
       cwd,
       model,
-      reportToolCall: opts?.reportToolCall,
     };
 
     this.sessions.set(conversationId, entry);
@@ -132,9 +124,6 @@ export class SessionStore {
     const existing = this.sessions.get(conversationId);
     const cwd = dead?.cwd ?? existing?.cwd ?? this.config.defaultCwd;
     const model = dead?.model ?? existing?.model;
-    // Capture the sticky reporter from the live entry before destroying it
-    // so the resumed process keeps writing to tool_call_logs.
-    const reportToolCall = existing?.reportToolCall;
 
     // Remove from dead sessions — it's being resumed as an active session
     this.deadSessionIds.delete(sid);
@@ -144,7 +133,6 @@ export class SessionStore {
       cwd,
       model,
       resumeSessionId: sid,
-      reportToolCall,
     });
   }
 

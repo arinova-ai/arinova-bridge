@@ -215,18 +215,11 @@ export class AnthropicCliProvider implements Provider {
   }
 
   async resetSession(conversationId: string, opts?: SessionOpts): Promise<void> {
-    // Capture the sticky reporter from the live entry before destroying it.
-    // Auto-compact in runMessagePipeline triggers this path, and without
-    // re-attaching the reporter the rebuilt ClaudeProcess silently stops
-    // writing tool_call_logs for the rest of the agent's lifetime.
-    const existing = this.store.getSession(conversationId);
-    const reportToolCall = existing?.reportToolCall;
     await this.store.destroySession(conversationId);
     if (opts?.cwd || opts?.model) {
       this.store.createSession(conversationId, {
         cwd: opts.cwd,
         model: opts.model,
-        reportToolCall,
       });
     }
   }
