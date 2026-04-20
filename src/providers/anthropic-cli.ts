@@ -112,7 +112,7 @@ export class AnthropicCliProvider implements Provider {
    * Wait for the process to be idle, then send without aborting.
    */
   private async idleSend(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, cwd, model, onChunk, signal, reportToolCall } = opts;
+    const { conversationId, cwd, model, onChunk, signal, reportToolCall, messageId } = opts;
     const content = buildContextPrefix(opts) + opts.content;
 
     let entry = this.store.getSession(conversationId);
@@ -139,7 +139,7 @@ export class AnthropicCliProvider implements Provider {
 
     const result = await entry.process.sendMessage(content, (text) => {
       onChunk(text);
-    }, signal);
+    }, signal, messageId);
 
     return {
       text: result.text,
@@ -157,7 +157,7 @@ export class AnthropicCliProvider implements Provider {
    * on a dead agent after a CLI crash.
    */
   private async directSend(opts: SendMessageOpts): Promise<SendResult> {
-    const { conversationId, cwd, model, onChunk, signal, reportToolCall } = opts;
+    const { conversationId, cwd, model, onChunk, signal, reportToolCall, messageId } = opts;
     const content = buildContextPrefix(opts) + opts.content;
 
     const attempt = async (entry: ReturnType<SessionStore["getSession"]>) => {
@@ -167,7 +167,7 @@ export class AnthropicCliProvider implements Provider {
       // the wrong turn.
       return entry.process.sendMessage(content, (text) => {
         onChunk(text);
-      }, signal);
+      }, signal, messageId);
     };
 
     let entry = this.store.getSession(conversationId);

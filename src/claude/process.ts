@@ -18,6 +18,8 @@ export interface ToolCallReport {
   durationMs?: number;
   success: boolean;
   error?: string;
+  /** UUID of the user message that triggered this turn (optional). */
+  messageId?: string;
 }
 
 export type ClaudeProcessOptions = {
@@ -185,6 +187,8 @@ export class ClaudeProcess {
   private turnTimeout: ReturnType<typeof setTimeout> | null = null;
   /** UUID generated at sendMessage() time; shared across tool calls in the turn. */
   private turnId: string | null = null;
+  /** UUID of the user message that triggered the current turn (propagated from TaskContext.userMessageId). */
+  private turnMessageId: string | undefined;
   /** In-flight tool calls keyed by tool_use id, awaiting their tool_result block. */
   private pendingToolCalls = new Map<string, PendingToolCall>();
   /** 0-based counter assigned to tool calls in the order they are started. */
@@ -340,6 +344,7 @@ export class ClaudeProcess {
     text: string,
     onText?: (text: string) => void,
     signal?: AbortSignal,
+    messageId?: string,
   ): Promise<SendMessageResult> {
     const log = this.opts.logger;
 
@@ -369,6 +374,7 @@ export class ClaudeProcess {
     this.turnMaxOutputTokens = undefined;
     this.turnRateLimits.clear();
     this.turnId = randomUUID();
+    this.turnMessageId = messageId;
     this.pendingToolCalls.clear();
     this.turnToolCallSeq = 0;
 
@@ -836,6 +842,7 @@ export class ClaudeProcess {
         durationMs: Date.now() - pending.startedAt,
         success: !isError,
       };
+      if (this.turnMessageId) report.messageId = this.turnMessageId;
       if (isError) {
         report.error = toolResultContentToString(rawOutput);
       } else if (rawOutput !== undefined) {

@@ -76,6 +76,8 @@ export interface SendMessageOpts {
    * Arinova server's tool_call_logs table. Errors are logged and swallowed.
    */
   reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
+  /** UUID of the user message that triggered this send (propagated to tool call reports). */
+  messageId?: string;
 }
 
 export interface FetchHistoryOptions {

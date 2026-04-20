@@ -247,6 +247,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         senderName: ctx.senderUsername,
         userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
         reportToolCall: (report) => agent.reportToolCall(report),
+        messageId: ctx.userMessageId,
       });
 
       if (sendResult.compacted) clearA2aContextInjected(sessionId);

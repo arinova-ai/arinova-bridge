@@ -76,6 +76,8 @@ export interface PipelineContext {
    * caller to `agent.reportToolCall(report)`.
    */
   reportToolCall?: (report: ToolCallReport) => void | Promise<void>;
+  /** UUID of the user message that triggered this send (forwarded to tool call reports). */
+  messageId?: string;
 }
 
 export interface PipelineResult {
@@ -158,6 +160,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     bridgeSessionContext,
     queue: ctx.queue,
     reportToolCall: ctx.reportToolCall,
+    messageId: ctx.messageId,
   });
 
   // Step 5: Mark session as context-injected + track provider session ID
