@@ -136,6 +136,10 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
 
   // Step 2: Build bridge session context (only on first message of a new/reset session)
   const isFirstMessage = !contextInjected.has(sessionId);
+  // Tracks whether this turn effectively injected context into the provider
+  // session — includes the first-message path AND retry-after-reset, since
+  // Step 4 rebuilds context when the provider session gets destroyed.
+  let injectedContextThisTurn = isFirstMessage;
   let bridgeSessionContext = isFirstMessage
     ? (bridgeSessionStore.buildContext(sessionId) || undefined)
     : undefined;
@@ -201,10 +205,11 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     }
 
     sendResult = await provider.sendMessage({ ...sendMessageArgs, bridgeSessionContext: retryContext });
+    injectedContextThisTurn = true;
   }
 
   // Step 5: Mark session as context-injected + track provider session ID
-  if (isFirstMessage) contextInjected.add(sessionId);
+  if (injectedContextThisTurn) contextInjected.add(sessionId);
   if (sendResult.sessionId) {
     lastProviderSessionId.set(sessionId, sendResult.sessionId);
   }
