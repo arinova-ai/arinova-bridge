@@ -4,6 +4,21 @@ import { createLogger } from "../util/logger.js";
 
 const log = createLogger("pipeline");
 
+/**
+ * Turn-level errors that leave the provider session in a stuck state
+ * (image payload over dimension limit, context window overflow). Recovery
+ * path is resetSession + single retry — see Step 4 below.
+ */
+const UNRECOVERABLE_TURN_ERROR_PATTERNS = [
+  "exceeds the dimension limit",
+  "prompt is too long",
+  "context_length_exceeded",
+] as const;
+
+function isUnrecoverableTurnError(msg: string): boolean {
+  return UNRECOVERABLE_TURN_ERROR_PATTERNS.some((pattern) => msg.includes(pattern));
+}
+
 // ---------------------------------------------------------------------------
 // Context-injection tracking (shared across Chat + A2A)
 // ---------------------------------------------------------------------------
@@ -140,8 +155,8 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     { model, ...ctx.userMessageMeta },
   );
 
-  // Step 4: Send message to provider
-  const sendResult: SendResult = await provider.sendMessage({
+  // Step 4: Send message to provider (auto-restart on unrecoverable turn errors)
+  const sendMessageArgs: SendMessageOpts = {
     conversationId: sessionId,
     content,
     cwd,
@@ -161,7 +176,32 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     queue: ctx.queue,
     reportToolCall: ctx.reportToolCall,
     messageId: ctx.messageId,
-  });
+  };
+
+  let sendResult: SendResult;
+  try {
+    sendResult = await provider.sendMessage(sendMessageArgs);
+  } catch (err) {
+    if (ctx.signal?.aborted) throw err;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (!isUnrecoverableTurnError(errMsg)) throw err;
+
+    const matchedPattern = UNRECOVERABLE_TURN_ERROR_PATTERNS.find((p) => errMsg.includes(p));
+    log.warn(
+      `[${agentName}] unrecoverable turn error for ${sessionId} at ${new Date().toISOString()}: pattern="${matchedPattern}" msg="${errMsg}" — resetting session and retrying once`,
+    );
+
+    await provider.resetSession(sessionId, { cwd, model });
+    clearContextInjected(sessionId);
+
+    // Provider session was destroyed — rebuild context for the fresh session.
+    let retryContext = bridgeSessionStore.buildContext(sessionId) || undefined;
+    if (ctx.extraContext) {
+      retryContext = retryContext ? `${ctx.extraContext}\n\n${retryContext}` : ctx.extraContext;
+    }
+
+    sendResult = await provider.sendMessage({ ...sendMessageArgs, bridgeSessionContext: retryContext });
+  }
 
   // Step 5: Mark session as context-injected + track provider session ID
   if (isFirstMessage) contextInjected.add(sessionId);
