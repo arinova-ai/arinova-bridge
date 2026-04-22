@@ -188,6 +188,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     serverUrl: config.arinova.serverUrl,
     botToken: agentCfg.botToken,
     skills: commandHandler.getSkills(),
+    // Single Claude session per agent means we literally cannot process
+    // two tasks in parallel — cross-conv arrivals must queue rather than
+    // race for the session. agent-wide gating + round-robin drain (cap 2
+    // consecutive runs per conv) enforces that fairly.
+    concurrencyMode: "agent-wide",
+    maxConsecutivePerConversation: 2,
   });
 
   agent.onTask(async (ctx) => {
