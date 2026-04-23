@@ -19,6 +19,23 @@ const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
+/**
+ * Per-agent serialization for provider calls. Both the WS task path
+ * (index.ts onTask) and the A2A path (deliverToAgent) acquire this before
+ * invoking the provider, so a WS-task directSend() cannot abort an
+ * in-flight A2A turn (and vice versa). agent-sdk's agentWideLock only
+ * covers WS-originating tasks; A2A lives entirely in bridge and needs this
+ * layer to share exclusion with it.
+ */
+const agentSendChains = new Map<string, Promise<unknown>>();
+
+export function runExclusiveOnAgent<T>(agentName: string, fn: () => Promise<T>): Promise<T> {
+  const prev = agentSendChains.get(agentName) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  agentSendChains.set(agentName, next.catch(() => undefined));
+  return next;
+}
+
 /** Clear A2A-specific context-injection tracking (delegates to pipeline). */
 export function clearA2aContextInjected(sessionId: string): void {
   // The pipeline now owns the shared tracking state; this is kept as a
@@ -115,48 +132,52 @@ export async function deliverToAgent(
 
     try {
       // Query sender's long-term memories (A2A only, regardless of bridgeSessionStore)
+      // Run this outside the per-agent send lock — it's a CLI subprocess call
+      // against the sender, unrelated to the target's Claude process.
       let extraContext: string | undefined;
       if (from !== "cli") {
         extraContext = await querySenderMemories(from, content);
       }
 
-      if (opts?.bridgeSessionStore) {
-        // Full pipeline: context injection, recording, auto-compact
-        const result = await runMessagePipeline({
-          provider: target.provider,
-          bridgeSessionStore: opts.bridgeSessionStore,
-          sessionId: syntheticId,
-          content,
-          agentName: target.name,
-          cwd,
-          model,
-          systemPrompt: target.agentConfig.systemPrompt,
-          compactModel: target.agentConfig.compactModel,
-          onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
-          signal: controller.signal,
-          queue: true,
-          extraContext,
-          senderName: from,
-          reportToolCall: (report) => target.agent.reportToolCall(report),
-        });
-        responseText = result.text;
-      } else {
-        // Lightweight path: no session store (e.g. tests, raw IPC)
-        // Still inject sender memories as bridgeSessionContext if available
-        const result = await target.provider.sendMessage({
-          conversationId: syntheticId,
-          content,
-          cwd,
-          model,
-          systemPrompt: target.agentConfig.systemPrompt,
-          onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
-          signal: controller.signal,
-          queue: true,
-          bridgeSessionContext: extraContext,
-          reportToolCall: (report) => target.agent.reportToolCall(report),
-        });
-        responseText = result.text;
-      }
+      await runExclusiveOnAgent(target.name, async () => {
+        if (opts?.bridgeSessionStore) {
+          // Full pipeline: context injection, recording, auto-compact
+          const result = await runMessagePipeline({
+            provider: target.provider,
+            bridgeSessionStore: opts.bridgeSessionStore,
+            sessionId: syntheticId,
+            content,
+            agentName: target.name,
+            cwd,
+            model,
+            systemPrompt: target.agentConfig.systemPrompt,
+            compactModel: target.agentConfig.compactModel,
+            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            signal: controller.signal,
+            queue: true,
+            extraContext,
+            senderName: from,
+            reportToolCall: (report) => target.agent.reportToolCall(report),
+          });
+          responseText = result.text;
+        } else {
+          // Lightweight path: no session store (e.g. tests, raw IPC)
+          // Still inject sender memories as bridgeSessionContext if available
+          const result = await target.provider.sendMessage({
+            conversationId: syntheticId,
+            content,
+            cwd,
+            model,
+            systemPrompt: target.agentConfig.systemPrompt,
+            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            signal: controller.signal,
+            queue: true,
+            bridgeSessionContext: extraContext,
+            reportToolCall: (report) => target.agent.reportToolCall(report),
+          });
+          responseText = result.text;
+        }
+      });
     } finally {
       clearTimeout(timer);
     }

@@ -8,7 +8,7 @@ import { HudMonitor } from "./claude/hud-monitor.js";
 import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
-import { createIpcRouter, recordTask, clearA2aContextInjected } from "./ipc/router.js";
+import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore } from "./session/bridge-session.js";
 import { runMessagePipeline, clearContextInjected } from "./pipeline/message-pipeline.js";
@@ -230,7 +230,11 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       hudWs.sendTask(agentName, { status: "started", task: content });
 
-      const sendResult = await runMessagePipeline({
+      // Serialize against A2A deliveries on the same agent. agent-sdk's
+      // agentWideLock already serializes WS task vs WS task; this adds the
+      // missing WS task vs A2A exclusion so a fresh WS task never aborts a
+      // queued A2A turn in the shared Claude process.
+      const sendResult = await runExclusiveOnAgent(agentName, () => runMessagePipeline({
         provider: msgProvider,
         bridgeSessionStore,
         sessionId,
@@ -254,7 +258,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
         reportToolCall: (report) => agent.reportToolCall(report),
         messageId: ctx.userMessageId,
-      });
+      }));
 
       if (sendResult.compacted) clearA2aContextInjected(sessionId);
 
