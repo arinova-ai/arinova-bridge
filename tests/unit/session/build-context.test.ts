@@ -124,7 +124,10 @@ describe("BridgeSessionStore.buildContext()", () => {
     expect(secondIdx).toBeLessThan(thirdIdx);
   });
 
-  it("uses user_message for historical user messages but keeps latest full content", () => {
+  it("strips wrapper from all user messages including the latest", () => {
+    // All user rows must use user_message (the extracted clean input), not the
+    // full wrapped content. Re-injecting a wrapped latest row is what caused
+    // the recursive [Fork context] bloat that ate gina's rate limit.
     const fullTagged = `
 <system-prompt>ignore</system-prompt>
 <user-current-message>
@@ -142,8 +145,9 @@ describe("BridgeSessionStore.buildContext()", () => {
 
     expect(lines[0]).toBe("alice: 請幫我整理這段訊息");
     expect(ctx).toContain("bot: 收到");
-    expect(latestBlock).toContain("<user-current-message>");
-    expect(latestBlock).toContain("<extra>latest wrapper</extra>");
+    expect(latestBlock).toBe("alice: 請幫我整理這段訊息");
+    expect(ctx).not.toContain("<system-prompt>");
+    expect(ctx).not.toContain("<extra>latest wrapper</extra>");
   });
 
   it("falls back to content when historical user_message is null", () => {

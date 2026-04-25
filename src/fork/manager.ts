@@ -135,7 +135,12 @@ export class ForkManager {
       }
     }
 
-    const forkContent = contextPrefix + job.task;
+    // Wrap the task in <user-current-message> so addUserMessage's extractor
+    // stores just the task in the user_message column. Otherwise the entire
+    // wrapped prompt (including the bloated [Fork context] block) ends up in
+    // user_message, and the next buildContext call re-injects it — that's the
+    // exponential growth that hit gina (2.6 MB / 1.13 M tokens after 5 forks).
+    const forkContent = `${contextPrefix}<user-current-message>\n${job.task}\n</user-current-message>`;
 
     // Set timeout
     const timer = setTimeout(() => {

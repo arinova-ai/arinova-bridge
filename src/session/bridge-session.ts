@@ -494,13 +494,14 @@ export class BridgeSessionStore {
 
     // Only include the most recent 20 messages to keep context prefix manageable
     const rows = this.stmts.getRecentMessages.all(conversationId) as MessageRow[];
-    const latestMessageId = rows.at(-1)?.id;
     for (const row of rows) {
       const sender = row.sender ?? row.role;
-      const isLatestMessage = row.id === latestMessageId;
-      const historicalUserMessage = row.user_message?.trim();
-      const messageContent = row.role === "user" && !isLatestMessage
-        ? (historicalUserMessage || row.content)
+      // For user rows, always prefer the extracted user_message (clean original
+      // input) over content (which may carry [Recent history] / [Fork context]
+      // wrappers). Re-injecting a wrapped row into the next buildContext call
+      // is what causes the recursive bloat that blew gina past the 200K limit.
+      const messageContent = row.role === "user"
+        ? (row.user_message?.trim() || row.content)
         : row.content;
       parts.push(`${sender}: ${messageContent}`);
     }
