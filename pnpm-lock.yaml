@@ -15,8 +15,8 @@ importers:
         specifier: ^0.2.92
         version: 0.2.92(zod@4.3.6)
       '@arinova-ai/agent-sdk':
-        specifier: 0.0.16-staging.2
-        version: 0.0.16-staging.2
+        specifier: 0.0.16-staging.7
+        version: 0.0.16-staging.7
       '@arinova-ai/cli':
         specifier: 0.0.24-staging.0
         version: 0.0.24-staging.0
@@ -78,8 +78,8 @@ packages:
       zod:
         optional: true
 
-  '@arinova-ai/agent-sdk@0.0.16-staging.2':
-    resolution: {integrity: sha512-d8ST0KThqh1tDOe2cS9+oiry/h4qYY0JViPxiGNMWvTwbaUqA0EdecUGC5QEQPuuX06DRz/FbwR9NrQl870mJw==}
+  '@arinova-ai/agent-sdk@0.0.16-staging.7':
+    resolution: {integrity: sha512-+mT6uuGxbPKncpHLLCz2Po4hYmWBWNeeTdlFXe7m9h7MpVFlAg7BfDEBS7w713lsn87+DqRRLc4g/C9pMs8EqQ==}
 
   '@arinova-ai/cli@0.0.24-staging.0':
     resolution: {integrity: sha512-M4AcLuNIceaC++PrWHaKZzdUR2Q8A6PAvXmA5Uu7yQC5mXb4EK2P4Q020CtHp+e0v8GqlTCTtWmS5rsI2h+gJg==}
@@ -1599,7 +1599,7 @@ snapshots:
     optionalDependencies:
       zod: 4.3.6
 
-  '@arinova-ai/agent-sdk@0.0.16-staging.2': {}
+  '@arinova-ai/agent-sdk@0.0.16-staging.7': {}
 
   '@arinova-ai/cli@0.0.24-staging.0':
     dependencies:
