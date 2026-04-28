@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.92",
-    "@arinova-ai/agent-sdk": "^0.0.17",
+    "@arinova-ai/agent-sdk": "^0.0.18",
     "@arinova-ai/cli": "0.0.24-staging.0",
     "@arinova-ai/theme-sdk": "0.0.4-staging.0",
     "@inquirer/prompts": "^8.2.1",
