@@ -72,6 +72,8 @@ export interface PipelineContext {
   members?: SendMessageOpts["members"];
   replyTo?: SendMessageOpts["replyTo"];
   fetchHistory?: SendMessageOpts["fetchHistory"];
+  /** Backend-provided conversation history; when present, skips bridge's own history. */
+  history?: SendMessageOpts["history"];
 
   // --- Optional A2A-specific fields ---
   /** When true, queue behind any in-flight turn instead of aborting. */
@@ -135,12 +137,11 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
   }
 
   // Step 2: Build bridge session context (only on first message of a new/reset session)
+  // When backend provides conversation history, use it directly and skip bridge's own.
+  const hasBackendHistory = ctx.history && ctx.history.length > 0;
   const isFirstMessage = !contextInjected.has(sessionId);
-  // Tracks whether this turn effectively injected context into the provider
-  // session — includes the first-message path AND retry-after-reset, since
-  // Step 4 rebuilds context when the provider session gets destroyed.
   let injectedContextThisTurn = isFirstMessage;
-  let bridgeSessionContext = isFirstMessage
+  let bridgeSessionContext = (isFirstMessage && !hasBackendHistory)
     ? (bridgeSessionStore.buildContext(sessionId) || undefined)
     : undefined;
 
@@ -176,6 +177,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     members: ctx.members,
     replyTo: ctx.replyTo,
     fetchHistory: ctx.fetchHistory,
+    history: ctx.history,
     bridgeSessionContext,
     queue: ctx.queue,
     reportToolCall: ctx.reportToolCall,
@@ -199,7 +201,9 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     clearContextInjected(sessionId);
 
     // Provider session was destroyed — rebuild context for the fresh session.
-    let retryContext = bridgeSessionStore.buildContext(sessionId) || undefined;
+    let retryContext = hasBackendHistory
+      ? undefined
+      : (bridgeSessionStore.buildContext(sessionId) || undefined);
     if (ctx.extraContext) {
       retryContext = retryContext ? `${ctx.extraContext}\n\n${retryContext}` : ctx.extraContext;
     }

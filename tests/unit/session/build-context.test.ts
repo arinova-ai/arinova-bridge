@@ -6,7 +6,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 // ---------------------------------------------------------------------------
-// buildContext() — LIMIT 20, summary inclusion, message formatting
+// buildContext() — LIMIT 5, summary inclusion, message formatting
 // ---------------------------------------------------------------------------
 
 function createLogger() {
@@ -53,9 +53,9 @@ describe("BridgeSessionStore.buildContext()", () => {
     expect(ctx).toContain("user: test msg");
   });
 
-  it("limits to most recent 20 messages", () => {
-    // Add 30 messages
-    for (let i = 1; i <= 30; i++) {
+  it("limits to most recent 5 messages", () => {
+    // Add 10 messages
+    for (let i = 1; i <= 10; i++) {
       if (i % 2 === 1) {
         store.addUserMessage(convId, `msg-${i}`, "user");
       } else {
@@ -65,14 +65,14 @@ describe("BridgeSessionStore.buildContext()", () => {
 
     const ctx = store.buildContext(convId);
 
-    // Should NOT contain first 10 messages (msg-1 through msg-10)
+    // Should NOT contain first 5 messages (msg-1 through msg-5)
     expect(ctx).not.toContain("msg-1\n");
-    expect(ctx).not.toContain("msg-10");
+    expect(ctx).not.toContain("msg-5");
 
-    // Should contain last 20 messages (msg-11 through msg-30)
-    expect(ctx).toContain("msg-11");
-    expect(ctx).toContain("msg-20");
-    expect(ctx).toContain("msg-30");
+    // Should contain last 5 messages (msg-6 through msg-10)
+    expect(ctx).toContain("msg-6");
+    expect(ctx).toContain("msg-8");
+    expect(ctx).toContain("msg-10");
   });
 
   it("includes compacted summary before messages", async () => {

@@ -236,6 +236,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         members: ctx.members,
         replyTo: ctx.replyTo,
         fetchHistory: ctx.fetchHistory,
+        history: ctx.history,
         senderName: ctx.senderUsername,
         userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
         reportToolCall: (report) => agent.reportToolCall(report),

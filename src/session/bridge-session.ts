@@ -347,7 +347,7 @@ export class BridgeSessionStore {
         "SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id ASC",
       ),
       getRecentMessages: db.prepare(
-        "SELECT * FROM (SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20) ORDER BY id ASC",
+        "SELECT * FROM (SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 5) ORDER BY id ASC",
       ),
       getMessageCount: db.prepare(
         "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?",
