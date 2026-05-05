@@ -5,13 +5,8 @@ import type { Provider } from "../providers/types.js";
 import type { BridgeConfig } from "../config.js";
 import type { CommandContext, CommandResult } from "./types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
-import type { CronStore } from "../cron/store.js";
-import type { CronRunner } from "../cron/runner.js";
 import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
-import cron from "node-cron";
-import { CronExpressionParser } from "cron-parser";
-
 export class CommandHandler {
   private providers: Map<string, Provider>;
   private config: BridgeConfig;
@@ -29,14 +24,11 @@ export class CommandHandler {
   /** Called when a session is reset (/model, /compact) — clears tracking flags only, preserves DB. */
   onSessionReset?: (conversationId: string) => void;
 
-  /** Cron scheduler (injected after startup). */
-  cronStore?: CronStore;
-  cronRunner?: CronRunner;
   /** Spawn manager (injected after startup). */
   spawnManager?: SpawnManager;
   /** Fork manager (injected after startup). */
   forkManager?: ForkManager;
-  /** Agent name this handler belongs to (for cron/spawn/fork ownership). */
+  /** Agent name this handler belongs to (for spawn/fork ownership). */
   agentName?: string;
 
   constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
@@ -125,9 +117,6 @@ export class CommandHandler {
       case "note-del":
         await this.handleNoteDel(arg, ctx);
         return { handled: true };
-      case "cron":
-        this.handleCron(arg, ctx);
-        return { handled: true };
       case "spawn":
         this.handleSpawn(arg, ctx);
         return { handled: true };
@@ -164,7 +153,6 @@ export class CommandHandler {
       { id: "compact", name: "Compact", description: "壓縮對話 context (僅 Anthropic)" },
       { id: "search", name: "Search", description: "搜尋歷史對話 (/search <關鍵字>)" },
       { id: "provider", name: "Provider", description: `切換 provider (${ids})` },
-      { id: "cron", name: "Cron", description: "定時任務排程 (/cron add|list|delete)" },
       { id: "spawn", name: "Spawn", description: "子 Agent 任務派發 (/spawn list|cancel)" },
       { id: "fork", name: "Fork", description: "Fork 分身執行任務 (/fork <task>|list|cancel)" },
     ];
@@ -304,9 +292,6 @@ export class CommandHandler {
     lines.push(`/provider [name] — 切換 provider (${ids})`);
 
     lines.push(
-      "/cron add <expression> <message> — 新增定時任務",
-      "/cron list — 列出所有定時任務",
-      "/cron delete <id|all> — 刪除定時任務",
       "/spawn list — 列出 spawn 子任務",
       "/spawn cancel <id> — 取消 spawn 子任務",
     );
@@ -711,166 +696,6 @@ export class CommandHandler {
       this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
-  }
-
-  // --- Cron Command ---
-
-  private handleCron(arg: string, ctx: CommandContext): void {
-    if (!this.cronStore || !this.cronRunner || !this.agentName) {
-      this.reply(ctx, "Cron scheduler 未啟用");
-      return;
-    }
-
-    const parts = arg.split(/\s+/);
-    const sub = parts[0]?.toLowerCase();
-
-    if (!sub) {
-      // No subcommand — default to list
-      this.handleCronList(ctx);
-      return;
-    }
-
-    if (sub === "help") {
-      this.reply(ctx, [
-        "用法:",
-        "  /cron              顯示 cron list",
-        "  /cron add <cron-expression> <message>",
-        "  /cron list",
-        "  /cron delete <id|all>",
-        "",
-        "Cron expression 範例:",
-        '  "*/5 * * * *"  — 每 5 分鐘',
-        '  "0 9 * * *"    — 每天 09:00',
-        '  "0 */2 * * *"  — 每 2 小時',
-        "",
-        `每個 agent 最多 10 個 cron jobs，最短間隔 1 分鐘。`,
-      ].join("\n"));
-      return;
-    }
-
-    switch (sub) {
-      case "add":
-        this.handleCronAdd(parts.slice(1), ctx);
-        return;
-      case "list":
-      case "ls":
-        this.handleCronList(ctx);
-        return;
-      case "delete":
-      case "del":
-      case "rm":
-        this.handleCronDelete(parts.slice(1), ctx);
-        return;
-      default:
-        this.reply(ctx, `未知的 cron 子指令: ${sub}\n用法: /cron add|list|delete`);
-    }
-  }
-
-  private handleCronAdd(parts: string[], ctx: CommandContext): void {
-    // Parse: 5 cron fields + message
-    // e.g. ["*/5", "*", "*", "*", "*", "check", "email"]
-    if (parts.length < 6) {
-      this.reply(ctx, "用法: /cron add <min> <hour> <dom> <mon> <dow> <message>\n例如: /cron add */5 * * * * 檢查郵件");
-      return;
-    }
-
-    // Always take exactly 5 fields (reject 6-field second-precision expressions)
-    const cronExpr = parts.slice(0, 5).join(" ");
-    const message = parts.slice(5).join(" ");
-
-    // Validate cron expression
-    if (!cron.validate(cronExpr)) {
-      this.reply(ctx, `無效的 cron expression: ${cronExpr}\n格式: <分> <時> <日> <月> <星期>`);
-      return;
-    }
-
-    // Enforce minimum interval: reject "* * * * *" (every minute with wildcard minute field)
-    // Allow */N where N >= 1 (already >= 1 min), but block sub-minute or every-minute wildcard
-    const minuteField = parts[0];
-    if (minuteField === "*") {
-      // "* * * * *" fires every minute — check if any other field restricts it
-      const otherFields = parts.slice(1, 5);
-      const allWild = otherFields.every((f) => f === "*");
-      if (allWild) {
-        this.reply(ctx, "最短間隔為每分鐘，但建議至少 */5（每 5 分鐘）以避免過度觸發");
-      }
-    }
-
-    try {
-      const job = this.cronStore!.add(this.agentName!, cronExpr, message);
-      this.cronRunner!.schedule(job);
-      this.reply(ctx, `已新增 cron job \`${job.id}\`\nSchedule: ${cronExpr}\nMessage: ${message}`);
-    } catch (err) {
-      this.reply(ctx, `新增失敗: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  private handleCronList(ctx: CommandContext): void {
-    const jobs = this.cronStore!.listByAgent(this.agentName!);
-
-    if (jobs.length === 0) {
-      this.reply(ctx, "目前沒有 cron jobs\n用 /cron add 來新增");
-      return;
-    }
-
-    const lines = ["Cron Jobs:\n"];
-    for (const job of jobs) {
-      const status = job.enabled ? "✅" : "⏸️";
-      const lastRun = job.lastRunAt
-        ? new Date(job.lastRunAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })
-        : "—";
-      const maxInfo = job.maxRuns !== null ? ` (${job.runCount}/${job.maxRuns})` : ` (${job.runCount}x)`;
-      let nextRun = "—";
-      if (job.enabled) {
-        try {
-          const expr = CronExpressionParser.parse(job.cronExpr);
-          nextRun = expr.next().toDate().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
-        } catch { /* invalid expr, skip */ }
-      }
-      lines.push(`${status} \`${job.id}\`  \`${job.cronExpr}\`  ${job.message}`);
-      lines.push(`   Last: ${lastRun}${maxInfo}`);
-      lines.push(`   Next: ${nextRun}`);
-    }
-
-    this.reply(ctx, lines.join("\n"));
-  }
-
-  private handleCronDelete(parts: string[], ctx: CommandContext): void {
-    const target = parts[0];
-
-    if (!target) {
-      this.reply(ctx, "用法: /cron delete <id|all>");
-      return;
-    }
-
-    if (target.toLowerCase() === "all") {
-      const jobs = this.cronStore!.listByAgent(this.agentName!);
-      for (const job of jobs) {
-        this.cronRunner!.unschedule(job.id);
-      }
-      const count = this.cronStore!.deleteAllByAgent(this.agentName!);
-      this.reply(ctx, `已刪除 ${count} 個 cron job(s)`);
-      return;
-    }
-
-    // Fuzzy match by prefix
-    const jobs = this.cronStore!.listByAgent(this.agentName!);
-    const matches = jobs.filter((j) => j.id.startsWith(target));
-
-    if (matches.length === 0) {
-      this.reply(ctx, `找不到匹配 "${target}" 的 cron job\n用 /cron list 查看`);
-      return;
-    }
-    if (matches.length > 1) {
-      const list = matches.map((j) => `  \`${j.id}\` ${j.cronExpr} ${j.message}`).join("\n");
-      this.reply(ctx, `多個 cron job 匹配 "${target}":\n${list}\n請輸入更完整的 ID`);
-      return;
-    }
-
-    const job = matches[0];
-    this.cronRunner!.unschedule(job.id);
-    this.cronStore!.delete(job.id);
-    this.reply(ctx, `已刪除 cron job \`${job.id}\` (${job.cronExpr} — ${job.message})`);
   }
 
   // --- Spawn Command ---

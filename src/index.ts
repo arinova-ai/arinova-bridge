@@ -12,8 +12,6 @@ import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAge
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore } from "./session/bridge-session.js";
 import { runMessagePipeline, clearContextInjected } from "./pipeline/message-pipeline.js";
-import { CronStore } from "./cron/store.js";
-import { CronRunner } from "./cron/runner.js";
 import { SpawnStore } from "./spawn/store.js";
 import { SpawnManager } from "./spawn/manager.js";
 import { ForkStore } from "./fork/store.js";
@@ -46,13 +44,6 @@ const bridgeSessionStore = new BridgeSessionStore(
   path.join(homedir(), ".arinova-bridge", "sessions"),
   logger,
 );
-
-// Cron scheduler
-const cronStore = new CronStore(
-  path.join(homedir(), ".arinova-bridge", "cron"),
-  logger,
-);
-const cronRunner = new CronRunner(cronStore);
 
 // Spawn manager
 const spawnStore = new SpawnStore(
@@ -124,15 +115,8 @@ for (const { name, provider, agentConfig, agent } of activeAgents) {
 }
 
 // Start IPC server for A2A communication
-const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, { cronStore, cronRunner }, spawnManager, forkManager);
+const ipcRouter = createIpcRouter(activeAgents, providers, bridgeSessionStore, spawnManager, forkManager);
 const stopIpc = startIpcServer(ipcRouter, logger);
-
-// Restore cron jobs now that agents + IPC are ready
-cronRunner.setAgents(activeAgents, bridgeSessionStore);
-const restoredCronJobs = cronRunner.restoreAll();
-if (restoredCronJobs > 0) {
-  logger.info(`Restored ${restoredCronJobs} cron job(s)`);
-}
 
 // Initialize spawn manager and recover stale jobs
 spawnManager.setAgents(activeAgents, bridgeSessionStore);
@@ -174,8 +158,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     clearContextInjected(conversationId);
     clearA2aContextInjected(conversationId);
   };
-  commandHandler.cronStore = cronStore;
-  commandHandler.cronRunner = cronRunner;
   commandHandler.spawnManager = spawnManager;
   commandHandler.forkManager = forkManager;
   commandHandler.agentName = agentName;
@@ -376,7 +358,6 @@ async function shutdown(signal: string) {
   if (processSnapshot) {
     logger.info(`Process snapshot at shutdown:\n${processSnapshot}`);
   }
-  cronRunner.stopAll();
   spawnManager.stopAll();
   forkManager.stopAll();
   stopIpc();

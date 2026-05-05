@@ -53,8 +53,8 @@ describe("querySenderMemories", () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it("returns undefined for source containing ':' (spawn/fork/cron)", async () => {
-    for (const source of ["spawn:abc", "fork:123", "cron:daily"]) {
+  it("returns undefined for source containing ':' (spawn/fork)", async () => {
+    for (const source of ["spawn:abc", "fork:123"]) {
       const result = await querySenderMemories(source, "hello");
       expect(result).toBeUndefined();
     }
