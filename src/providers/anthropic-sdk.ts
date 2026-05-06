@@ -8,7 +8,10 @@ import type {
   SessionListEntry,
 } from "./types.js";
 import { buildContextPrefix } from "../util/context.js";
+import { readFileSync } from "node:fs";
 import type { Logger } from "../util/logger.js";
+
+type McpSdkServers = Record<string, { type: "stdio"; command: string; args: string[]; env?: Record<string, string> }>;
 
 export interface AnthropicSdkConfig {
   providerId: string;
@@ -44,6 +47,7 @@ export class AnthropicSdkProvider implements Provider {
   private config: AnthropicSdkConfig;
   private logger: Logger;
   private sessions = new Map<string, SdkSession>();
+  private agentMcpServers = new Map<string, McpSdkServers>();
   private idleTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: AnthropicSdkConfig, logger: Logger) {
@@ -52,6 +56,21 @@ export class AnthropicSdkProvider implements Provider {
     this.config = config;
     this.logger = logger;
     this.startIdleSweep();
+  }
+
+  setAgentMcpConfig(agentName: string, mcpConfigPath: string): void {
+    try {
+      const raw = readFileSync(mcpConfigPath, "utf-8");
+      const parsed = JSON.parse(raw) as { mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }> };
+      if (!parsed.mcpServers) return;
+      const servers: McpSdkServers = {};
+      for (const [name, server] of Object.entries(parsed.mcpServers)) {
+        servers[name] = { type: "stdio", ...server };
+      }
+      this.agentMcpServers.set(agentName, servers);
+    } catch (err) {
+      this.logger.error(`sdk: failed to load per-agent MCP config for "${agentName}": ${err}`);
+    }
   }
 
   warmup(): void { /* no-op for anthropic-sdk */ }
@@ -90,7 +109,7 @@ export class AnthropicSdkProvider implements Provider {
             ANTHROPIC_API_KEY: this.config.apiKey,
           },
           resume: session.sessionId.startsWith("sdk-") ? undefined : session.sessionId,
-          ...(this.config.mcpServers ? { mcpServers: this.config.mcpServers } : {}),
+          ...(this.resolveMcpServers(conversationId) ?? {}),
           ...(opts.systemPrompt ? { appendSystemPrompt: opts.systemPrompt } : {}),
         },
       });
@@ -236,6 +255,14 @@ export class AnthropicSdkProvider implements Provider {
 
   setEnv(_key: string, _value: string): void {
     // No-op: SDK provider doesn't spawn CLI processes
+  }
+
+  private resolveMcpServers(conversationId: string): { mcpServers: McpSdkServers } | undefined {
+    const agentName = conversationId.split(":")[0];
+    const perAgent = this.agentMcpServers.get(agentName);
+    if (perAgent) return { mcpServers: perAgent };
+    if (this.config.mcpServers) return { mcpServers: this.config.mcpServers };
+    return undefined;
   }
 
   private getOrCreateSession(

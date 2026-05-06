@@ -140,14 +140,17 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   }
 
   // Per-agent MCP config with agent's own bot token
-  const agentArinova: ArinovaMcpEnv = {
-    botToken: agentCfg.botToken,
-    serverUrl: config.arinova.serverUrl,
-  };
-  const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
-  const agentMcpPath = ensureAgentCliMcpConfig(agentName, logger, agentArinova, userMcp);
-  if (agentMcpPath && provider.setAgentMcpConfig) {
-    provider.setAgentMcpConfig(agentName, agentMcpPath);
+  // Skip when user explicitly set mcpConfigPath (they own that config)
+  if (!config.defaults.mcpConfigPath && provider.setAgentMcpConfig) {
+    const agentArinova: ArinovaMcpEnv = {
+      botToken: agentCfg.botToken,
+      serverUrl: config.arinova.serverUrl,
+    };
+    const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
+    const agentMcpPath = ensureAgentCliMcpConfig(agentName, logger, agentArinova, userMcp);
+    if (agentMcpPath) {
+      provider.setAgentMcpConfig(agentName, agentMcpPath);
+    }
   }
 
   // Per-agent config override for CommandHandler
