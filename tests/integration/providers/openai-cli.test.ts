@@ -3,44 +3,44 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-// Mock codex process module
-vi.mock("../../../src/codex/process.js", () => ({
-  resolveCodexBinary: vi.fn((p?: string) => p || "/usr/bin/codex"),
-  spawnCodexExec: vi.fn(() => createMockCodexProcess()),
-  spawnCodexResume: vi.fn(() => createMockCodexProcess()),
-  interruptProcess: vi.fn(),
-  waitForExit: vi.fn(async () => ({ code: 0, signal: null })),
-}));
-
-// Mock the events module processTurn
-vi.mock("../../../src/codex/events.js", async () => {
-  const actual = await vi.importActual("../../../src/codex/events.js");
-  return {
-    ...actual,
-    processTurn: vi.fn(async (_events: any, sink: any) => {
-      sink.onChunk("Codex says hello");
-      sink.onComplete("Codex says hello");
-      return {
-        threadId: "thread-xyz",
-        finalResponse: "Codex says hello",
-        usage: { input_tokens: 100, cached_input_tokens: 10, output_tokens: 50 },
+vi.mock("../../../src/codex/app-server.js", () => ({
+  CodexAppServer: class {
+    private threadIds = new Map<string, string>();
+    private usage = new Map<string, {
+      total: {
+        inputTokens: number;
+        cachedInputTokens: number;
+        outputTokens: number;
       };
-    }),
-  };
-});
+    }>();
 
-function createMockCodexProcess() {
-  return {
-    child: {
-      pid: 12345,
-      killed: false,
-      exitCode: null,
-      kill: vi.fn(),
-    },
-    events: (async function* () {})(),
-    stderr: () => "",
-  };
-}
+    async sendMessage(
+      conversationId: string,
+      _content: string,
+      onChunk?: (text: string) => void,
+    ) {
+      onChunk?.("Codex says hello");
+      this.threadIds.set(conversationId, "thread-xyz");
+      this.usage.set(conversationId, {
+        total: {
+          inputTokens: 100,
+          cachedInputTokens: 10,
+          outputTokens: 50,
+        },
+      });
+      return { text: "Codex says hello", threadId: "thread-xyz" };
+    }
+
+    interrupt() {}
+    clearThread(conversationId: string) { this.threadIds.delete(conversationId); }
+    getThreadId(conversationId: string) { return this.threadIds.get(conversationId) ?? null; }
+    getTokenUsage(conversationId: string) { return this.usage.get(conversationId) ?? null; }
+    getContextUsage() { return null; }
+    getRateLimits() { return null; }
+    isReady() { return true; }
+    async shutdown() {}
+  },
+}));
 
 import { OpenAICliProvider } from "../../../src/providers/openai-cli.js";
 
@@ -171,7 +171,7 @@ describe("OpenAICliProvider", () => {
       const models = provider.supportedModels();
       expect(models).toBeInstanceOf(Array);
       expect(models!.length).toBeGreaterThan(0);
-      expect(models).toContain("codex-mini-latest");
+      expect(models).toContain("gpt-5.1-codex-mini");
     });
 
     it("returns custom models when configured", () => {

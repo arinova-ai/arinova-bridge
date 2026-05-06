@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // We need to mock config-file before importing config
 vi.mock("../../src/config-file.js", () => ({
   readConfigFile: vi.fn(),
+  getConfigDir: vi.fn(() => "/tmp/arinova-bridge-test-config"),
 }));
 
 import { loadConfig } from "../../src/config.js";

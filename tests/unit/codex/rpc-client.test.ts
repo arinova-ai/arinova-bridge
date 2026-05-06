@@ -128,7 +128,7 @@ describe("codex/rpc-client", () => {
 
       const response = JSON.parse(written[0]);
       expect(response.id).toBe(100);
-      expect(response.result).toEqual({ decision: "accept" });
+      expect(response.result).toEqual({ decision: "accept", action: "accept" });
     });
   });
 
