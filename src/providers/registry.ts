@@ -128,6 +128,7 @@ async function createProvider(
     botToken: config.arinova.botToken,
     serverUrl: config.arinova.serverUrl,
   };
+  const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
 
   switch (entry.type) {
     case "anthropic-cli":
@@ -136,7 +137,7 @@ async function createProvider(
           providerId: entry.id,
           displayName: entry.displayName,
           claudePath: entry.claudePath ?? "claude",
-          mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger, arinovaMcp),
+          mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger, arinovaMcp, userMcp),
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
@@ -160,7 +161,7 @@ async function createProvider(
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
-          mcpServers: getPreinstalledMcpServers(arinovaMcp),
+          mcpServers: getPreinstalledMcpServers(arinovaMcp, userMcp),
           models: entry.models,
         },
         logger,
@@ -168,7 +169,7 @@ async function createProvider(
 
     case "openai-cli": {
       const codexPath = entry.codexPath ?? "codex";
-      ensureCodexMcpServers(codexPath, logger, arinovaMcp);
+      ensureCodexMcpServers(codexPath, logger, arinovaMcp, userMcp);
       return new OpenAICliProvider(
         {
           providerId: entry.id,
@@ -186,7 +187,7 @@ async function createProvider(
 
     case "gemini-cli": {
       const geminiPath = entry.geminiPath ?? "gemini";
-      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp);
+      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp, userMcp);
       return new GeminiCliProvider(
         {
           providerId: entry.id,

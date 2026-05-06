@@ -50,7 +50,10 @@ const MCP_CLI_CONFIG_PATH = path.join(MCP_CONFIG_DIR, "preinstalled.json");
 /**
  * Build the full server map including conditional servers (e.g. GitHub).
  */
-function buildServerMap(arinova?: ArinovaMcpEnv): Record<string, McpStdioServer> {
+function buildServerMap(
+  arinova?: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+): Record<string, McpStdioServer> {
   const servers: Record<string, McpStdioServer> = { ...PREINSTALLED_SERVERS };
 
   const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
@@ -76,6 +79,11 @@ function buildServerMap(arinova?: ArinovaMcpEnv): Record<string, McpStdioServer>
     };
   }
 
+  // User-defined servers from config override preinstalled ones
+  if (userServers) {
+    Object.assign(servers, userServers);
+  }
+
   return servers;
 }
 
@@ -83,8 +91,8 @@ function buildServerMap(arinova?: ArinovaMcpEnv): Record<string, McpStdioServer>
  * Get the pre-installed MCP servers as SDK-compatible config.
  * Used by anthropic-sdk provider to pass mcpServers to query().
  */
-export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv): McpSdkServers {
-  const servers = buildServerMap(arinova);
+export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): McpSdkServers {
+  const servers = buildServerMap(arinova, userServers);
   const result: McpSdkServers = {};
   for (const [name, server] of Object.entries(servers)) {
     result[name] = {
@@ -102,7 +110,7 @@ export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv): McpSdkServer
  * Used by anthropic-cli provider for --mcp-config flag.
  * If a user-provided mcpConfigPath is set, returns that instead.
  */
-export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv): string | undefined {
+export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): string | undefined {
   // User-provided config takes priority
   if (userMcpConfigPath) {
     return userMcpConfigPath;
@@ -112,7 +120,7 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
 
     const config: McpCliConfig = {
-      mcpServers: buildServerMap(arinova),
+      mcpServers: buildServerMap(arinova, userServers),
     };
 
     const desired = JSON.stringify(config, null, 2);
@@ -136,8 +144,8 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
  * Pre-install MCP servers for Codex CLI using `codex mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova?: ArinovaMcpEnv): void {
-  const servers = buildServerMap(arinova);
+export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): void {
+  const servers = buildServerMap(arinova, userServers);
 
   for (const [name, server] of Object.entries(servers)) {
     try {
@@ -165,8 +173,8 @@ export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova
  * Pre-install MCP servers for Gemini CLI using `gemini mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureGeminiMcpServers(geminiPath: string, logger: Logger, arinova?: ArinovaMcpEnv): void {
-  const servers = buildServerMap(arinova);
+export function ensureGeminiMcpServers(geminiPath: string, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): void {
+  const servers = buildServerMap(arinova, userServers);
 
   for (const [name, server] of Object.entries(servers)) {
     try {

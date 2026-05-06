@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { readConfigFile, type ProviderEntry, type AgentEntry } from "./config-file.js";
+import { readConfigFile, type ProviderEntry, type AgentEntry, type McpServerEntry } from "./config-file.js";
 import { loadAgentPrompts, buildAgentSystemPrompt } from "./agents/loader.js";
 
 export interface ResolvedAgent {
@@ -29,6 +29,7 @@ export interface BridgeConfig {
     dbPath: string;
     mcpConfigPath?: string;
   };
+  mcpServers: Record<string, McpServerEntry>;
   agents: ResolvedAgent[];
 }
 
@@ -86,6 +87,9 @@ export function loadConfig(): BridgeConfig {
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];
 
+  // User-defined MCP servers from config
+  const mcpServers: Record<string, McpServerEntry> = file?.mcpServers ?? {};
+
   // Load agent prompt files from ~/.arinova-bridge/agents/*.md
   const agentPrompts = loadAgentPrompts();
 
@@ -124,6 +128,7 @@ export function loadConfig(): BridgeConfig {
       dbPath,
       mcpConfigPath,
     },
+    mcpServers,
     agents,
   };
 }

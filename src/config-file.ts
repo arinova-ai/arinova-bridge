@@ -29,6 +29,12 @@ export interface AgentEntry {
   compactModel?: string;
 }
 
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
 export interface ConfigFile {
   version: number;
   arinova: {
@@ -45,6 +51,7 @@ export interface ConfigFile {
     dbPath?: string;
     mcpConfigPath?: string;
   };
+  mcpServers?: Record<string, McpServerEntry>;
   agents?: AgentEntry[];
 }
 
