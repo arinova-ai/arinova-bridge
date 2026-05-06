@@ -22,7 +22,7 @@ importers:
         version: 0.0.24-staging.0
       '@arinova-ai/mcp-server':
         specifier: staging
-        version: 0.0.19-staging.3(zod@4.3.6)
+        version: 0.0.19-staging.4(zod@4.3.6)
       '@arinova-ai/theme-sdk':
         specifier: 0.0.4-staging.0
         version: 0.0.4-staging.0
@@ -79,8 +79,8 @@ packages:
     resolution: {integrity: sha512-M4AcLuNIceaC++PrWHaKZzdUR2Q8A6PAvXmA5Uu7yQC5mXb4EK2P4Q020CtHp+e0v8GqlTCTtWmS5rsI2h+gJg==}
     hasBin: true
 
-  '@arinova-ai/mcp-server@0.0.19-staging.3':
-    resolution: {integrity: sha512-awS5s40yObeowXcnvcCJ3kA1mCfzy1HCjZfPc6tDY2B38PW5SNJNFS9MZvWp7A7M9WM0S0SZoQBsv2zWCQ7vDA==}
+  '@arinova-ai/mcp-server@0.0.19-staging.4':
+    resolution: {integrity: sha512-59TU4ISfd2z747fVtyHLkVoK0ZqhpKE3A/EkEjXyyma7fC5I/FQNNOjyt9UzWqGDU3dWYdMVES+qo6Ys3ZVFHg==}
     hasBin: true
 
   '@arinova-ai/theme-sdk@0.0.4-staging.0':
@@ -1588,7 +1588,7 @@ snapshots:
     dependencies:
       commander: 12.1.0
 
-  '@arinova-ai/mcp-server@0.0.19-staging.3(zod@4.3.6)':
+  '@arinova-ai/mcp-server@0.0.19-staging.4(zod@4.3.6)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
     transitivePeerDependencies:
