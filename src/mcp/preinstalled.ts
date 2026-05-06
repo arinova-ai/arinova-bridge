@@ -1,8 +1,16 @@
 import { homedir } from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { Logger } from "../util/logger.js";
+
+const require = createRequire(import.meta.url);
+
+export interface ArinovaMcpEnv {
+  botToken: string;
+  serverUrl: string;
+}
 
 /**
  * MCP server definition for pre-installed servers.
@@ -42,7 +50,7 @@ const MCP_CLI_CONFIG_PATH = path.join(MCP_CONFIG_DIR, "preinstalled.json");
 /**
  * Build the full server map including conditional servers (e.g. GitHub).
  */
-function buildServerMap(): Record<string, McpStdioServer> {
+function buildServerMap(arinova?: ArinovaMcpEnv): Record<string, McpStdioServer> {
   const servers: Record<string, McpStdioServer> = { ...PREINSTALLED_SERVERS };
 
   const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
@@ -54,6 +62,20 @@ function buildServerMap(): Record<string, McpStdioServer> {
     };
   }
 
+  const botToken = arinova?.botToken ?? process.env.ARINOVA_BOT_TOKEN;
+  const serverUrl = arinova?.serverUrl ?? process.env.ARINOVA_SERVER_URL;
+  if (botToken && serverUrl) {
+    const cliPath = require.resolve("@arinova-ai/mcp-server/dist/cli.js");
+    servers.arinova = {
+      command: "node",
+      args: [cliPath],
+      env: {
+        ARINOVA_BOT_TOKEN: botToken,
+        ARINOVA_SERVER_URL: serverUrl,
+      },
+    };
+  }
+
   return servers;
 }
 
@@ -61,8 +83,8 @@ function buildServerMap(): Record<string, McpStdioServer> {
  * Get the pre-installed MCP servers as SDK-compatible config.
  * Used by anthropic-sdk provider to pass mcpServers to query().
  */
-export function getPreinstalledMcpServers(): McpSdkServers {
-  const servers = buildServerMap();
+export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv): McpSdkServers {
+  const servers = buildServerMap(arinova);
   const result: McpSdkServers = {};
   for (const [name, server] of Object.entries(servers)) {
     result[name] = {
@@ -80,7 +102,7 @@ export function getPreinstalledMcpServers(): McpSdkServers {
  * Used by anthropic-cli provider for --mcp-config flag.
  * If a user-provided mcpConfigPath is set, returns that instead.
  */
-export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger): string | undefined {
+export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv): string | undefined {
   // User-provided config takes priority
   if (userMcpConfigPath) {
     return userMcpConfigPath;
@@ -90,7 +112,7 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
 
     const config: McpCliConfig = {
-      mcpServers: buildServerMap(),
+      mcpServers: buildServerMap(arinova),
     };
 
     const desired = JSON.stringify(config, null, 2);
@@ -114,8 +136,8 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
  * Pre-install MCP servers for Codex CLI using `codex mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureCodexMcpServers(codexPath: string, logger: Logger): void {
-  const servers = buildServerMap();
+export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova?: ArinovaMcpEnv): void {
+  const servers = buildServerMap(arinova);
 
   for (const [name, server] of Object.entries(servers)) {
     try {
@@ -143,8 +165,8 @@ export function ensureCodexMcpServers(codexPath: string, logger: Logger): void {
  * Pre-install MCP servers for Gemini CLI using `gemini mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureGeminiMcpServers(geminiPath: string, logger: Logger): void {
-  const servers = buildServerMap();
+export function ensureGeminiMcpServers(geminiPath: string, logger: Logger, arinova?: ArinovaMcpEnv): void {
+  const servers = buildServerMap(arinova);
 
   for (const [name, server] of Object.entries(servers)) {
     try {

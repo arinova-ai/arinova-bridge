@@ -8,7 +8,7 @@ import { OpenAICliProvider } from "./openai-cli.js";
 import { GeminiCliProvider } from "./gemini-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
-import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, ensureGeminiMcpServers } from "../mcp/preinstalled.js";
+import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, ensureGeminiMcpServers, type ArinovaMcpEnv } from "../mcp/preinstalled.js";
 
 /** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
 const DEFAULT_ANTHROPIC_MODELS = [
@@ -124,6 +124,10 @@ async function createProvider(
   logger: Logger,
 ): Promise<Provider | null> {
   const env = await buildEnv(entry, logger);
+  const arinovaMcp: ArinovaMcpEnv = {
+    botToken: config.arinova.botToken,
+    serverUrl: config.arinova.serverUrl,
+  };
 
   switch (entry.type) {
     case "anthropic-cli":
@@ -132,7 +136,7 @@ async function createProvider(
           providerId: entry.id,
           displayName: entry.displayName,
           claudePath: entry.claudePath ?? "claude",
-          mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger),
+          mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger, arinovaMcp),
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
@@ -156,7 +160,7 @@ async function createProvider(
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
           idleTimeoutMs: config.defaults.idleTimeoutMs,
-          mcpServers: getPreinstalledMcpServers(),
+          mcpServers: getPreinstalledMcpServers(arinovaMcp),
           models: entry.models,
         },
         logger,
@@ -164,7 +168,7 @@ async function createProvider(
 
     case "openai-cli": {
       const codexPath = entry.codexPath ?? "codex";
-      ensureCodexMcpServers(codexPath, logger);
+      ensureCodexMcpServers(codexPath, logger, arinovaMcp);
       return new OpenAICliProvider(
         {
           providerId: entry.id,
@@ -182,7 +186,7 @@ async function createProvider(
 
     case "gemini-cli": {
       const geminiPath = entry.geminiPath ?? "gemini";
-      ensureGeminiMcpServers(geminiPath, logger);
+      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp);
       return new GeminiCliProvider(
         {
           providerId: entry.id,
