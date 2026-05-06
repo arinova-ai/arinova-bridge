@@ -140,11 +140,18 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   }
 
   // Per-agent MCP config with agent's own bot token.
-  // Skip file-based providers (anthropic-cli) when user explicitly set mcpConfigPath.
-  // SDK providers always need per-agent config since they don't use the file path.
+  // anthropic-cli uses the file path directly via SessionStore, so skip when
+  // the user explicitly set mcpConfigPath (they own that file).
+  // All other providers (anthropic-sdk) read the JSON via setAgentMcpConfig,
+  // so they get either the user's custom file or a generated per-agent one.
   if (provider.setAgentMcpConfig) {
-    const skipForUserConfig = provider.type === "anthropic-cli" && !!config.defaults.mcpConfigPath;
-    if (!skipForUserConfig) {
+    if (provider.type === "anthropic-cli" && config.defaults.mcpConfigPath) {
+      // CLI provider: user-provided file is already wired via SessionStore default
+    } else if (config.defaults.mcpConfigPath) {
+      // Non-CLI provider: read the user's custom file
+      provider.setAgentMcpConfig(agentName, config.defaults.mcpConfigPath);
+    } else {
+      // No user config: generate per-agent file with agent's own token
       const agentArinova: ArinovaMcpEnv = {
         botToken: agentCfg.botToken,
         serverUrl: config.arinova.serverUrl,
