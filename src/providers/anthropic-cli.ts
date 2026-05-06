@@ -70,6 +70,10 @@ export class AnthropicCliProvider implements Provider {
     );
   }
 
+  setAgentMcpConfig(agentName: string, mcpConfigPath: string): void {
+    this.store.setAgentMcpConfig(agentName, mcpConfigPath);
+  }
+
   warmup(conversationId: string, opts?: WarmupOpts): void {
     const existing = this.store.getSession(conversationId);
     if (existing && existing.process.isAlive()) {

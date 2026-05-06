@@ -41,6 +41,8 @@ export class SessionStore {
   private sessions = new Map<string, SessionEntry>();
   /** Preserved session IDs from destroyed sessions (for /resume). */
   private deadSessionIds = new Map<string, { sessionId: string; cwd: string; model?: string }>();
+  /** Per-agent MCP config path overrides (agent name → file path). */
+  private agentMcpPaths = new Map<string, string>();
   private config: SessionStoreConfig;
   private logger: Logger;
   private idleTimer: ReturnType<typeof setInterval> | null = null;
@@ -51,15 +53,22 @@ export class SessionStore {
     this.startIdleSweep();
   }
 
+  setAgentMcpConfig(agentName: string, mcpConfigPath: string): void {
+    this.agentMcpPaths.set(agentName, mcpConfigPath);
+  }
+
   createSession(conversationId: string, opts?: CreateSessionOpts): SessionEntry {
     this.enforceMaxSessions();
 
     const cwd = opts?.cwd ?? this.config.defaultCwd;
     const model = opts?.model;
 
+    const agentName = opts?.agentName ?? conversationId.split(":")[0];
+    const mcpConfigPath = this.agentMcpPaths.get(agentName) ?? this.config.mcpConfigPath;
+
     const processOpts: ClaudeProcessOptions = {
       claudePath: this.config.claudePath,
-      mcpConfigPath: this.config.mcpConfigPath,
+      mcpConfigPath,
       systemPrompt: opts?.systemPrompt,
       cwd,
       model,

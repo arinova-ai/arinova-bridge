@@ -211,4 +211,6 @@ export interface Provider {
   shutdown(): Promise<void>;
   /** Set an environment variable for spawned CLI processes. */
   setEnv(key: string, value: string): void;
+  /** Register a per-agent MCP config path (overrides the provider-level default). */
+  setAgentMcpConfig?(agentName: string, mcpConfigPath: string): void;
 }

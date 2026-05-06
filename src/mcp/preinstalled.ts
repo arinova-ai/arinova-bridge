@@ -141,6 +141,41 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
 }
 
 /**
+ * Generate a per-agent CLI MCP config with the agent's own bot token.
+ * Returns the path to the generated config file.
+ */
+export function ensureAgentCliMcpConfig(
+  agentName: string,
+  logger: Logger,
+  arinova: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+): string | undefined {
+  try {
+    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+
+    const configPath = path.join(MCP_CONFIG_DIR, `${agentName}.json`);
+    const config: McpCliConfig = {
+      mcpServers: buildServerMap(arinova, userServers),
+    };
+
+    const desired = JSON.stringify(config, null, 2);
+    const existing = existsSync(configPath)
+      ? readFileSync(configPath, "utf-8")
+      : "";
+
+    if (desired !== existing) {
+      writeFileSync(configPath, desired, "utf-8");
+      logger.info(`mcp: generated per-agent CLI config for "${agentName}" at ${configPath}`);
+    }
+
+    return configPath;
+  } catch (err) {
+    logger.error(`mcp: failed to generate per-agent CLI config for "${agentName}": ${err}`);
+    return undefined;
+  }
+}
+
+/**
  * Pre-install MCP servers for Codex CLI using `codex mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */

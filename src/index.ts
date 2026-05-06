@@ -1,6 +1,7 @@
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import { loadConfig, type ResolvedAgent } from "./config.js";
 import { createProviders } from "./providers/registry.js";
+import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
@@ -136,6 +137,17 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   if (!provider) {
     logger.error(`agent "${agentName}": provider "${agentCfg.provider}" not found, skipping`);
     return;
+  }
+
+  // Per-agent MCP config with agent's own bot token
+  const agentArinova: ArinovaMcpEnv = {
+    botToken: agentCfg.botToken,
+    serverUrl: config.arinova.serverUrl,
+  };
+  const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
+  const agentMcpPath = ensureAgentCliMcpConfig(agentName, logger, agentArinova, userMcp);
+  if (agentMcpPath && provider.setAgentMcpConfig) {
+    provider.setAgentMcpConfig(agentName, agentMcpPath);
   }
 
   // Per-agent config override for CommandHandler
