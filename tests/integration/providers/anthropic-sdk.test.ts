@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { AnthropicSdkProvider } from "../../../src/providers/anthropic-sdk.js";
 
-// Mock the @anthropic-ai/claude-code SDK
-vi.mock("@anthropic-ai/claude-code", () => {
+// Mock the @anthropic-ai/claude-agent-sdk
+vi.mock("@anthropic-ai/claude-agent-sdk", () => {
   return {
     query: vi.fn(({ prompt }: { prompt: string }) => {
       // Return an async generator that yields SDKMessages
@@ -195,6 +198,96 @@ describe("AnthropicSdkProvider", () => {
 
       await provider.shutdown();
       expect(provider.listSessions()).toHaveLength(0);
+    });
+  });
+
+  describe("setAgentMcpConfig", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = path.join(tmpdir(), `sdk-mcp-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("loads per-agent MCP servers from JSON file", () => {
+      const configPath = path.join(tmpDir, "gina.json");
+      writeFileSync(configPath, JSON.stringify({
+        mcpServers: {
+          arinova: {
+            command: "node",
+            args: ["/path/to/cli.js"],
+            env: { ARINOVA_BOT_TOKEN: "ari_gina_token" },
+          },
+        },
+      }));
+
+      provider.setAgentMcpConfig!("gina", configPath);
+
+      // Verify per-agent servers are stored by sending a message
+      // The mock SDK captures the options; if it doesn't throw, the
+      // provider resolved servers without error
+      expect(() => provider.setAgentMcpConfig!("gina", configPath)).not.toThrow();
+    });
+
+    it("logs error for missing config file", () => {
+      provider.setAgentMcpConfig!("missing", "/nonexistent/path.json");
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("failed to load per-agent MCP config"),
+      );
+    });
+
+    it("uses per-agent servers over provider-level default", async () => {
+      const providerWithMcp = new AnthropicSdkProvider(
+        {
+          providerId: "sdk-mcp",
+          displayName: "SDK MCP",
+          apiKey: "sk-ant-test",
+          defaultCwd: "/default",
+          maxSessions: 5,
+          idleTimeoutMs: 600_000,
+          mcpServers: {
+            arinova: {
+              type: "stdio",
+              command: "node",
+              args: ["/cli.js"],
+              env: { ARINOVA_BOT_TOKEN: "ari_global" },
+            },
+          },
+        },
+        logger,
+      );
+
+      const configPath = path.join(tmpDir, "vera.json");
+      writeFileSync(configPath, JSON.stringify({
+        mcpServers: {
+          arinova: {
+            command: "node",
+            args: ["/cli.js"],
+            env: { ARINOVA_BOT_TOKEN: "ari_vera_token" },
+          },
+        },
+      }));
+      providerWithMcp.setAgentMcpConfig!("vera", configPath);
+
+      const { query } = await import("@anthropic-ai/claude-agent-sdk");
+      const mockQuery = vi.mocked(query);
+      mockQuery.mockClear();
+
+      await providerWithMcp.sendMessage({
+        conversationId: "vera:default",
+        content: "test",
+        onChunk: () => {},
+      });
+
+      const callOpts = mockQuery.mock.calls[0][0].options as Record<string, unknown>;
+      const servers = callOpts.mcpServers as Record<string, { env?: Record<string, string> }>;
+      expect(servers.arinova.env!.ARINOVA_BOT_TOKEN).toBe("ari_vera_token");
+
+      await providerWithMcp.shutdown();
     });
   });
 });

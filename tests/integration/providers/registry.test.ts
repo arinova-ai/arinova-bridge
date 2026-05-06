@@ -28,6 +28,23 @@ vi.mock("../../../src/providers/openai-cli.js", () => ({
   }),
 }));
 
+vi.mock("../../../src/providers/gemini-cli.js", () => ({
+  GeminiCliProvider: vi.fn(function (this: any, config: any) {
+    this.id = config.providerId;
+    this.type = "gemini-cli";
+    this.displayName = config.displayName;
+    this.shutdown = vi.fn(async () => {});
+  }),
+}));
+
+// Mock MCP preinstalled module (avoid require.resolve of @arinova-ai/mcp-server)
+vi.mock("../../../src/mcp/preinstalled.js", () => ({
+  ensureCliMcpConfig: vi.fn(() => "/mock/mcp-config.json"),
+  getPreinstalledMcpServers: vi.fn(() => ({})),
+  ensureCodexMcpServers: vi.fn(),
+  ensureGeminiMcpServers: vi.fn(),
+}));
+
 // Mock OAuth token store
 vi.mock("../../../src/oauth/token-store.js", () => ({
   readOAuthToken: vi.fn(() => null),
@@ -60,7 +77,7 @@ const logger = {
 
 function createConfig(providers: ProviderEntry[] = []): BridgeConfig {
   return {
-    arinova: { serverUrl: "ws://test", botToken: "tok" },
+    arinova: { serverUrl: "ws://test", botToken: "tok", agentName: "test" },
     defaultProvider: "anthropic-oauth",
     providers,
     defaults: {
@@ -69,6 +86,8 @@ function createConfig(providers: ProviderEntry[] = []): BridgeConfig {
       idleTimeoutMs: 600_000,
       dbPath: "/tmp/test.db",
     },
+    mcpServers: {},
+    agents: [],
   };
 }
 
