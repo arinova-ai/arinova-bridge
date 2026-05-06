@@ -71,7 +71,7 @@ function buildServerMap(
     const cliPath = require.resolve("@arinova-ai/mcp-server/dist/cli.js");
     servers.arinova = {
       command: "node",
-      args: [cliPath],
+      args: [cliPath, "--strict-startup"],
       env: {
         ARINOVA_BOT_TOKEN: botToken,
         ARINOVA_SERVER_URL: serverUrl,

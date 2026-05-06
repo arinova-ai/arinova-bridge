@@ -75,6 +75,16 @@ describe("mcp/preinstalled", () => {
       expect(servers.github).toBeDefined();
       expect(servers.github.env?.GITHUB_PERSONAL_ACCESS_TOKEN).toBe("ghp_alt456");
     });
+
+    it("uses strict startup for the Arinova MCP server", () => {
+      const servers = getPreinstalledMcpServers({
+        botToken: "ari_test",
+        serverUrl: "wss://chat.example.com",
+      });
+
+      expect(servers.arinova).toBeDefined();
+      expect(servers.arinova.args).toContain("--strict-startup");
+    });
   });
 
   describe("ensureCliMcpConfig", () => {
@@ -94,6 +104,19 @@ describe("mcp/preinstalled", () => {
       const written = mockWriteFileSync.mock.calls[0][1] as string;
       const config = JSON.parse(written);
       expect(config.mcpServers.playwright).toBeDefined();
+    });
+
+    it("writes strict startup for Arinova generated CLI config", () => {
+      mockExistsSync.mockReturnValue(false);
+
+      ensureCliMcpConfig(undefined, mockLogger as never, {
+        botToken: "ari_test",
+        serverUrl: "wss://chat.example.com",
+      });
+
+      const written = mockWriteFileSync.mock.calls[0][1] as string;
+      const config = JSON.parse(written);
+      expect(config.mcpServers.arinova.args).toContain("--strict-startup");
     });
 
     it("skips write when content unchanged", () => {
@@ -123,6 +146,19 @@ describe("mcp/preinstalled", () => {
       expect(args[2]).toBe("playwright");
       expect(args).toContain("--");
       expect(args).toContain("npx");
+    });
+
+    it("passes --strict-startup when registering Arinova with Codex", () => {
+      ensureCodexMcpServers("codex", mockLogger as never, {
+        botToken: "ari_test",
+        serverUrl: "wss://chat.example.com",
+      });
+
+      const arinovaCall = mockExecFileSync.mock.calls.find(
+        (call) => (call[1] as string[])[2] === "arinova",
+      );
+      expect(arinovaCall).toBeDefined();
+      expect(arinovaCall![1] as string[]).toContain("--strict-startup");
     });
 
     it("includes --env for github server", () => {
