@@ -152,6 +152,7 @@ describe("CommandHandler", () => {
       const ctx = createCtx();
       await handler.handle("/help", ctx);
       expect(ctx.completed).toContain("/new");
+      expect(ctx.completed).toContain("/reset");
       expect(ctx.completed).toContain("/status");
       expect(ctx.completed).toContain("/provider");
       expect(ctx.completed).toContain("/notes");
@@ -191,6 +192,27 @@ describe("CommandHandler", () => {
       const ctx = createCtx();
       await handler.handle("/new /nonexistent/path/xyz", ctx);
       expect(ctx.completed).toContain("路徑不存在");
+    });
+  });
+
+  describe("/reset", () => {
+    it("restarts current provider session without clearing bridge history", async () => {
+      const onReset = vi.fn();
+      const onClear = vi.fn();
+      handler.onSessionReset = onReset;
+      handler.onSessionClear = onClear;
+
+      const ctx = createCtx("conv-reset-1");
+      await handler.handle("/reset", ctx);
+
+      expect(anthropicProvider.interrupt).toHaveBeenCalledWith("conv-reset-1");
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
+        "conv-reset-1",
+        expect.objectContaining({ cwd: "/default/cwd" }),
+      );
+      expect(onReset).toHaveBeenCalledWith("conv-reset-1");
+      expect(onClear).not.toHaveBeenCalled();
+      expect(ctx.completed).toContain("已重啟 Anthropic OAuth session");
     });
   });
 
@@ -1127,6 +1149,12 @@ describe("CommandHandler", () => {
       expect(ids).toContain("provider");
     });
 
+    it("includes /reset", () => {
+      const skills = handler.getSkills();
+      const ids = skills.map((s) => s.id);
+      expect(ids).toContain("reset");
+    });
+
     it("excludes /provider with single provider", () => {
       const singleProviders = new Map<string, Provider>();
       singleProviders.set("anthropic-oauth", anthropicProvider);
@@ -1170,6 +1198,19 @@ describe("CommandHandler", () => {
       await handler.handle("/model sonnet", ctx);
 
       expect(onReset).toHaveBeenCalledWith("conv-model-1");
+      expect(onClear).not.toHaveBeenCalled();
+    });
+
+    it("/reset calls onSessionReset (not onSessionClear)", async () => {
+      const onReset = vi.fn();
+      const onClear = vi.fn();
+      handler.onSessionReset = onReset;
+      handler.onSessionClear = onClear;
+
+      const ctx = createCtx("conv-reset-cb-1");
+      await handler.handle("/reset", ctx);
+
+      expect(onReset).toHaveBeenCalledWith("conv-reset-cb-1");
       expect(onClear).not.toHaveBeenCalled();
     });
 

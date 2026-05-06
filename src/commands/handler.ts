@@ -72,6 +72,9 @@ export class CommandHandler {
       case "new":
         await this.handleNew(arg, ctx);
         return { handled: true };
+      case "reset":
+        await this.handleReset(ctx);
+        return { handled: true };
       case "sessions":
         this.handleSessions(ctx);
         return { handled: true };
@@ -145,6 +148,7 @@ export class CommandHandler {
     const ids = this.getConfiguredProviderIds().join(" / ");
     const skills = [
       { id: "new", name: "New", description: "開新工作階段 (可帶路徑: /new ~/project)" },
+      { id: "reset", name: "Reset", description: "重啟目前 Claude Code/Codex session" },
       { id: "sessions", name: "Sessions", description: "列出所有 sessions" },
       { id: "status", name: "Status", description: "查看目前 session 狀態" },
       { id: "stop", name: "Stop", description: "中斷目前正在執行的操作" },
@@ -190,6 +194,21 @@ export class CommandHandler {
     this.reply(
       ctx,
       `已開啟新的工作階段\n工作目錄: ${cwd}${model ? `\n模型: ${model}` : ""}\nProvider: ${provider.displayName}`,
+    );
+  }
+
+  private async handleReset(ctx: CommandContext): Promise<void> {
+    const provider = this.getProviderForConversation(ctx.conversationId);
+    const cwd = this.getCwdForConversation(ctx.conversationId);
+    const model = this.getModelForConversation(ctx.conversationId);
+
+    provider.interrupt(ctx.conversationId);
+    await provider.resetSession(ctx.conversationId, { cwd, model });
+    this.onSessionReset?.(ctx.conversationId);
+
+    this.reply(
+      ctx,
+      `已重啟 ${provider.displayName} session\n工作目錄: ${cwd}${model ? `\n模型: ${model}` : ""}`,
     );
   }
 
@@ -267,6 +286,7 @@ export class CommandHandler {
     const lines = [
       `可用指令 (目前 Provider: ${provider.displayName}):\n`,
       "/new [path] — 開新工作階段 (可帶路徑)",
+      "/reset — 重啟目前 Claude Code/Codex session",
       "/sessions — 列出所有 sessions",
       "/status — 查看目前 session 狀態",
       "/stop — 中斷目前正在執行的操作",
