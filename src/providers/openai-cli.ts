@@ -36,16 +36,21 @@ export class OpenAICliProvider implements Provider {
 
   private defaultCwd: string;
   private db: BridgeDb;
-  private server: CodexAppServer;
+  private defaultServer: CodexAppServer;
+  private agentServers = new Map<string, CodexAppServer>();
+  private conversationServers = new Map<string, CodexAppServer>();
   private logger: Logger;
+  private codexPath?: string;
   private modelList: string[];
   private providerEnv: Record<string, string>;
+  private agentMcpEnv = new Map<string, Record<string, string>>();
 
   constructor(config: OpenAICliConfig, logger: Logger) {
     this.id = config.providerId;
     this.displayName = config.displayName;
     this.defaultCwd = config.defaultCwd;
     this.logger = logger;
+    this.codexPath = config.codexPath;
     this.modelList = config.models ?? [
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -59,7 +64,7 @@ export class OpenAICliProvider implements Provider {
 
     this.db = initDb(config.dbPath);
 
-    this.server = new CodexAppServer({
+    this.defaultServer = new CodexAppServer({
       codexPath: config.codexPath,
       env: this.providerEnv,
       logger,
@@ -71,13 +76,17 @@ export class OpenAICliProvider implements Provider {
       try {
         const snapshot = JSON.parse(cached);
         // Inject into server (exposed for pre-warming /usage before first turn)
-        (this.server as unknown as { rateLimitSnapshot: unknown }).rateLimitSnapshot = snapshot;
+        (this.defaultServer as unknown as { rateLimitSnapshot: unknown }).rateLimitSnapshot = snapshot;
         logger.info("openai-cli: loaded cached rate limits from DB");
       } catch { /* ignore */ }
     }
   }
 
   warmup(): void { /* no-op for openai-cli */ }
+
+  setAgentMcpEnv(agentName: string, env: Record<string, string>): void {
+    this.agentMcpEnv.set(agentName, env);
+  }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
@@ -88,6 +97,9 @@ export class OpenAICliProvider implements Provider {
     // Per-thread agent name — CodexAppServer is a long-running process so we
     // cannot set env per-turn like Gemini.  Pass via thread config instead.
     const agentName = conversationId.split(":")[0] || undefined;
+    const agentEnv = agentName ? this.agentMcpEnv.get(agentName) : undefined;
+    const server = this.resolveServer(agentName);
+    this.conversationServers.set(conversationId, server);
 
     // Wire abort signal
     const onAbort = () => this.interrupt(conversationId);
@@ -96,11 +108,11 @@ export class OpenAICliProvider implements Provider {
     try {
       this.db.upsertConversation(conversationId, { status: "busy" });
 
-      const result = await this.server.sendMessage(
+      const result = await server.sendMessage(
         conversationId,
         content,
         onChunk,
-        { cwd: effectiveCwd, model: effectiveModel, agentName },
+        { cwd: effectiveCwd, model: effectiveModel, agentName, env: agentEnv },
       );
 
       // Persist thread ID
@@ -112,7 +124,7 @@ export class OpenAICliProvider implements Provider {
       }
 
       // Update token usage from server tracking
-      const usage = this.server.getTokenUsage(conversationId);
+      const usage = server.getTokenUsage(conversationId);
       if (usage) {
         // Reset and set absolute values (server tracks totals)
         this.db.resetConversation(conversationId, effectiveCwd);
@@ -131,7 +143,7 @@ export class OpenAICliProvider implements Provider {
       }
 
       // Cache rate limits
-      const rl = this.server.getRateLimits();
+      const rl = server.getRateLimits();
       if (rl) {
         this.db.saveRateLimitCache(JSON.stringify(rl));
       }
@@ -149,11 +161,12 @@ export class OpenAICliProvider implements Provider {
   }
 
   interrupt(conversationId: string): void {
-    this.server.interrupt(conversationId);
+    this.resolveConversationServer(conversationId).interrupt(conversationId);
   }
 
   async resetSession(conversationId: string, opts?: SessionOpts): Promise<void> {
-    this.server.clearThread(conversationId);
+    this.resolveConversationServer(conversationId).clearThread(conversationId);
+    this.conversationServers.delete(conversationId);
     const conv = this.db.getConversation(conversationId);
     if (conv) {
       this.db.resetConversation(conversationId, opts?.cwd ?? null);
@@ -182,12 +195,13 @@ export class OpenAICliProvider implements Provider {
 
   getSessionInfo(conversationId: string): SessionInfo | null {
     const conv = this.db.getConversation(conversationId);
-    const threadId = this.server.getThreadId(conversationId) ?? conv?.threadId;
+    const server = this.resolveConversationServer(conversationId);
+    const threadId = server.getThreadId(conversationId) ?? conv?.threadId;
     if (!threadId) return null;
 
     return {
       sessionId: threadId,
-      alive: this.server.isReady(),
+      alive: server.isReady(),
       cwd: conv?.cwd ?? this.defaultCwd,
       model: conv?.model ?? undefined,
     };
@@ -208,7 +222,8 @@ export class OpenAICliProvider implements Provider {
     const result: UsageInfo = {};
 
     // Context from server tracking
-    const ctx = this.server.getContextUsage(conversationId);
+    const server = this.resolveConversationServer(conversationId);
+    const ctx = server.getContextUsage(conversationId);
     if (ctx) {
       result.context = {
         contextTokens: ctx.contextTokens,
@@ -217,7 +232,7 @@ export class OpenAICliProvider implements Provider {
     }
 
     // Rate limits from server snapshot
-    const rl = this.server.getRateLimits();
+    const rl = server.getRateLimits();
     if (rl) {
       result.rateLimits = [];
       if (rl.primary) {
@@ -239,7 +254,7 @@ export class OpenAICliProvider implements Provider {
     }
 
     // Token window from server
-    const usage = this.server.getTokenUsage(conversationId);
+    const usage = server.getTokenUsage(conversationId);
     if (usage) {
       result.window = {
         inputTokens: usage.total.inputTokens + usage.total.cachedInputTokens,
@@ -255,15 +270,18 @@ export class OpenAICliProvider implements Provider {
 
   listSessions(): SessionListEntry[] {
     const all = this.db.getAllConversations();
-    return all.map((conv) => ({
-      providerId: this.id,
-      sessionId: conv.threadId ?? "",
-      conversationId: conv.convId,
-      alive: this.server.isReady() && !!this.server.getThreadId(conv.convId),
-      status: (conv.status === "error" ? "error" : conv.status === "busy" ? "busy" : "ready") as "ready" | "busy" | "error",
-      cwd: conv.cwd ?? this.defaultCwd,
-      model: conv.model ?? undefined,
-    }));
+    return all.map((conv) => {
+      const server = this.resolveConversationServer(conv.convId);
+      return {
+        providerId: this.id,
+        sessionId: conv.threadId ?? "",
+        conversationId: conv.convId,
+        alive: server.isReady() && !!server.getThreadId(conv.convId),
+        status: (conv.status === "error" ? "error" : conv.status === "busy" ? "busy" : "ready") as "ready" | "busy" | "error",
+        cwd: conv.cwd ?? this.defaultCwd,
+        model: conv.model ?? undefined,
+      };
+    });
   }
 
   supportedModels(): string[] {
@@ -271,7 +289,10 @@ export class OpenAICliProvider implements Provider {
   }
 
   async shutdown(): Promise<void> {
-    await this.server.shutdown();
+    await Promise.all([
+      this.defaultServer.shutdown(),
+      ...Array.from(this.agentServers.values()).map((server) => server.shutdown()),
+    ]);
   }
 
   setEnv(key: string, value: string): void {
@@ -284,5 +305,29 @@ export class OpenAICliProvider implements Provider {
 
   private getConvModel(conversationId: string): string | null {
     return this.db.getConversation(conversationId)?.model ?? null;
+  }
+
+  private resolveServer(agentName: string | undefined): CodexAppServer {
+    if (!agentName) return this.defaultServer;
+    const agentEnv = this.agentMcpEnv.get(agentName);
+    if (!agentEnv) return this.defaultServer;
+
+    const existing = this.agentServers.get(agentName);
+    if (existing) return existing;
+
+    const server = new CodexAppServer({
+      codexPath: this.codexPath,
+      env: { ...this.providerEnv, ...agentEnv },
+      logger: this.logger,
+    });
+    this.agentServers.set(agentName, server);
+    return server;
+  }
+
+  private resolveConversationServer(conversationId: string): CodexAppServer {
+    const existing = this.conversationServers.get(conversationId);
+    if (existing) return existing;
+    const agentName = conversationId.split(":")[0] || undefined;
+    return this.resolveServer(agentName);
   }
 }

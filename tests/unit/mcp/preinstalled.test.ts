@@ -161,6 +161,28 @@ describe("mcp/preinstalled", () => {
       expect(arinovaCall![1] as string[]).toContain("--strict-startup");
     });
 
+    it("can register Arinova for Codex without writing a global bot token", () => {
+      ensureCodexMcpServers(
+        "codex",
+        mockLogger as never,
+        {
+          botToken: "ari_global",
+          serverUrl: "wss://chat.example.com",
+        },
+        undefined,
+        { arinovaAuth: "inherited" },
+      );
+
+      const arinovaCall = mockExecFileSync.mock.calls.find(
+        (call) => (call[1] as string[])[2] === "arinova",
+      );
+      expect(arinovaCall).toBeDefined();
+      const args = arinovaCall![1] as string[];
+      expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
+      expect(args).toContain("--server-url");
+      expect(args).toContain("wss://chat.example.com");
+    });
+
     it("includes --env for github server", () => {
       process.env.GITHUB_TOKEN = "ghp_test";
       ensureCodexMcpServers("codex", mockLogger as never);
@@ -206,6 +228,28 @@ describe("mcp/preinstalled", () => {
       const args = githubCall![1] as string[];
       expect(args).toContain("-e");
       expect(args).toContain("GITHUB_PERSONAL_ACCESS_TOKEN=ghp_test");
+    });
+
+    it("can register Arinova for Gemini without writing a global bot token", () => {
+      ensureGeminiMcpServers(
+        "gemini",
+        mockLogger as never,
+        {
+          botToken: "ari_global",
+          serverUrl: "wss://chat.example.com",
+        },
+        undefined,
+        { arinovaAuth: "inherited" },
+      );
+
+      const arinovaCall = mockExecFileSync.mock.calls.find(
+        (call) => (call[1] as string[])[2] === "arinova",
+      );
+      expect(arinovaCall).toBeDefined();
+      const args = arinovaCall![1] as string[];
+      expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
+      expect(args).toContain("--server-url");
+      expect(args).toContain("wss://chat.example.com");
     });
 
     it("logs error but continues on failure", () => {

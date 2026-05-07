@@ -213,4 +213,6 @@ export interface Provider {
   setEnv(key: string, value: string): void;
   /** Register a per-agent MCP config path (overrides the provider-level default). */
   setAgentMcpConfig?(agentName: string, mcpConfigPath: string): void;
+  /** Register per-agent environment for MCP subprocesses launched by the provider. */
+  setAgentMcpEnv?(agentName: string, env: Record<string, string>): void;
 }

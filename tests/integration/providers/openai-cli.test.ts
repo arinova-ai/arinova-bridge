@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
+const appServerInstances = vi.hoisted(() => [] as Array<{ config: any }>);
+
 vi.mock("../../../src/codex/app-server.js", () => ({
   CodexAppServer: class {
     private threadIds = new Map<string, string>();
@@ -13,6 +15,10 @@ vi.mock("../../../src/codex/app-server.js", () => ({
         outputTokens: number;
       };
     }>();
+
+    constructor(config: any) {
+      appServerInstances.push({ config });
+    }
 
     async sendMessage(
       conversationId: string,
@@ -57,6 +63,7 @@ describe("OpenAICliProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    appServerInstances.length = 0;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "arinova-test-openai-"));
     dbPath = path.join(tmpDir, "test.db");
 
@@ -209,6 +216,25 @@ describe("OpenAICliProvider", () => {
       expect(envProvider.id).toBe("openai-custom");
       expect(envProvider.type).toBe("openai-cli");
       expect(envProvider.displayName).toBe("OpenAI Custom");
+    });
+
+    it("creates an agent-scoped app server with that agent's MCP token", async () => {
+      provider.setAgentMcpEnv("casey", {
+        ARINOVA_BOT_TOKEN: "ari_casey",
+        ARINOVA_SERVER_URL: "wss://api.example.com",
+      });
+
+      await provider.sendMessage({
+        conversationId: "casey:default",
+        content: "test",
+        onChunk: () => {},
+      });
+
+      expect(appServerInstances).toHaveLength(2);
+      expect(appServerInstances[1].config.env).toMatchObject({
+        ARINOVA_BOT_TOKEN: "ari_casey",
+        ARINOVA_SERVER_URL: "wss://api.example.com",
+      });
     });
   });
 });

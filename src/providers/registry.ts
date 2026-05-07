@@ -169,7 +169,9 @@ async function createProvider(
 
     case "openai-cli": {
       const codexPath = entry.codexPath ?? "codex";
-      ensureCodexMcpServers(codexPath, logger, arinovaMcp, userMcp);
+      ensureCodexMcpServers(codexPath, logger, arinovaMcp, userMcp, {
+        arinovaAuth: "inherited",
+      });
       return new OpenAICliProvider(
         {
           providerId: entry.id,
@@ -187,7 +189,9 @@ async function createProvider(
 
     case "gemini-cli": {
       const geminiPath = entry.geminiPath ?? "gemini";
-      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp, userMcp);
+      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp, userMcp, {
+        arinovaAuth: "inherited",
+      });
       return new GeminiCliProvider(
         {
           providerId: entry.id,

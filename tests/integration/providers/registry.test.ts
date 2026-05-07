@@ -62,12 +62,15 @@ vi.mock("../../../src/oauth/minimax.js", () => ({
 }));
 
 import { createProviders } from "../../../src/providers/registry.js";
+import { ensureCodexMcpServers, ensureGeminiMcpServers } from "../../../src/mcp/preinstalled.js";
 import { readOAuthToken, isTokenExpired } from "../../../src/oauth/token-store.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { ProviderEntry } from "../../../src/config-file.js";
 
 const mockReadOAuthToken = vi.mocked(readOAuthToken);
 const mockIsTokenExpired = vi.mocked(isTokenExpired);
+const mockEnsureCodexMcpServers = vi.mocked(ensureCodexMcpServers);
+const mockEnsureGeminiMcpServers = vi.mocked(ensureGeminiMcpServers);
 
 const logger = {
   info: vi.fn(),
@@ -164,6 +167,40 @@ describe("createProviders", () => {
       logger,
     );
     expect(providers.has("openai-oauth")).toBe(true);
+  });
+
+  it("registers Codex Arinova MCP with inherited per-agent auth", async () => {
+    await createProviders(
+      createConfig([
+        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
+      ]),
+      logger,
+    );
+
+    expect(mockEnsureCodexMcpServers).toHaveBeenCalledWith(
+      "codex",
+      logger,
+      { botToken: "tok", serverUrl: "ws://test" },
+      undefined,
+      { arinovaAuth: "inherited" },
+    );
+  });
+
+  it("registers Gemini Arinova MCP with inherited per-agent auth", async () => {
+    await createProviders(
+      createConfig([
+        { id: "gemini-oauth", type: "gemini-cli", displayName: "Gemini OAuth", enabled: true },
+      ]),
+      logger,
+    );
+
+    expect(mockEnsureGeminiMcpServers).toHaveBeenCalledWith(
+      "gemini",
+      logger,
+      { botToken: "tok", serverUrl: "ws://test" },
+      undefined,
+      { arinovaAuth: "inherited" },
+    );
   });
 
   it("creates multiple providers from array", async () => {

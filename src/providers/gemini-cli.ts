@@ -49,6 +49,7 @@ export class GeminiCliProvider implements Provider {
   private logger: Logger;
   private customEnv?: Record<string, string>;
   private modelList: string[];
+  private agentMcpEnv = new Map<string, Record<string, string>>();
 
   constructor(config: GeminiCliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -213,6 +214,10 @@ export class GeminiCliProvider implements Provider {
     this.customEnv[key] = value;
   }
 
+  setAgentMcpEnv(agentName: string, env: Record<string, string>): void {
+    this.agentMcpEnv.set(agentName, env);
+  }
+
   private async runGeminiTurn(
     conversationId: string,
     content: string,
@@ -229,8 +234,9 @@ export class GeminiCliProvider implements Provider {
 
     // Per-turn env: merge provider-level env with per-session agent name
     const agentName = conversationId.split(":")[0];
+    const agentEnv = agentName ? this.agentMcpEnv.get(agentName) : undefined;
     const turnEnv = agentName
-      ? { ...this.customEnv, ARINOVA_AGENT_NAME: agentName }
+      ? { ...this.customEnv, ...agentEnv, ARINOVA_AGENT_NAME: agentName }
       : this.customEnv;
 
     const isResume = !isRetry && !!conv?.threadId;

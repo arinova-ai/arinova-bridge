@@ -21,6 +21,10 @@ export interface McpStdioServer {
   env?: Record<string, string>;
 }
 
+export interface McpServerMapOptions {
+  arinovaAuth?: "explicit" | "inherited";
+}
+
 /**
  * MCP config format compatible with Claude CLI's --mcp-config flag.
  */
@@ -53,6 +57,7 @@ const MCP_CLI_CONFIG_PATH = path.join(MCP_CONFIG_DIR, "preinstalled.json");
 function buildServerMap(
   arinova?: ArinovaMcpEnv,
   userServers?: Record<string, McpStdioServer>,
+  options: McpServerMapOptions = {},
 ): Record<string, McpStdioServer> {
   const servers: Record<string, McpStdioServer> = { ...PREINSTALLED_SERVERS };
 
@@ -65,17 +70,23 @@ function buildServerMap(
     };
   }
 
+  const arinovaAuth = options.arinovaAuth ?? "explicit";
   const botToken = arinova?.botToken ?? process.env.ARINOVA_BOT_TOKEN;
   const serverUrl = arinova?.serverUrl ?? process.env.ARINOVA_SERVER_URL;
-  if (botToken && serverUrl) {
+  if ((botToken || arinovaAuth === "inherited") && serverUrl) {
     const cliPath = require.resolve("@arinova-ai/mcp-server/dist/cli.js");
+    const args = [cliPath, "--strict-startup"];
+    const env: Record<string, string> = {};
+    if (arinovaAuth === "explicit" && botToken) {
+      env.ARINOVA_BOT_TOKEN = botToken;
+      env.ARINOVA_SERVER_URL = serverUrl;
+    } else {
+      args.push("--server-url", serverUrl);
+    }
     servers.arinova = {
       command: "node",
-      args: [cliPath, "--strict-startup"],
-      env: {
-        ARINOVA_BOT_TOKEN: botToken,
-        ARINOVA_SERVER_URL: serverUrl,
-      },
+      args,
+      ...(Object.keys(env).length > 0 ? { env } : {}),
     };
   }
 
@@ -179,8 +190,14 @@ export function ensureAgentCliMcpConfig(
  * Pre-install MCP servers for Codex CLI using `codex mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): void {
-  const servers = buildServerMap(arinova, userServers);
+export function ensureCodexMcpServers(
+  codexPath: string,
+  logger: Logger,
+  arinova?: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+  options: McpServerMapOptions = {},
+): void {
+  const servers = buildServerMap(arinova, userServers, options);
 
   for (const [name, server] of Object.entries(servers)) {
     try {
@@ -208,8 +225,14 @@ export function ensureCodexMcpServers(codexPath: string, logger: Logger, arinova
  * Pre-install MCP servers for Gemini CLI using `gemini mcp add`.
  * Idempotent — re-adding an existing server just overwrites it.
  */
-export function ensureGeminiMcpServers(geminiPath: string, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): void {
-  const servers = buildServerMap(arinova, userServers);
+export function ensureGeminiMcpServers(
+  geminiPath: string,
+  logger: Logger,
+  arinova?: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+  options: McpServerMapOptions = {},
+): void {
+  const servers = buildServerMap(arinova, userServers, options);
 
   for (const [name, server] of Object.entries(servers)) {
     try {

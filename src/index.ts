@@ -163,6 +163,12 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       }
     }
   }
+  if (provider.setAgentMcpEnv) {
+    provider.setAgentMcpEnv(agentName, {
+      ARINOVA_BOT_TOKEN: agentCfg.botToken,
+      ARINOVA_SERVER_URL: config.arinova.serverUrl,
+    });
+  }
 
   // Per-agent config override for CommandHandler
   const agentBridgeConfig = {
@@ -417,4 +423,3 @@ process.on("uncaughtException", (err) => {
 process.on("beforeExit", (code) => {
   logger.info(`beforeExit event (code=${code})`);
 });
-
