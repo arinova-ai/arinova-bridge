@@ -1,7 +1,11 @@
 import * as pty from "node-pty";
 import { execSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { statSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import type { Logger } from "../util/logger.js";
+
+const BRIDGE_CLAUDE_SETTINGS = path.join(homedir(), ".arinova-bridge", "claude-settings.json");
 
 export type HudMonitorOptions = {
   claudePath?: string;
@@ -51,7 +55,11 @@ export class HudMonitor {
     log.info(`hud-monitor: resolved claudePath=${claudePath}`);
 
     try {
-      this.ptyProcess = pty.spawn("/bin/bash", ["-l", "-c", `${claudePath} --model claude-haiku-4-5-20251001`], {
+      const claudeArgs = [claudePath, "--model", "claude-haiku-4-5-20251001"];
+      if (existsSync(BRIDGE_CLAUDE_SETTINGS)) {
+        claudeArgs.push("--settings", BRIDGE_CLAUDE_SETTINGS);
+      }
+      this.ptyProcess = pty.spawn("/bin/bash", ["-l", "-c", claudeArgs.join(" ")], {
         name: "xterm-256color",
         cols: 120,
         rows: 24,

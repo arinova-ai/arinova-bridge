@@ -304,8 +304,9 @@ async function runSetup(): Promise<boolean> {
   return true;
 }
 
-const CLAUDE_SETTINGS_PATH = path.join(homedir(), ".claude", "settings.json");
-const STATUSLINE_SCRIPT_PATH = path.join(homedir(), ".arinova-bridge", "statusline.sh");
+const BRIDGE_DIR = path.join(homedir(), ".arinova-bridge");
+const STATUSLINE_SCRIPT_PATH = path.join(BRIDGE_DIR, "statusline.sh");
+const CLAUDE_SETTINGS_PATH = path.join(BRIDGE_DIR, "claude-settings.json");
 const STATUSLINE_CONFIG = {
   type: "command",
   command: "~/.arinova-bridge/statusline.sh",
@@ -360,58 +361,24 @@ async function setupClaudeStatusLine(): Promise<void> {
   console.log("\n── Rate Limit Monitoring ──────────────");
 
   const enableHud = await confirm({
-    message: "啟用 rate limit 監控？（需設定 Claude CLI statusLine）",
+    message: "啟用 rate limit 監控？",
     default: true,
   });
   if (!enableHud) return;
 
-  // Step 1: Create statusline.sh script
-  const scriptDir = path.dirname(STATUSLINE_SCRIPT_PATH);
-  if (!fs.existsSync(scriptDir)) {
-    fs.mkdirSync(scriptDir, { recursive: true });
+  if (!fs.existsSync(BRIDGE_DIR)) {
+    fs.mkdirSync(BRIDGE_DIR, { recursive: true });
   }
+
+  // Step 1: Create statusline.sh script
   fs.writeFileSync(STATUSLINE_SCRIPT_PATH, STATUSLINE_SCRIPT, { mode: 0o755 });
   console.log(`  ✓ 建立 ${STATUSLINE_SCRIPT_PATH}`);
 
-  // Step 2: Read existing Claude settings
-  let settings: Record<string, unknown> = {};
-  if (fs.existsSync(CLAUDE_SETTINGS_PATH)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_PATH, "utf-8"));
-    } catch {
-      console.log("  ⚠ 無法解析現有 settings.json，請手動加入：");
-      console.log(`    "statusLine": ${JSON.stringify(STATUSLINE_CONFIG)}`);
-      return;
-    }
-  }
-
-  // Step 3: Check existing statusLine
-  const existing = settings.statusLine;
-  const isOurs = existing && typeof existing === "object" &&
-    (existing as Record<string, unknown>).command === STATUSLINE_CONFIG.command;
-
-  if (existing && !isOurs) {
-    console.log(`  現有 statusLine: ${JSON.stringify(existing)}`);
-    const overwrite = await confirm({
-      message: "覆寫現有 statusLine 設定？",
-      default: false,
-    });
-    if (!overwrite) {
-      console.log("  跳過 statusLine 設定");
-      return;
-    }
-  }
-
-  // Step 4: Merge and write
-  settings.statusLine = STATUSLINE_CONFIG;
-
-  const dir = path.dirname(CLAUDE_SETTINGS_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  // Step 2: Write bridge-local Claude settings (only statusLine)
+  const settings = { statusLine: STATUSLINE_CONFIG };
   fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-  console.log(`  ✓ Claude statusLine 已設定（${CLAUDE_SETTINGS_PATH}）`);
-  console.log("  Rate limit 資料將寫入 /tmp/claude-status.json");
+  console.log(`  ✓ 建立 ${CLAUDE_SETTINGS_PATH}`);
+  console.log("  HUD monitor 會透過 --settings 載入，不影響使用者的 ~/.claude/settings.json");
 }
 
 async function main() {
