@@ -47,6 +47,17 @@ export class HudWebSocket {
   connect(): void {
     if (this.closed) return;
 
+    // Node 22's built-in (undici) WebSocket fires `error` without a follow-up
+    // `close` on handshake failures, so both paths must trigger reconnect.
+    // The flag dedupes when both events do fire (mid-session errors).
+    let terminalHandled = false;
+    const onTerminal = () => {
+      if (terminalHandled) return;
+      terminalHandled = true;
+      this.ws = null;
+      if (!this.closed) this.scheduleReconnect();
+    };
+
     try {
       this.ws = new WebSocket(this.url, {
         headers: { Authorization: `Bearer ${this.token}` },
@@ -68,8 +79,7 @@ export class HudWebSocket {
 
       this.ws.addEventListener("close", (ev: CloseEvent) => {
         this.logger.info(`hud-ws: closed (code=${ev.code} reason=${ev.reason || "none"})`);
-        this.ws = null;
-        if (!this.closed) this.scheduleReconnect();
+        onTerminal();
       });
 
       this.ws.addEventListener("error", (ev: Event) => {
@@ -77,6 +87,7 @@ export class HudWebSocket {
         const error = errObj.error as Error | undefined;
         const msg = error?.message ?? errObj.message ?? errObj.type ?? "unknown";
         this.logger.warn(`hud-ws: error connecting to ${this.url} — ${msg}`);
+        onTerminal();
       });
     } catch (err) {
       this.logger.error(`hud-ws: failed to connect — ${err instanceof Error ? err.message : String(err)}`);
