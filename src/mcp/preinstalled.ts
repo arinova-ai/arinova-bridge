@@ -234,7 +234,6 @@ export function ensureCodexMcpServers(
         stdio: "pipe",
         env: options.codexHome ? { ...process.env, CODEX_HOME: options.codexHome } : process.env,
       });
-      logger.info(`mcp: codex mcp add ${name} — ok`);
     } catch (err) {
       logger.error(`mcp: codex mcp add ${name} failed: ${formatExecError(err)}`);
     }
@@ -316,7 +315,6 @@ export function ensureGeminiMcpServers(
       }
 
       execFileSync(geminiPath, args, { timeout: 15_000, stdio: "pipe" });
-      logger.info(`mcp: gemini mcp add ${name} — ok`);
     } catch (err) {
       logger.error(`mcp: gemini mcp add ${name} failed: ${formatExecError(err)}`);
     }
