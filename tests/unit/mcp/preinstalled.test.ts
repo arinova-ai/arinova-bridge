@@ -181,8 +181,8 @@ describe("mcp/preinstalled", () => {
       expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
       expect(args).toContain("--server-url");
       expect(args).toContain("wss://chat.example.com");
-      expect(args).toContain("--token");
-      expect(args).toContain("ari_global");
+      expect(args).not.toContain("--token");
+      expect(args).not.toContain("ari_global");
     });
 
     it("includes --env for github server", () => {
@@ -252,8 +252,8 @@ describe("mcp/preinstalled", () => {
       expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
       expect(args).toContain("--server-url");
       expect(args).toContain("wss://chat.example.com");
-      expect(args).toContain("--token");
-      expect(args).toContain("ari_global");
+      expect(args).not.toContain("--token");
+      expect(args).not.toContain("ari_global");
     });
 
     it("logs error but continues on failure", () => {
