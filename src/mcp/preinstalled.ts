@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, symlinkSync, rmSync, lstatSync, cpSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { Logger } from "../util/logger.js";
 
@@ -23,6 +23,7 @@ export interface McpStdioServer {
 
 export interface McpServerMapOptions {
   arinovaAuth?: "explicit" | "inherited";
+  codexHome?: string;
 }
 
 function redactArg(arg: string): string {
@@ -227,6 +228,7 @@ export function ensureCodexMcpServers(
   const servers = buildServerMap(arinova, userServers, options);
   logger.info(
     `mcp: codex registration start path=${codexPath} auth=${options.arinovaAuth ?? "explicit"} ` +
+    `codexHome=${options.codexHome ?? "(default)"} ` +
     `servers=[${Object.keys(servers).join(",")}] hasArinova=${Boolean(servers.arinova)} ` +
     `hasBotToken=${Boolean(arinova?.botToken)} hasServerUrl=${Boolean(arinova?.serverUrl)}`,
   );
@@ -246,12 +248,59 @@ export function ensureCodexMcpServers(
       args.push("--", server.command, ...server.args);
 
       logger.info(`mcp: codex mcp add ${summarizeServer(name, server)}`);
-      execFileSync(codexPath, args, { timeout: 15_000, stdio: "pipe" });
+      execFileSync(codexPath, args, {
+        timeout: 15_000,
+        stdio: "pipe",
+        env: options.codexHome ? { ...process.env, CODEX_HOME: options.codexHome } : process.env,
+      });
       logger.info(`mcp: codex mcp add ${name} — ok`);
     } catch (err) {
       logger.error(`mcp: codex mcp add ${name} failed: ${formatExecError(err)}`);
     }
   }
+}
+
+function ensureCodexAuthLink(codexHome: string, logger: Logger): void {
+  mkdirSync(codexHome, { recursive: true });
+
+  const sourceAuth = path.join(homedir(), ".codex", "auth.json");
+  const targetAuth = path.join(codexHome, "auth.json");
+  if (!existsSync(sourceAuth)) {
+    logger.warn(`mcp: Codex auth source not found at ${sourceAuth}; per-agent CODEX_HOME may need login`);
+    return;
+  }
+
+  try {
+    if (existsSync(targetAuth) || lstatSync(targetAuth, { throwIfNoEntry: false })) {
+      rmSync(targetAuth, { force: true });
+    }
+    symlinkSync(sourceAuth, targetAuth);
+  } catch (err) {
+    logger.warn(`mcp: failed to symlink Codex auth into ${codexHome}, copying instead: ${err}`);
+    cpSync(sourceAuth, targetAuth);
+  }
+}
+
+/**
+ * Create/update an isolated Codex home for one bridge agent.
+ *
+ * Codex stores MCP definitions under CODEX_HOME. Keeping a separate home per
+ * agent prevents one OpenAI-backed agent's Arinova bot token from being written
+ * into the global Codex config or overwriting another OpenAI provider/agent.
+ */
+export function ensureAgentCodexHome(
+  codexPath: string,
+  logger: Logger,
+  codexHome: string,
+  arinova: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+): string {
+  ensureCodexAuthLink(codexHome, logger);
+  ensureCodexMcpServers(codexPath, logger, arinova, userServers, {
+    arinovaAuth: "explicit",
+    codexHome,
+  });
+  return codexHome;
 }
 
 /**

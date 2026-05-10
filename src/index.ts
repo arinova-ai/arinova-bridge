@@ -163,11 +163,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       }
     }
   }
-  if (provider.setAgentMcpEnv) {
-    provider.setAgentMcpEnv(agentName, {
-      ARINOVA_BOT_TOKEN: agentCfg.botToken,
-      ARINOVA_SERVER_URL: config.arinova.serverUrl,
-    });
+  const agentMcpEnv = {
+    ARINOVA_BOT_TOKEN: agentCfg.botToken,
+    ARINOVA_SERVER_URL: config.arinova.serverUrl,
+  };
+  for (const candidateProvider of providers.values()) {
+    if (candidateProvider.setAgentMcpEnv) {
+      candidateProvider.setAgentMcpEnv(agentName, agentMcpEnv);
+    }
   }
 
   // Per-agent config override for CommandHandler

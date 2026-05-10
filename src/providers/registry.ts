@@ -175,6 +175,8 @@ async function createProvider(
         `hasBotToken=${Boolean(arinovaMcp.botToken)} hasServerUrl=${Boolean(arinovaMcp.serverUrl)}`,
       );
       ensureCodexMcpServers(codexPath, logger, arinovaMcp, userMcp, {
+        // Global Codex MCP config must not contain an agent token. OpenAI
+        // agents receive tokened MCP config through per-agent CODEX_HOME.
         arinovaAuth: "inherited",
       });
       return new OpenAICliProvider(
@@ -187,6 +189,7 @@ async function createProvider(
           dbPath: config.defaults.dbPath,
           env,
           models: entry.models,
+          userMcp,
         },
         logger,
       );

@@ -12,7 +12,10 @@ import type {
 import { initDb, type BridgeDb } from "../codex/db.js";
 import { CodexAppServer } from "../codex/app-server.js";
 import { buildContextPrefix } from "../util/context.js";
+import { ensureAgentCodexHome, type McpStdioServer } from "../mcp/preinstalled.js";
 import type { Logger } from "../util/logger.js";
+import { homedir } from "node:os";
+import path from "node:path";
 
 export interface OpenAICliConfig {
   providerId: string;
@@ -23,6 +26,7 @@ export interface OpenAICliConfig {
   dbPath: string;
   env?: Record<string, string>;
   models?: string[];
+  userMcp?: Record<string, McpStdioServer>;
 }
 
 /**
@@ -41,9 +45,12 @@ export class OpenAICliProvider implements Provider {
   private conversationServers = new Map<string, CodexAppServer>();
   private logger: Logger;
   private codexPath?: string;
+  private resolvedCodexPath: string;
   private modelList: string[];
   private providerEnv: Record<string, string>;
   private agentMcpEnv = new Map<string, Record<string, string>>();
+  private agentCodexHomes = new Map<string, string>();
+  private userMcp?: Record<string, McpStdioServer>;
 
   constructor(config: OpenAICliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -51,6 +58,8 @@ export class OpenAICliProvider implements Provider {
     this.defaultCwd = config.defaultCwd;
     this.logger = logger;
     this.codexPath = config.codexPath;
+    this.resolvedCodexPath = config.codexPath ?? "codex";
+    this.userMcp = config.userMcp;
     this.modelList = config.models ?? [
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -86,6 +95,21 @@ export class OpenAICliProvider implements Provider {
 
   setAgentMcpEnv(agentName: string, env: Record<string, string>): void {
     this.agentMcpEnv.set(agentName, env);
+    const botToken = env.ARINOVA_BOT_TOKEN;
+    const serverUrl = env.ARINOVA_SERVER_URL;
+    if (!botToken || !serverUrl) return;
+
+    const safeProviderId = this.id.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const safeAgentName = agentName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const codexHome = path.join(homedir(), ".arinova-bridge", "codex", safeProviderId, safeAgentName);
+    ensureAgentCodexHome(
+      this.resolvedCodexPath,
+      this.logger,
+      codexHome,
+      { botToken, serverUrl },
+      this.userMcp,
+    );
+    this.agentCodexHomes.set(agentName, codexHome);
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
@@ -315,9 +339,10 @@ export class OpenAICliProvider implements Provider {
     const existing = this.agentServers.get(agentName);
     if (existing) return existing;
 
+    const codexHome = this.agentCodexHomes.get(agentName);
     const server = new CodexAppServer({
       codexPath: this.codexPath,
-      env: { ...this.providerEnv, ...agentEnv },
+      env: { ...this.providerEnv, ...(codexHome ? { CODEX_HOME: codexHome } : {}), ...agentEnv },
       logger: this.logger,
     });
     this.agentServers.set(agentName, server);
