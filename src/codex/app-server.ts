@@ -115,6 +115,12 @@ export class CodexAppServer {
     log.info("codex-app-server: spawning process...");
 
     const env = this.opts.env ? { ...process.env, ...this.opts.env } : undefined;
+    log.info(
+      `codex-app-server: env summary inherited=${Boolean(env)} ` +
+      `hasArinovaBotToken=${Boolean(env?.ARINOVA_BOT_TOKEN)} ` +
+      `hasArinovaServerUrl=${Boolean(env?.ARINOVA_SERVER_URL)} ` +
+      `agentName=${env?.ARINOVA_AGENT_NAME ?? "(unset)"}`,
+    );
 
     const child = spawn(this.codexPath, [
       "app-server",

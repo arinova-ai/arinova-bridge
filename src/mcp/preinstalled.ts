@@ -25,6 +25,33 @@ export interface McpServerMapOptions {
   arinovaAuth?: "explicit" | "inherited";
 }
 
+function redactArg(arg: string): string {
+  if (arg.startsWith("ARINOVA_BOT_TOKEN=")) return "ARINOVA_BOT_TOKEN=***";
+  if (arg.startsWith("GITHUB_PERSONAL_ACCESS_TOKEN=")) return "GITHUB_PERSONAL_ACCESS_TOKEN=***";
+  return arg;
+}
+
+function summarizeServer(name: string, server: McpStdioServer): string {
+  const envKeys = server.env ? Object.keys(server.env).sort().join(",") : "";
+  const redactedArgs = server.args.map(redactArg).join(" ");
+  return `name=${name} command=${server.command} args=[${redactedArgs}] envKeys=[${envKeys}]`;
+}
+
+function formatExecError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const detail = err as Error & { stdout?: Buffer | string; stderr?: Buffer | string; status?: number; signal?: string };
+  const stdout = detail.stdout ? String(detail.stdout).trim() : "";
+  const stderr = detail.stderr ? String(detail.stderr).trim() : "";
+  const parts = [
+    detail.message,
+    detail.status !== undefined ? `status=${detail.status}` : "",
+    detail.signal ? `signal=${detail.signal}` : "",
+    stdout ? `stdout=${stdout}` : "",
+    stderr ? `stderr=${stderr}` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
 /**
  * MCP config format compatible with Claude CLI's --mcp-config flag.
  */
@@ -198,6 +225,11 @@ export function ensureCodexMcpServers(
   options: McpServerMapOptions = {},
 ): void {
   const servers = buildServerMap(arinova, userServers, options);
+  logger.info(
+    `mcp: codex registration start path=${codexPath} auth=${options.arinovaAuth ?? "explicit"} ` +
+    `servers=[${Object.keys(servers).join(",")}] hasArinova=${Boolean(servers.arinova)} ` +
+    `hasBotToken=${Boolean(arinova?.botToken)} hasServerUrl=${Boolean(arinova?.serverUrl)}`,
+  );
 
   for (const [name, server] of Object.entries(servers)) {
     try {
@@ -213,10 +245,11 @@ export function ensureCodexMcpServers(
 
       args.push("--", server.command, ...server.args);
 
+      logger.info(`mcp: codex mcp add ${summarizeServer(name, server)}`);
       execFileSync(codexPath, args, { timeout: 15_000, stdio: "pipe" });
       logger.info(`mcp: codex mcp add ${name} — ok`);
     } catch (err) {
-      logger.error(`mcp: codex mcp add ${name} failed: ${err}`);
+      logger.error(`mcp: codex mcp add ${name} failed: ${formatExecError(err)}`);
     }
   }
 }
@@ -233,6 +266,11 @@ export function ensureGeminiMcpServers(
   options: McpServerMapOptions = {},
 ): void {
   const servers = buildServerMap(arinova, userServers, options);
+  logger.info(
+    `mcp: gemini registration start path=${geminiPath} auth=${options.arinovaAuth ?? "explicit"} ` +
+    `servers=[${Object.keys(servers).join(",")}] hasArinova=${Boolean(servers.arinova)} ` +
+    `hasBotToken=${Boolean(arinova?.botToken)} hasServerUrl=${Boolean(arinova?.serverUrl)}`,
+  );
 
   for (const [name, server] of Object.entries(servers)) {
     try {
@@ -252,10 +290,11 @@ export function ensureGeminiMcpServers(
         }
       }
 
+      logger.info(`mcp: gemini mcp add ${summarizeServer(name, server)}`);
       execFileSync(geminiPath, args, { timeout: 15_000, stdio: "pipe" });
       logger.info(`mcp: gemini mcp add ${name} — ok`);
     } catch (err) {
-      logger.error(`mcp: gemini mcp add ${name} failed: ${err}`);
+      logger.error(`mcp: gemini mcp add ${name} failed: ${formatExecError(err)}`);
     }
   }
 }

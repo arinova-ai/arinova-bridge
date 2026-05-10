@@ -169,6 +169,11 @@ async function createProvider(
 
     case "openai-cli": {
       const codexPath = entry.codexPath ?? "codex";
+      logger.info(
+        `registry: ${entry.id} preparing Codex MCP registration ` +
+        `codexPath=${codexPath} userMcp=${Object.keys(config.mcpServers).join(",") || "(none)"} ` +
+        `hasBotToken=${Boolean(arinovaMcp.botToken)} hasServerUrl=${Boolean(arinovaMcp.serverUrl)}`,
+      );
       ensureCodexMcpServers(codexPath, logger, arinovaMcp, userMcp, {
         arinovaAuth: "inherited",
       });
