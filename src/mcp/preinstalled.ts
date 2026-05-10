@@ -82,6 +82,9 @@ function buildServerMap(
       env.ARINOVA_SERVER_URL = serverUrl;
     } else {
       args.push("--server-url", serverUrl);
+      if (botToken) {
+        args.push("--token", botToken);
+      }
     }
     servers.arinova = {
       command: "node",
