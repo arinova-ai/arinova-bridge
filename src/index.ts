@@ -6,7 +6,7 @@ import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
 import { HudMonitor } from "./claude/hud-monitor.js";
-import { HudWebSocket, formatModelName, type HudData } from "./claude/hud-ws.js";
+import { formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent } from "./ipc/router.js";
@@ -75,8 +75,6 @@ const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
 // Shared HUD monitor (statusLine only needs one)
 const hudMonitor = new HudMonitor({ logger });
 hudMonitor.start();
-
-const hudWsUrl = config.arinova.serverUrl + "/api/v1/hud";
 
 // Track all agents for shutdown
 const activeAgents: ActiveAgent[] = [];
@@ -197,10 +195,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   commandHandler.forkManager = forkManager;
   commandHandler.agentName = agentName;
 
-  // Per-agent HUD WebSocket
-  const hudWs = new HudWebSocket(hudWsUrl, agentCfg.botToken, logger);
-  hudWs.connect();
-
   const agent = new ArinovaAgent({
     serverUrl: config.arinova.serverUrl,
     botToken: agentCfg.botToken,
@@ -245,7 +239,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       const cwd = commandHandler.getCwdForConversation(sessionId);
       const model = commandHandler.getModelForConversation(sessionId) ?? agentCfg.model;
 
-      hudWs.sendTask(agentName, { status: "started", task: content });
+      agent.sendTaskUpdate(agentName, { status: "started", task: content });
 
       // Serialize against A2A deliveries on the same agent. agent-sdk's
       // agentWideLock already serializes WS task vs WS task; this adds the
@@ -286,7 +280,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       const hudSessionModel = msgProvider.getSessionInfo(sessionId)?.model ?? model ?? "";
       const hudCost = msgProvider.getCostInfo(sessionId);
 
-      hudWs.sendTask(agentName, {
+      agent.sendTaskUpdate(agentName, {
         status: "completed",
         costUsd: hudCost?.totalCostUsd,
         durationMs: sendResult.durationMs,
@@ -335,7 +329,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         }
 
         hudData.model = formatModelName(hudSessionModel);
-        hudWs.send(conversationId, hudData);
+        agent.sendHud(hudData as Record<string, unknown>, conversationId);
       })().catch((err) => logger.warn(`hud-ws[${agentName}]: push failed — ${err}`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -366,7 +360,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   });
 
   await agent.connect();
-  activeAgents.push({ agent, name: agentName, hudWs, commandHandler, provider, agentConfig: agentCfg });
+  activeAgents.push({ agent, name: agentName, commandHandler, provider, agentConfig: agentCfg });
   logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
 }
 
@@ -400,8 +394,7 @@ async function shutdown(signal: string) {
   hudMonitor.stop();
   stopRefreshTimer();
 
-  for (const { agent, hudWs, name } of activeAgents) {
-    hudWs.close();
+  for (const { agent, name } of activeAgents) {
     agent.disconnect();
     logger.info(`[${name}] disconnected`);
   }

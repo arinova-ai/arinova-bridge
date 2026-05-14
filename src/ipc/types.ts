@@ -2,12 +2,9 @@ import type { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import type { CommandHandler } from "../commands/handler.js";
 import type { Provider } from "../providers/types.js";
 import type { ResolvedAgent } from "../config.js";
-import type { HudWebSocket } from "../claude/hud-ws.js";
-
 export interface ActiveAgent {
   agent: ArinovaAgent;
   name: string;
-  hudWs: HudWebSocket;
   commandHandler: CommandHandler;
   provider: Provider;
   agentConfig: ResolvedAgent;
