@@ -1,8 +1,8 @@
-import { ClaudeProcess, type ClaudeProcessOptions, type ToolCallReport } from "./process.js";
+import { PtyProcess, type PtyProcessOptions, type ToolCallReport } from "./pty-process.js";
 import type { Logger } from "../util/logger.js";
 
 export interface SessionEntry {
-  process: ClaudeProcess;
+  process: PtyProcess;
   lastActivity: number;
   cwd: string;
   model?: string;
@@ -66,7 +66,7 @@ export class SessionStore {
     const agentName = opts?.agentName ?? conversationId.split(":")[0];
     const mcpConfigPath = this.agentMcpPaths.get(agentName) ?? this.config.mcpConfigPath;
 
-    const processOpts: ClaudeProcessOptions = {
+    const processOpts: PtyProcessOptions = {
       claudePath: this.config.claudePath,
       mcpConfigPath,
       systemPrompt: opts?.systemPrompt,
@@ -80,7 +80,7 @@ export class SessionStore {
       reportToolCall: opts?.reportToolCall,
     };
 
-    const proc = new ClaudeProcess(processOpts);
+    const proc = new PtyProcess(processOpts);
     proc.start();
 
     const entry: SessionEntry = {

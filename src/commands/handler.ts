@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import type { Provider } from "../providers/types.js";
@@ -495,19 +495,7 @@ export class CommandHandler {
       out.context = { used: pct, total, percent: pct };
     }
 
-    // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
-    if (provider.type.startsWith("anthropic")) {
-      const statusFile = this.readStatusFile() as {
-        limit5h?: { percent?: number; resetIn?: string };
-        limit7d?: { percent?: number; resetIn?: string };
-        model?: string;
-        cost?: number;
-      } | null;
-      if (statusFile?.limit5h) out.limit5h = statusFile.limit5h;
-      if (statusFile?.limit7d) out.limit7d = statusFile.limit7d;
-      if (statusFile?.model) out.model = statusFile.model;
-      if (statusFile?.cost !== undefined && statusFile.cost > 0) out.cost = statusFile.cost;
-    } else if (usage?.rateLimits) {
+    if (usage?.rateLimits) {
       for (const rl of usage.rateLimits) {
         const percent = Math.round((rl.utilization ?? 0) * 100);
         const resetIn = rl.resetsAt ? this.formatResetIn(rl.resetsAt) : "";
@@ -537,16 +525,6 @@ export class CommandHandler {
     if (h > 0) parts.push(`${h}h`);
     if (m > 0 || parts.length === 0) parts.push(`${m}m`);
     return parts.join(" ");
-  }
-
-  /** Read Claude Code status line cache (rate limits, context window, cost). */
-  private readStatusFile(): Record<string, unknown> | null {
-    try {
-      const raw = readFileSync("/tmp/claude-status.json", "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
   }
 
   private handleCost(ctx: CommandContext): void {

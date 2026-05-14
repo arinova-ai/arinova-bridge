@@ -351,9 +351,14 @@ const STATUSLINE_SCRIPT = [
   "import sys, json",
   "d = json.load(sys.stdin)",
   "ctx = d.get('context',{}).get('percent','?')",
-  "r5 = d.get('limit5h',{}).get('percent','?')",
-  "cost = d.get('cost',0)",
-  "print(f'ctx:{ctx}% | 5h:{r5}% | \\${cost:.3f}')",
+  "r5 = d.get('limit5h',{})",
+  "r7 = d.get('limit7d',{})",
+  "p5 = r5.get('percent','?')",
+  "p7 = r7.get('percent','?')",
+  "ri5 = f\\\" ({r5['resetIn']})\\\" if r5.get('resetIn') else ''",
+  "ri7 = f\\\" ({r7['resetIn']})\\\" if r7.get('resetIn') else ''",
+  "model = d.get('model','') or '?'",
+  "print(f'[{model}] ctx:{ctx}% | 5h:{p5}%{ri5} | 7d:{p7}%{ri7}')",
   '" 2>/dev/null',
 ].join("\n") + "\n";
 

@@ -5,9 +5,7 @@ import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
-import { HudMonitor } from "./claude/hud-monitor.js";
 import { formatModelName, type HudData } from "./claude/hud-ws.js";
-import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
@@ -71,10 +69,6 @@ if (providers.size === 0) {
 logger.info(`Enabled providers: ${Array.from(providers.keys()).join(", ")}`);
 
 const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
-
-// Shared HUD monitor (statusLine only needs one)
-const hudMonitor = new HudMonitor({ logger });
-hudMonitor.start();
 
 // Track all agents for shutdown
 const activeAgents: ActiveAgent[] = [];
@@ -300,7 +294,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       // HUD push: fire-and-forget
       (async () => {
-        await hudMonitor.notify();
         const hudData: HudData = {};
 
         if (hudUsage?.context) {
@@ -312,14 +305,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           };
         }
 
-        // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
-        if (msgProvider.type.startsWith("anthropic")) {
-          try {
-            const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
-            if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
-            if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
-          } catch { /* status file unavailable */ }
-        } else if (hudUsage?.rateLimits) {
+        if (hudUsage?.rateLimits) {
           for (const rl of hudUsage.rateLimits) {
             const percent = Math.round((rl.utilization ?? 0) * 100);
             const resetIn = rl.resetsAt ? formatResetIn(rl.resetsAt) : "";
@@ -391,7 +377,6 @@ async function shutdown(signal: string) {
   spawnManager.stopAll();
   forkManager.stopAll();
   stopIpc();
-  hudMonitor.stop();
   stopRefreshTimer();
 
   for (const { agent, name } of activeAgents) {

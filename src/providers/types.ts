@@ -1,4 +1,4 @@
-import type { ToolCallReport } from "../claude/process.js";
+import type { ToolCallReport } from "../claude/pty-process.js";
 
 export type { ToolCallReport };
 

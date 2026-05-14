@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionStore, type SessionStoreConfig } from "../../../src/claude/session-store.js";
 
-// Mock the ClaudeProcess class — must use a class/function, not arrow
-vi.mock("../../../src/claude/process.js", () => {
+// Mock the PtyProcess class — must use a class/function, not arrow
+vi.mock("../../../src/claude/pty-process.js", () => {
   return {
-    ClaudeProcess: vi.fn(function (this: any) {
+    PtyProcess: vi.fn(function (this: any) {
       this.start = vi.fn();
       this.stop = vi.fn(async () => {});
       this.sendMessage = vi.fn(async (text: string, onText?: (t: string) => void) => {

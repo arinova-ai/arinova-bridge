@@ -25,12 +25,13 @@ export interface AnthropicCliConfig {
   models?: string[];
 }
 
-/** Errors raised from ClaudeProcess when the CLI is dead or dies mid-turn. */
+/** Errors raised from ClaudeProcess/PtyProcess when the CLI is dead or dies mid-turn. */
 function isProcessDeadError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
     msg.includes("Claude process is not running") ||
     msg.includes("Claude process exited unexpectedly") ||
+    msg.includes("Claude process exited with code") ||
     msg.includes("Claude process error")
   );
 }

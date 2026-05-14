@@ -12,10 +12,10 @@ const procInstances: any[] = [];
 /** Constructor opts received by each mock ClaudeProcess (aligned with procInstances). */
 const procCtorOpts: any[] = [];
 
-// Mock ClaudeProcess — must use function keyword, not arrow
-vi.mock("../../../src/claude/process.js", () => {
+// Mock PtyProcess — must use function keyword, not arrow
+vi.mock("../../../src/claude/pty-process.js", () => {
   return {
-    ClaudeProcess: vi.fn(function (this: any, opts: any) {
+    PtyProcess: vi.fn(function (this: any, opts: any) {
       const script = procScripts.shift() ?? {};
       this.opts = opts;
       this.start = vi.fn();
