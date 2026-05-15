@@ -1,7 +1,7 @@
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import { loadConfig, type ResolvedAgent } from "./config.js";
 import { createProviders } from "./providers/registry.js";
-import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
+import { ensureAgentCliMcpConfig, extractBotTokenFromMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
@@ -132,26 +132,29 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   }
 
   // Per-agent MCP config with agent's own bot token.
-  // anthropic-cli uses the file path directly via SessionStore, so skip when
-  // the user explicitly set mcpConfigPath (they own that file).
-  // All other providers (anthropic-sdk) read the JSON via setAgentMcpConfig,
-  // so they get either the user's custom file or a generated per-agent one.
+  // Every agent must have its own MCP config registered to prevent identity mismatch.
+  let resolvedMcpPath: string | undefined;
   if (provider.setAgentMcpConfig) {
-    if (provider.type === "anthropic-cli" && config.defaults.mcpConfigPath) {
-      provider.setAgentMcpConfig(agentName, config.defaults.mcpConfigPath);
-    } else if (config.defaults.mcpConfigPath) {
-      // Non-CLI provider: read the user's custom file
-      provider.setAgentMcpConfig(agentName, config.defaults.mcpConfigPath);
+    if (config.defaults.mcpConfigPath) {
+      resolvedMcpPath = config.defaults.mcpConfigPath;
     } else {
-      // No user config: generate per-agent file with agent's own token
       const agentArinova: ArinovaMcpEnv = {
         botToken: agentCfg.botToken,
         serverUrl: config.arinova.serverUrl,
       };
       const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
-      const agentMcpPath = ensureAgentCliMcpConfig(agentName, logger, agentArinova, userMcp);
-      if (agentMcpPath) {
-        provider.setAgentMcpConfig(agentName, agentMcpPath);
+      resolvedMcpPath = ensureAgentCliMcpConfig(agentName, logger, agentArinova, userMcp);
+    }
+    if (resolvedMcpPath) {
+      provider.setAgentMcpConfig(agentName, resolvedMcpPath);
+      // Identity self-check: verify the MCP config's bot token matches this agent
+      const configToken = extractBotTokenFromMcpConfig(resolvedMcpPath);
+      if (configToken && configToken !== agentCfg.botToken) {
+        throw new Error(
+          `agent "${agentName}": MCP config at ${resolvedMcpPath} contains bot token ` +
+          `that does not match agent's expected token. This would cause identity mismatch. ` +
+          `Delete the stale config and restart.`
+        );
       }
     }
   }

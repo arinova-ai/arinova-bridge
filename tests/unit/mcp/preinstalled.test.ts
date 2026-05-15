@@ -16,6 +16,7 @@ import {
   ensureCliMcpConfig,
   ensureCodexMcpServers,
   ensureGeminiMcpServers,
+  extractBotTokenFromMcpConfig,
 } from "../../../src/mcp/preinstalled.js";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -260,6 +261,44 @@ describe("mcp/preinstalled", () => {
       mockExecFileSync.mockImplementation(() => { throw new Error("auth error"); });
       ensureGeminiMcpServers("gemini", mockLogger as never);
       expect(mockLogger.error).toHaveBeenCalled();
+    });
+  });
+
+  describe("extractBotTokenFromMcpConfig", () => {
+    it("extracts bot token from valid config", () => {
+      const config = {
+        mcpServers: {
+          arinova: {
+            command: "node",
+            args: ["cli.js"],
+            env: { ARINOVA_BOT_TOKEN: "ari_test123", ARINOVA_SERVER_URL: "wss://example.com" },
+          },
+        },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+      expect(extractBotTokenFromMcpConfig("/some/path.json")).toBe("ari_test123");
+    });
+
+    it("returns null when arinova server has no env", () => {
+      const config = { mcpServers: { arinova: { command: "node", args: [] } } };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+      expect(extractBotTokenFromMcpConfig("/some/path.json")).toBeNull();
+    });
+
+    it("returns null when no arinova server exists", () => {
+      const config = { mcpServers: { playwright: { command: "npx", args: [] } } };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+      expect(extractBotTokenFromMcpConfig("/some/path.json")).toBeNull();
+    });
+
+    it("returns null when file read fails", () => {
+      mockReadFileSync.mockImplementation(() => { throw new Error("ENOENT"); });
+      expect(extractBotTokenFromMcpConfig("/nonexistent.json")).toBeNull();
+    });
+
+    it("returns null for invalid JSON", () => {
+      mockReadFileSync.mockReturnValue("not json");
+      expect(extractBotTokenFromMcpConfig("/bad.json")).toBeNull();
     });
   });
 });
