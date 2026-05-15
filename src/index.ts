@@ -138,7 +138,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   // so they get either the user's custom file or a generated per-agent one.
   if (provider.setAgentMcpConfig) {
     if (provider.type === "anthropic-cli" && config.defaults.mcpConfigPath) {
-      // CLI provider: user-provided file is already wired via SessionStore default
+      provider.setAgentMcpConfig(agentName, config.defaults.mcpConfigPath);
     } else if (config.defaults.mcpConfigPath) {
       // Non-CLI provider: read the user's custom file
       provider.setAgentMcpConfig(agentName, config.defaults.mcpConfigPath);

@@ -40,9 +40,16 @@ const logger = {
 describe("SessionStore", () => {
   let store: SessionStore;
 
+  function registerTestAgents(s: SessionStore): void {
+    for (const name of ["conv-1", "conv-2", "conv-3", "conv-4", "conv-999"]) {
+      s.setAgentMcpConfig(name, `/test/mcp-${name}.json`);
+    }
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     store = new SessionStore(createConfig(), logger);
+    registerTestAgents(store);
   });
 
   afterEach(async () => {
@@ -66,6 +73,21 @@ describe("SessionStore", () => {
     it("stores model", () => {
       const entry = store.createSession("conv-1", { model: "opus" });
       expect(entry.model).toBe("opus");
+    });
+
+    it("throws when no MCP config registered for agent", () => {
+      const bare = new SessionStore(createConfig(), logger);
+      expect(() => bare.createSession("unregistered-agent")).toThrow(
+        /no MCP config registered for agent "unregistered-agent"/
+      );
+    });
+
+    it("succeeds when agent MCP config is registered", () => {
+      const bare = new SessionStore(createConfig(), logger);
+      bare.setAgentMcpConfig("my-agent", "/custom/mcp.json");
+      const entry = bare.createSession("my-agent");
+      expect(entry).toBeDefined();
+      expect(entry.process.start).toHaveBeenCalled();
     });
   });
 

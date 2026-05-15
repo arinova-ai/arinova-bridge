@@ -67,6 +67,13 @@ describe("AnthropicCliProvider", () => {
       },
       logger,
     );
+    for (const name of [
+      "conv-1", "conv-2", "conv-3", "conv-4", "conv-crash", "conv-exit",
+      "conv-other", "conv-abort", "conv-cap", "conv-report", "conv-refresh",
+      "conv-crash-report", "conv-warm",
+    ]) {
+      provider.setAgentMcpConfig(name, `/test/mcp-${name}.json`);
+    }
   });
 
   afterEach(async () => {
