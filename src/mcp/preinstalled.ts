@@ -169,16 +169,14 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
 
 /**
  * Read an MCP config file and extract the ARINOVA_BOT_TOKEN from the
- * arinova server's env block. Returns null if not found.
+ * arinova server's env block. Returns null when the config has no arinova
+ * server or no bot token env var. Throws on file read or JSON parse errors
+ * so callers cannot silently bypass identity checks.
  */
 export function extractBotTokenFromMcpConfig(configPath: string): string | null {
-  try {
-    const raw = readFileSync(configPath, "utf-8");
-    const config = JSON.parse(raw) as McpCliConfig;
-    return config.mcpServers?.arinova?.env?.ARINOVA_BOT_TOKEN ?? null;
-  } catch {
-    return null;
-  }
+  const raw = readFileSync(configPath, "utf-8");
+  const config = JSON.parse(raw) as McpCliConfig;
+  return config.mcpServers?.arinova?.env?.ARINOVA_BOT_TOKEN ?? null;
 }
 
 /**

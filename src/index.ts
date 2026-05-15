@@ -4,6 +4,7 @@ import { createProviders } from "./providers/registry.js";
 import { ensureAgentCliMcpConfig, extractBotTokenFromMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
+import { verifyAgentIdentity } from "./util/identity-check.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
 import { formatModelName, type HudData } from "./claude/hud-ws.js";
 import { startIpcServer } from "./ipc/server.js";
@@ -147,7 +148,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     }
     if (resolvedMcpPath) {
       provider.setAgentMcpConfig(agentName, resolvedMcpPath);
-      // Identity self-check: verify the MCP config's bot token matches this agent
+      // Identity preflight: verify MCP config's bot token matches this agent.
+      // extractBotTokenFromMcpConfig throws on file/parse errors so a
+      // missing or corrupt config cannot silently bypass this check.
       const configToken = extractBotTokenFromMcpConfig(resolvedMcpPath);
       if (configToken && configToken !== agentCfg.botToken) {
         throw new Error(
@@ -155,6 +158,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           `that does not match agent's expected token. This would cause identity mismatch. ` +
           `Delete the stale config and restart.`
         );
+      }
+      if (!configToken) {
+        logger.warn(`[${agentName}] MCP config has no arinova bot token — runtime get_status will verify`);
       }
     }
   }
@@ -349,6 +355,19 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   });
 
   await agent.connect();
+
+  // Runtime identity verification: confirm the bot token maps to the expected
+  // agent on the server. This catches stale tokens, token swaps, and server-side
+  // mapping errors that the static config-file check cannot detect.
+  try {
+    await verifyAgentIdentity(agent, agentName, logger);
+  } catch (err) {
+    agent.disconnect();
+    throw new Error(
+      `agent "${agentName}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   activeAgents.push({ agent, name: agentName, commandHandler, provider, agentConfig: agentCfg });
   logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
 }

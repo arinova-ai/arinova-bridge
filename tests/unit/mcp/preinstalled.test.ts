@@ -291,14 +291,14 @@ describe("mcp/preinstalled", () => {
       expect(extractBotTokenFromMcpConfig("/some/path.json")).toBeNull();
     });
 
-    it("returns null when file read fails", () => {
+    it("throws when file read fails", () => {
       mockReadFileSync.mockImplementation(() => { throw new Error("ENOENT"); });
-      expect(extractBotTokenFromMcpConfig("/nonexistent.json")).toBeNull();
+      expect(() => extractBotTokenFromMcpConfig("/nonexistent.json")).toThrow("ENOENT");
     });
 
-    it("returns null for invalid JSON", () => {
+    it("throws for invalid JSON", () => {
       mockReadFileSync.mockReturnValue("not json");
-      expect(extractBotTokenFromMcpConfig("/bad.json")).toBeNull();
+      expect(() => extractBotTokenFromMcpConfig("/bad.json")).toThrow();
     });
   });
 });
