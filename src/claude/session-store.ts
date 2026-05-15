@@ -64,7 +64,13 @@ export class SessionStore {
     const model = opts?.model;
 
     const agentName = opts?.agentName ?? conversationId.split(":")[0];
-    const mcpConfigPath = this.agentMcpPaths.get(agentName) ?? this.config.mcpConfigPath;
+    const mcpConfigPath = this.agentMcpPaths.get(agentName);
+    if (!mcpConfigPath) {
+      throw new Error(
+        `session-store: no MCP config registered for agent "${agentName}". ` +
+        `Call setAgentMcpConfig() before creating a session to prevent identity mismatch.`
+      );
+    }
 
     const processOpts: PtyProcessOptions = {
       claudePath: this.config.claudePath,
