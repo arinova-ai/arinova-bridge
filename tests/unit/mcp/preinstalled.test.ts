@@ -41,6 +41,8 @@ describe("mcp/preinstalled", () => {
     vi.resetAllMocks();
     delete process.env.GITHUB_TOKEN;
     delete process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+    delete process.env.ARINOVA_BOT_TOKEN;
+    delete process.env.ARINOVA_SERVER_URL;
   });
 
   afterEach(() => {
