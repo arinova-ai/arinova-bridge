@@ -28,7 +28,7 @@ export async function verifyAgentIdentity(
       "identity verification failed — get_status returned no agent name",
     );
   }
-  if (verifiedName !== expectedAgentName) {
+  if (verifiedName.toLowerCase() !== expectedAgentName.toLowerCase()) {
     throw new Error(
       `identity mismatch — server identifies this bot token as agent "${verifiedName}" ` +
       `but expected "${expectedAgentName}". Check bot token assignment.`,

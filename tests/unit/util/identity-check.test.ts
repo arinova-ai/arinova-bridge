@@ -20,6 +20,11 @@ describe("verifyAgentIdentity", () => {
     expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining("identity verified"));
   });
 
+  it("resolves when names differ only in case", async () => {
+    const agent = mockAgent({ status: "success", result: { name: "Timi", agentId: "abc" } });
+    await expect(verifyAgentIdentity(agent, "timi", mockLogger as never)).resolves.toBeUndefined();
+  });
+
   it("throws on name mismatch", async () => {
     const agent = mockAgent({ status: "success", result: { name: "Derek", agentId: "xyz" } });
     await expect(verifyAgentIdentity(agent, "Ron", mockLogger as never)).rejects.toThrow(
