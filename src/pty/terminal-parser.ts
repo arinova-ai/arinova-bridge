@@ -1,9 +1,13 @@
-import { Terminal } from '@xterm/headless';
+import { createRequire } from 'node:module';
+import type { Terminal as TerminalType } from '@xterm/headless';
+
+const _require = createRequire(import.meta.url);
+const { Terminal } = _require('@xterm/headless') as { Terminal: new (options?: Record<string, unknown>) => TerminalType };
 import { BOX_DRAWING_LINE } from './constants.js';
 import type { TurnUsage } from './types.js';
 
 export class TerminalParser {
-  private terminal: Terminal;
+  private terminal: TerminalType;
   private turnStartLine = 0;
   private lastSentPrompt = '';
   private lastStreamedContent = '';
