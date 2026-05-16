@@ -1,6 +1,7 @@
 import type { Provider, SendMessageOpts, SendResult, ToolCallReport } from "../providers/types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
+import { stripInjectedContext } from "../util/context.js";
 
 const log = createLogger("pipeline");
 
@@ -217,6 +218,11 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
   if (sendResult.sessionId) {
     lastProviderSessionId.set(sessionId, sendResult.sessionId);
   }
+
+  // Scrub any bridge-injected blocks that the PTY parser misclassified as
+  // response text (multi-line prompts only carry `❯` on the first line,
+  // so [Recent history] / [Conversation summary] / etc. can leak through).
+  sendResult.text = stripInjectedContext(sendResult.text);
 
   // Step 6: Record assistant response in bridge session
   bridgeSessionStore.addAssistantMessage(sessionId, sendResult.text, agentName, { model });
