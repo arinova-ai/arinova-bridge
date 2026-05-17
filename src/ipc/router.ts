@@ -15,6 +15,29 @@ const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
+const DEFAULT_TASK_TIMEOUT_MS = (() => {
+  const raw = process.env.BRIDGE_TASK_TIMEOUT_MS;
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300_000;
+})();
+
+export class BridgeTaskTimeoutError extends Error {
+  constructor(public readonly agentName: string, public readonly timeoutMs: number) {
+    super(
+      `bridge task on agent "${agentName}" exceeded ${timeoutMs}ms hard timeout (BRIDGE_TASK_TIMEOUT_MS); ` +
+      `force-resolving chain to release inflight lock`
+    );
+    this.name = "BridgeTaskTimeoutError";
+  }
+}
+
+export interface RunExclusiveOpts {
+  /** Hard timeout per task in ms. Defaults to BRIDGE_TASK_TIMEOUT_MS env (300_000). */
+  timeoutMs?: number;
+  /** If provided, .abort() fires on timeout so the inner SDK call can exit cleanly. */
+  abortController?: AbortController;
+}
+
 /**
  * Per-agent serialization for provider calls. Both the WS task path
  * (index.ts onTask) and the A2A path (deliverToAgent) acquire this before
@@ -22,14 +45,55 @@ const MAX_HISTORY = 50;
  * in-flight A2A turn (and vice versa). agent-sdk's agentWideLock only
  * covers WS-originating tasks; A2A lives entirely in bridge and needs this
  * layer to share exclusion with it.
+ *
+ * Each task is timeout-guarded — if fn exceeds opts.timeoutMs (default
+ * BRIDGE_TASK_TIMEOUT_MS / 300s) the timer rejects with
+ * BridgeTaskTimeoutError, the chain releases, and the optional
+ * abortController is fired so the inner SDK call can terminate the socket
+ * recv. Root-cause fix for BUG-INFRA-MQ-INFLIGHT-LOCK-STUCK: without this,
+ * a single Anthropic API / pty hang would pin the chain forever while
+ * bridge WS heartbeats kept the chat-backend 600s idle timer reset, so the
+ * only recovery path was a bridge restart.
  */
 const agentSendChains = new Map<string, Promise<unknown>>();
 
-export function runExclusiveOnAgent<T>(agentName: string, fn: () => Promise<T>): Promise<T> {
+export function runExclusiveOnAgent<T>(
+  agentName: string,
+  fn: () => Promise<T>,
+  opts?: RunExclusiveOpts,
+): Promise<T> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+  const abortController = opts?.abortController;
+  const wrapped = () => runTaskWithTimeout(agentName, fn, timeoutMs, abortController);
   const prev = agentSendChains.get(agentName) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
+  const next = prev.then(wrapped, wrapped);
   agentSendChains.set(agentName, next.catch(() => undefined));
   return next;
+}
+
+function runTaskWithTimeout<T>(
+  agentName: string,
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  abortController: AbortController | undefined,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      log.warn(
+        `runExclusiveOnAgent timeout: agent="${agentName}" timeoutMs=${timeoutMs}; ` +
+        `force-resolving chain${abortController ? " + aborting controller" : ""}`,
+      );
+      if (abortController && !abortController.signal.aborted) {
+        try { abortController.abort(); } catch { /* best effort */ }
+      }
+      reject(new BridgeTaskTimeoutError(agentName, timeoutMs));
+    }, timeoutMs);
+  });
+  const work = fn().finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+  return Promise.race([work, timeoutPromise]);
 }
 
 /** Clear A2A-specific context-injection tracking (delegates to pipeline). */
@@ -173,7 +237,7 @@ export async function deliverToAgent(
           });
           responseText = result.text;
         }
-      });
+      }, { abortController: controller });
     } finally {
       clearTimeout(timer);
     }
