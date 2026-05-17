@@ -44,6 +44,14 @@ export class CodexRpcClient {
     this.logger = logger;
     this.timeoutMs = timeoutMs;
 
+    this.stdin.on("error", (err) => {
+      if (!this.closed) {
+        this.logger.warn(`rpc-client: stdin error: ${(err as Error).message}`);
+      }
+      this.closed = true;
+      this.rejectAll(`stdin error: ${(err as Error).message}`);
+    });
+
     const rl = readline.createInterface({ input: stdout, crlfDelay: Infinity });
     rl.on("line", (line) => this.handleLine(line));
     rl.on("close", () => this.handleClose());
@@ -106,6 +114,7 @@ export class CodexRpcClient {
   }
 
   private writeLine(msg: unknown): void {
+    if (this.closed || !this.stdin.writable) return;
     try {
       this.stdin.write(JSON.stringify(msg) + "\n");
     } catch (err) {
