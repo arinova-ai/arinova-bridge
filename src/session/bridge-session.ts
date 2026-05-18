@@ -591,11 +591,15 @@ export class BridgeSessionStore {
 
   /**
    * Check if compaction is needed based on model context window.
+   * Uses provider-reported windows when available, falling back to local model
+   * estimates only before runtime usage has been reported.
    * Returns true if estimated tokens >= 50% of context window (Hermes-style).
    */
-  needsCompact(conversationId: string, model?: string): boolean {
+  needsCompact(conversationId: string, model?: string, reportedContextWindow?: number): boolean {
     const tokens = this.estimateTokens(conversationId, model);
-    const window = this.getContextWindow(model);
+    const window = reportedContextWindow && reportedContextWindow > 0
+      ? reportedContextWindow
+      : this.getContextWindow(model);
     return tokens >= window * COMPACT_THRESHOLD;
   }
 

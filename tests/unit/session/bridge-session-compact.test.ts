@@ -44,6 +44,13 @@ describe("BridgeSessionStore.compact()", () => {
     }
   }
 
+  it("uses provider-reported context window when deciding whether compact is needed", () => {
+    store.addUserMessage(convId, "x ".repeat(400), "user", { model: "gpt-5.4" });
+
+    expect(store.needsCompact(convId, "gpt-5.4")).toBe(false);
+    expect(store.needsCompact(convId, "gpt-5.4", 100)).toBe(true);
+  });
+
   it("protects first 2 and last 10 messages, compresses only the middle", async () => {
     // Add 20 messages: first 2 protected, last 10 protected, middle 8 compacted
     addMessages(20);

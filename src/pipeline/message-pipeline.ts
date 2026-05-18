@@ -223,9 +223,11 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
 
   // Step 7: Auto-compact if context exceeds threshold
   let compacted = false;
-  if (bridgeSessionStore.needsCompact(sessionId, model)) {
+  const runtimeContextWindow = provider.getUsageInfo(sessionId)?.context?.contextWindow;
+  if (bridgeSessionStore.needsCompact(sessionId, model, runtimeContextWindow)) {
     const compactModel = compactModelOverride ?? model;
-    log.info(`[${agentName}] context threshold reached for ${sessionId}, compacting with ${compactModel}...`);
+    const windowSource = runtimeContextWindow ? `reported window ${runtimeContextWindow}` : "fallback model window";
+    log.info(`[${agentName}] context threshold reached for ${sessionId} (${windowSource}), compacting with ${compactModel}...`);
     try {
       await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
         const tokenBudget = getSummaryMaxTokens(compactModel);
