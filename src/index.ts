@@ -9,7 +9,7 @@ import { HudMonitor } from "./claude/hud-monitor.js";
 import { formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
-import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent, BridgeTaskTimeoutError } from "./ipc/router.js";
+import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore } from "./session/bridge-session.js";
 import { runMessagePipeline, clearContextInjected } from "./pipeline/message-pipeline.js";
@@ -245,19 +245,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       // agentWideLock already serializes WS task vs WS task; this adds the
       // missing WS task vs A2A exclusion so a fresh WS task never aborts a
       // queued A2A turn in the shared Claude process.
-      //
-      // ctx.signal is the per-task signal from agent-sdk. We forward it
-      // into a local controller so runExclusiveOnAgent's hard timeout can
-      // also abort the inner pipeline — without this, a chain-level
-      // timeout would unblock the chain but leave the SDK socket recv
-      // running.
-      const turnAbort = new AbortController();
-      if (ctx.signal.aborted) {
-        turnAbort.abort();
-      } else {
-        ctx.signal.addEventListener("abort", () => turnAbort.abort(), { once: true });
-      }
-
       const sendResult = await runExclusiveOnAgent(agentName, () => runMessagePipeline({
         provider: msgProvider,
         bridgeSessionStore,
@@ -269,7 +256,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         systemPrompt: agentCfg.systemPrompt,
         compactModel: agentCfg.compactModel,
         onChunk: (text) => ctx.sendChunk(text),
-        signal: turnAbort.signal,
+        signal: ctx.signal,
         uploadFile: ctx.uploadFile,
         attachments: ctx.attachments,
         conversationType: ctx.conversationType,
@@ -283,7 +270,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
         reportToolCall: (report) => agent.reportToolCall(report),
         messageId: ctx.userMessageId,
-      }), { abortController: turnAbort });
+      }));
 
       if (sendResult.compacted) clearA2aContextInjected(sessionId);
 
@@ -346,11 +333,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       })().catch((err) => logger.warn(`hud-ws[${agentName}]: push failed — ${err}`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof BridgeTaskTimeoutError) {
-        logger.warn(`[${agentName}] task timed out for ${conversationId} — ${msg}`);
-        ctx.sendError(`Task timed out after ${err.timeoutMs}ms — bridge force-released to recover from a stuck inflight lock`);
-        return;
-      }
       if (ctx.signal.aborted || msg === "Turn aborted by user") {
         const reason = ctx.signal.aborted ? "signal aborted (client/SDK)" : `process: ${msg}`;
         logger.info(`[${agentName}] task cancelled for ${conversationId} — ${reason}`);
