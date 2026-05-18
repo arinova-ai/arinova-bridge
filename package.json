@@ -32,7 +32,13 @@
   },
   "pnpm": {
     "overrides": {
-      "@anthropic-ai/sdk": ">=0.82.0"
+      "@anthropic-ai/sdk": "0.96.0",
+      "@hono/node-server": "1.19.13",
+      "fast-uri": "3.1.2",
+      "hono": "4.12.19",
+      "ip-address": "10.2.0",
+      "postcss": "8.5.14",
+      "vite": "7.3.2"
     }
   },
   "devDependencies": {
