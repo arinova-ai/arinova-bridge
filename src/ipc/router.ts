@@ -455,7 +455,7 @@ async function handleAgentReset(
   let reset = 0;
   for (const s of sessions) {
     try {
-      await target.provider.resetSession(s.conversationId);
+      await target.provider.resetSession(s.conversationId, { restartProcess: true });
       clearContextInjected(s.conversationId);
       reset++;
     } catch { /* best effort */ }

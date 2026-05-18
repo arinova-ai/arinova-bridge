@@ -122,6 +122,7 @@ export interface SessionOpts {
   cwd?: string;
   model?: string;
   compact?: boolean;
+  restartProcess?: boolean;
 }
 
 export interface SessionInfo {

@@ -188,7 +188,7 @@ export class CommandHandler {
     const cwd = this.getCwdForConversation(ctx.conversationId);
     const model = this.getModelForConversation(ctx.conversationId);
 
-    await provider.resetSession(ctx.conversationId, { cwd, model });
+    await provider.resetSession(ctx.conversationId, { cwd, model, restartProcess: true });
     this.onSessionClear?.(ctx.conversationId);
 
     this.reply(
@@ -203,7 +203,7 @@ export class CommandHandler {
     const model = this.getModelForConversation(ctx.conversationId);
 
     provider.interrupt(ctx.conversationId);
-    await provider.resetSession(ctx.conversationId, { cwd, model });
+    await provider.resetSession(ctx.conversationId, { cwd, model, restartProcess: true });
     this.onSessionReset?.(ctx.conversationId);
 
     this.reply(

@@ -231,11 +231,15 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     try {
       await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
         const tokenBudget = getSummaryMaxTokens(compactModel);
-        const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+        const conversationText = messages
+          .map((m) => `${m.sender ?? m.role}: ${m.role === "user" ? (m.userMessage?.trim() || m.content) : m.content}`)
+          .join("\n");
         const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
+        const compactConversationId = `${sessionId}:compact`;
 
+        await provider.resetSession(compactConversationId, { cwd, model: compactModel });
         const compactResult = await provider.sendMessage({
-          conversationId: `${sessionId}:compact`,
+          conversationId: compactConversationId,
           content: summaryPrompt,
           cwd,
           model: compactModel,

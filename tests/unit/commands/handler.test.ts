@@ -208,7 +208,7 @@ describe("CommandHandler", () => {
       expect(anthropicProvider.interrupt).toHaveBeenCalledWith("conv-reset-1");
       expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
         "conv-reset-1",
-        expect.objectContaining({ cwd: "/default/cwd" }),
+        expect.objectContaining({ cwd: "/default/cwd", restartProcess: true }),
       );
       expect(onReset).toHaveBeenCalledWith("conv-reset-1");
       expect(onClear).not.toHaveBeenCalled();

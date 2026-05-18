@@ -189,7 +189,11 @@ export class OpenAICliProvider implements Provider {
   }
 
   async resetSession(conversationId: string, opts?: SessionOpts): Promise<void> {
-    this.resolveConversationServer(conversationId).clearThread(conversationId);
+    const server = this.resolveConversationServer(conversationId);
+    server.clearThread(conversationId);
+    if (opts?.restartProcess) {
+      await server.shutdown();
+    }
     this.conversationServers.delete(conversationId);
     const conv = this.db.getConversation(conversationId);
     if (conv) {

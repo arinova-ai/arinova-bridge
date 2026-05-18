@@ -90,8 +90,8 @@ const PROTECT_LAST_N = 10;
 /** Fallback maximum tokens for a compacted summary. */
 export const SUMMARY_MAX_TOKENS = 750;
 
-/** Keep compact prompts below Codex app-server's 1,048,576 character input cap. */
-const COMPACT_INPUT_CHUNK_CHARS = 750_000;
+/** Keep compact prompts well below smaller Codex runtime context windows. */
+const COMPACT_INPUT_CHUNK_CHARS = 120_000;
 
 /** Resolve context window for a model, with prefix fallback. */
 function resolveContextWindow(model?: string): number {
@@ -207,8 +207,14 @@ function extractUserCurrentMessage(content: string): string {
   return (match?.[1] ?? content).trim();
 }
 
+function compactMessageContent(message: SessionMessage): string {
+  return message.role === "user"
+    ? (message.userMessage?.trim() || message.content)
+    : message.content;
+}
+
 function compactMessageLength(message: SessionMessage): number {
-  return `${message.sender ?? message.role}: ${message.content}\n`.length;
+  return `${message.sender ?? message.role}: ${compactMessageContent(message)}\n`.length;
 }
 
 function splitLargeCompactMessage(message: SessionMessage, maxChars: number): SessionMessage[] {
@@ -216,10 +222,12 @@ function splitLargeCompactMessage(message: SessionMessage, maxChars: number): Se
   const contentChunkChars = Math.max(1, maxChars - prefixChars);
   const chunks: SessionMessage[] = [];
 
-  for (let offset = 0; offset < message.content.length; offset += contentChunkChars) {
+  const content = compactMessageContent(message);
+  for (let offset = 0; offset < content.length; offset += contentChunkChars) {
     chunks.push({
       ...message,
-      content: message.content.slice(offset, offset + contentChunkChars),
+      content: content.slice(offset, offset + contentChunkChars),
+      userMessage: undefined,
     });
   }
 

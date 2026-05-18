@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const appServerInstances = vi.hoisted(() => [] as Array<{ config: any }>);
+const appServerInstances = vi.hoisted(() => [] as Array<{ config: any; shutdowns: number }>);
 
 vi.mock("../../../src/codex/app-server.js", () => ({
   CodexAppServer: class {
     private threadIds = new Map<string, string>();
+    private instance: { config: any; shutdowns: number };
     private usage = new Map<string, {
       total: {
         inputTokens: number;
@@ -17,7 +18,8 @@ vi.mock("../../../src/codex/app-server.js", () => ({
     }>();
 
     constructor(config: any) {
-      appServerInstances.push({ config });
+      this.instance = { config, shutdowns: 0 };
+      appServerInstances.push(this.instance);
     }
 
     async sendMessage(
@@ -44,7 +46,7 @@ vi.mock("../../../src/codex/app-server.js", () => ({
     getContextUsage() { return null; }
     getRateLimits() { return null; }
     isReady() { return true; }
-    async shutdown() {}
+    async shutdown() { this.instance.shutdowns++; }
   },
 }));
 
@@ -125,6 +127,18 @@ describe("OpenAICliProvider", () => {
       const info = provider.getSessionInfo("conv-1");
       // After reset, thread_id should be null
       expect(info).toBeNull();
+    });
+
+    it("restarts the app-server process when requested", async () => {
+      await provider.sendMessage({
+        conversationId: "conv-1",
+        content: "test",
+        onChunk: () => {},
+      });
+
+      await provider.resetSession("conv-1", { cwd: "/new-dir", restartProcess: true });
+
+      expect(appServerInstances[0].shutdowns).toBe(1);
     });
   });
 
