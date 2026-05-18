@@ -136,14 +136,16 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     clearContextInjected(sessionId);
   }
 
-  // Step 2: Build bridge session context (only on first message of a new/reset session)
-  // When backend provides conversation history, use it directly and skip bridge's own.
-  const hasBackendHistory = ctx.history && ctx.history.length > 0;
+  // Step 2: Build bootstrap context only on first message of a new/reset provider session.
+  // Persistent provider sessions/threads already retain their own history. On bootstrap,
+  // prefer BridgeSessionStore because it can include compacted long-term context; fall
+  // back to backend recent history only when the bridge has no context yet.
   const isFirstMessage = !contextInjected.has(sessionId);
   let injectedContextThisTurn = isFirstMessage;
-  let bridgeSessionContext = (isFirstMessage && !hasBackendHistory)
+  let bridgeSessionContext = isFirstMessage
     ? (bridgeSessionStore.buildContext(sessionId) || undefined)
     : undefined;
+  const historyForProvider = isFirstMessage && !bridgeSessionContext ? ctx.history : undefined;
 
   // Prepend extra context (e.g. A2A memory query results) if provided
   if (isFirstMessage && ctx.extraContext) {
@@ -177,7 +179,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     members: ctx.members,
     replyTo: ctx.replyTo,
     fetchHistory: ctx.fetchHistory,
-    history: ctx.history,
+    history: historyForProvider,
     bridgeSessionContext,
     queue: ctx.queue,
     reportToolCall: ctx.reportToolCall,
@@ -201,14 +203,17 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     clearContextInjected(sessionId);
 
     // Provider session was destroyed — rebuild context for the fresh session.
-    let retryContext = hasBackendHistory
-      ? undefined
-      : (bridgeSessionStore.buildContext(sessionId) || undefined);
+    let retryContext = bridgeSessionStore.buildContext(sessionId) || undefined;
+    const retryHistory = retryContext ? undefined : ctx.history;
     if (ctx.extraContext) {
       retryContext = retryContext ? `${ctx.extraContext}\n\n${retryContext}` : ctx.extraContext;
     }
 
-    sendResult = await provider.sendMessage({ ...sendMessageArgs, bridgeSessionContext: retryContext });
+    sendResult = await provider.sendMessage({
+      ...sendMessageArgs,
+      bridgeSessionContext: retryContext,
+      history: retryHistory,
+    });
     injectedContextThisTurn = true;
   }
 
