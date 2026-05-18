@@ -116,4 +116,23 @@ describe("loadConfig", () => {
     expect(config.defaults.cwd).not.toContain("~");
     expect(config.defaults.cwd).toContain("projects");
   });
+
+  it("defaults openai-oauth compact model to gpt-5.4-mini", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "openai-oauth",
+      providers: [
+        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
+      ],
+      defaults: { cwd: "/home/test" },
+      agents: [
+        { name: "casey", botToken: "casey-token", provider: "openai-oauth" },
+      ],
+    });
+
+    const config = loadConfig();
+
+    expect(config.agents[0].compactModel).toBe("gpt-5.4-mini");
+  });
 });

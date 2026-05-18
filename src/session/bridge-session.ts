@@ -46,13 +46,13 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-sonnet-4-6": 200_000,
   "claude-haiku-4-5": 200_000,
   // OpenAI
-  "gpt-5.4": 1_000_000,
-  "gpt-5.4-mini": 1_000_000,
-  "gpt-5.3-codex": 1_000_000,
-  "gpt-5.2-codex": 1_000_000,
-  "gpt-5.2": 1_000_000,
-  "gpt-5.1-codex-max": 1_000_000,
-  "gpt-5.1-codex-mini": 1_000_000,
+  "gpt-5.4": 1_050_000,
+  "gpt-5.4-mini": 400_000,
+  "gpt-5.3-codex": 400_000,
+  "gpt-5.2-codex": 400_000,
+  "gpt-5.2": 400_000,
+  "gpt-5.1-codex-max": 400_000,
+  "gpt-5.1-codex-mini": 400_000,
   "gpt-4.1": 1_000_000,
   "gpt-4.1-mini": 1_000_000,
   "gpt-4.1-nano": 1_000_000,
@@ -89,6 +89,9 @@ const PROTECT_LAST_N = 10;
 
 /** Fallback maximum tokens for a compacted summary. */
 export const SUMMARY_MAX_TOKENS = 750;
+
+/** Keep compact prompts below Codex app-server's 1,048,576 character input cap. */
+const COMPACT_INPUT_CHUNK_CHARS = 750_000;
 
 /** Resolve context window for a model, with prefix fallback. */
 function resolveContextWindow(model?: string): number {
@@ -202,6 +205,60 @@ function countTokens(text: string, model?: string): number {
 function extractUserCurrentMessage(content: string): string {
   const match = content.match(/<user-current-message>\s*([\s\S]*?)\s*<\/user-current-message>/i);
   return (match?.[1] ?? content).trim();
+}
+
+function compactMessageLength(message: SessionMessage): number {
+  return `${message.sender ?? message.role}: ${message.content}\n`.length;
+}
+
+function splitLargeCompactMessage(message: SessionMessage, maxChars: number): SessionMessage[] {
+  const prefixChars = `${message.sender ?? message.role}: \n`.length;
+  const contentChunkChars = Math.max(1, maxChars - prefixChars);
+  const chunks: SessionMessage[] = [];
+
+  for (let offset = 0; offset < message.content.length; offset += contentChunkChars) {
+    chunks.push({
+      ...message,
+      content: message.content.slice(offset, offset + contentChunkChars),
+    });
+  }
+
+  return chunks;
+}
+
+function chunkMessagesForCompact(
+  messages: SessionMessage[],
+  maxChars = COMPACT_INPUT_CHUNK_CHARS,
+): SessionMessage[][] {
+  const chunks: SessionMessage[][] = [];
+  let current: SessionMessage[] = [];
+  let currentChars = 0;
+
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = [];
+      currentChars = 0;
+    }
+  };
+
+  for (const message of messages) {
+    const pieces = compactMessageLength(message) > maxChars
+      ? splitLargeCompactMessage(message, maxChars)
+      : [message];
+
+    for (const piece of pieces) {
+      const pieceChars = compactMessageLength(piece);
+      if (current.length > 0 && currentChars + pieceChars > maxChars) {
+        flush();
+      }
+      current.push(piece);
+      currentChars += pieceChars;
+    }
+  }
+
+  flush();
+  return chunks;
 }
 
 // ---------------------------------------------------------------------------
@@ -549,7 +606,7 @@ export class BridgeSessionStore {
   async compact(
     conversationId: string,
     summariser: (messages: SessionMessage[], existingSummary?: string) => Promise<string>,
-    opts?: { model?: string },
+    opts?: { model?: string; compactInputChunkChars?: number },
   ): Promise<void> {
     const rows = this.stmts.getMessages.all(conversationId) as MessageRow[];
     const total = rows.length;
@@ -570,7 +627,21 @@ export class BridgeSessionStore {
       | { compacted_summary: string | null }
       | undefined;
 
-    let summary = await summariser(middleMessages, summaryRow?.compacted_summary ?? undefined);
+    const chunks = chunkMessagesForCompact(middleMessages, opts?.compactInputChunkChars);
+    let summary = summaryRow?.compacted_summary ?? undefined;
+
+    if (chunks.length > 1) {
+      this.logger.info(
+        `bridge-session: compacting ${conversationId} in ${chunks.length} chunks ` +
+        `(${middleMessages.length} messages)`,
+      );
+    }
+
+    for (const chunk of chunks) {
+      summary = await summariser(chunk, summary);
+    }
+
+    if (summary === undefined) return;
 
     // Enforce dynamic summary token budget — truncate if exceeded
     const maxTokens = getSummaryMaxTokens(opts?.model);

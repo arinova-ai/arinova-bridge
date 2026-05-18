@@ -140,6 +140,34 @@ describe("BridgeSessionStore.compact()", () => {
     expect(receivedExisting).toBe("first summary");
   });
 
+  it("compacts large middle history in chunks", async () => {
+    for (let i = 1; i <= 16; i++) {
+      if (i >= 3 && i <= 6) {
+        store.addUserMessage(convId, `large msg ${i} ${"x".repeat(50)}`, "user");
+      } else {
+        store.addUserMessage(convId, `user msg ${i}`, "user");
+      }
+    }
+
+    const calls: Array<{ count: number; existing?: string }> = [];
+    await store.compact(convId, async (messages, existing) => {
+      calls.push({ count: messages.length, existing });
+      return `summary-${calls.length}`;
+    }, { compactInputChunkChars: 160 });
+
+    expect(calls).toEqual([
+      { count: 2, existing: undefined },
+      { count: 2, existing: "summary-1" },
+    ]);
+
+    const after = store.getMessages(convId);
+    expect(after).toHaveLength(PROTECT_FIRST_N + PROTECT_LAST_N);
+    expect(after[0].content).toBe("user msg 1");
+    expect(after[1].content).toBe("user msg 2");
+    expect(after[2].content).toBe("user msg 7");
+    expect(after[after.length - 1].content).toBe("user msg 16");
+  });
+
   it("does not modify DB when summariser throws", async () => {
     addMessages(20);
     const before = store.getMessages(convId);
