@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 
 const appServerInstances = vi.hoisted(() => [] as Array<{ config: any; shutdowns: number }>);
+const ensureAgentCodexHomeCalls = vi.hoisted(() => [] as any[][]);
 
 vi.mock("../../../src/codex/app-server.js", () => ({
   CodexAppServer: class {
@@ -50,6 +51,13 @@ vi.mock("../../../src/codex/app-server.js", () => ({
   },
 }));
 
+vi.mock("../../../src/mcp/preinstalled.js", () => ({
+  ensureAgentCodexHome: vi.fn((...args: any[]) => {
+    ensureAgentCodexHomeCalls.push(args);
+    return args[2];
+  }),
+}));
+
 import { OpenAICliProvider } from "../../../src/providers/openai-cli.js";
 
 const logger = {
@@ -66,6 +74,7 @@ describe("OpenAICliProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     appServerInstances.length = 0;
+    ensureAgentCodexHomeCalls.length = 0;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "arinova-test-openai-"));
     dbPath = path.join(tmpDir, "test.db");
 
@@ -249,6 +258,36 @@ describe("OpenAICliProvider", () => {
         ARINOVA_BOT_TOKEN: "ari_casey",
         ARINOVA_SERVER_URL: "wss://api.example.com",
       });
+    });
+
+    it("uses provider configDir as the per-agent Codex auth source", async () => {
+      const configDir = path.join(tmpDir, "codex-account");
+      const isolatedProvider = new OpenAICliProvider(
+        {
+          providerId: "openai-oauth2",
+          displayName: "OpenAI OAuth 2",
+          codexPath: "/usr/bin/codex",
+          defaultCwd: "/default",
+          dbPath: path.join(tmpDir, "isolated.db"),
+          configDir,
+        },
+        logger,
+      );
+
+      isolatedProvider.setAgentMcpEnv("casey", {
+        ARINOVA_BOT_TOKEN: "ari_casey",
+        ARINOVA_SERVER_URL: "wss://api.example.com",
+      });
+
+      expect(ensureAgentCodexHomeCalls.at(-1)).toEqual([
+        "/usr/bin/codex",
+        logger,
+        expect.stringMatching(/openai-oauth2\/casey$/),
+        { botToken: "ari_casey", serverUrl: "wss://api.example.com" },
+        undefined,
+        configDir,
+      ]);
+      await isolatedProvider.shutdown();
     });
   });
 });

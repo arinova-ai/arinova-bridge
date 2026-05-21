@@ -1,6 +1,6 @@
 import type { Provider } from "./types.js";
 import type { BridgeConfig } from "../config.js";
-import type { ProviderEntry } from "../config-file.js";
+import { resolveProviderConfigDir, type ProviderEntry } from "../config-file.js";
 import type { Logger } from "../util/logger.js";
 import { AnthropicCliProvider } from "./anthropic-cli.js";
 import { AnthropicSdkProvider } from "./anthropic-sdk.js";
@@ -24,8 +24,13 @@ const DEFAULT_ANTHROPIC_MODELS = [
 async function buildEnv(entry: ProviderEntry, logger: Logger): Promise<Record<string, string> | undefined> {
   const env: Record<string, string> = {};
   let hasEnv = false;
+  const configDir = resolveProviderConfigDir(entry.configDir);
 
   if (entry.type === "anthropic-cli") {
+    if (configDir) {
+      env.CLAUDE_CONFIG_DIR = configDir;
+      hasEnv = true;
+    }
     if (entry.baseUrl) {
       env.ANTHROPIC_BASE_URL = entry.baseUrl;
       hasEnv = true;
@@ -42,6 +47,10 @@ async function buildEnv(entry: ProviderEntry, logger: Logger): Promise<Record<st
       }
     }
   } else if (entry.type === "openai-cli") {
+    if (configDir) {
+      env.CODEX_HOME = configDir;
+      hasEnv = true;
+    }
     if (entry.baseUrl) {
       env.OPENAI_BASE_URL = entry.baseUrl;
       hasEnv = true;
@@ -124,6 +133,7 @@ async function createProvider(
   logger: Logger,
 ): Promise<Provider | null> {
   const env = await buildEnv(entry, logger);
+  const configDir = resolveProviderConfigDir(entry.configDir);
   const arinovaMcp: ArinovaMcpEnv = {
     botToken: config.arinova.botToken,
     serverUrl: config.arinova.serverUrl,
@@ -143,6 +153,7 @@ async function createProvider(
           idleTimeoutMs: config.defaults.idleTimeoutMs,
           env,
           models: entry.models ?? (!entry.baseUrl ? DEFAULT_ANTHROPIC_MODELS : undefined),
+          configDir,
         },
         logger,
       );
@@ -173,6 +184,7 @@ async function createProvider(
         // Global Codex MCP config must not contain an agent token. OpenAI
         // agents receive tokened MCP config through per-agent CODEX_HOME.
         arinovaAuth: "inherited",
+        ...(configDir ? { codexHome: configDir } : {}),
       });
       return new OpenAICliProvider(
         {
@@ -185,6 +197,7 @@ async function createProvider(
           env,
           models: entry.models,
           userMcp,
+          configDir,
         },
         logger,
       );

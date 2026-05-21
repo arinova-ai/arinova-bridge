@@ -27,6 +27,7 @@ export interface OpenAICliConfig {
   env?: Record<string, string>;
   models?: string[];
   userMcp?: Record<string, McpStdioServer>;
+  configDir?: string;
 }
 
 /**
@@ -51,6 +52,7 @@ export class OpenAICliProvider implements Provider {
   private agentMcpEnv = new Map<string, Record<string, string>>();
   private agentCodexHomes = new Map<string, string>();
   private userMcp?: Record<string, McpStdioServer>;
+  private configDir?: string;
 
   constructor(config: OpenAICliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -60,6 +62,7 @@ export class OpenAICliProvider implements Provider {
     this.codexPath = config.codexPath;
     this.resolvedCodexPath = config.codexPath ?? "codex";
     this.userMcp = config.userMcp;
+    this.configDir = config.configDir;
     this.modelList = config.models ?? [
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -108,6 +111,7 @@ export class OpenAICliProvider implements Provider {
       codexHome,
       { botToken, serverUrl },
       this.userMcp,
+      this.configDir,
     );
     this.agentCodexHomes.set(agentName, codexHome);
   }

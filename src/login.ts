@@ -3,7 +3,7 @@ import path from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { select, confirm } from "@inquirer/prompts";
-import { readConfigFile, type ProviderEntry } from "./config-file.js";
+import { readConfigFile, resolveProviderConfigDir, type ProviderEntry } from "./config-file.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "./oauth/token-store.js";
 import { performMiniMaxOAuth, type MiniMaxRegion } from "./oauth/minimax.js";
 
@@ -39,6 +39,20 @@ function getCliLoginCommand(entry: ProviderEntry): { cmd: string; args: string[]
       return { cmd: entry.geminiPath ?? "gemini", args: ["auth", "login"] };
     default:
       return null;
+  }
+}
+
+function getCliConfigEnv(entry: ProviderEntry): Record<string, string> {
+  const configDir = resolveProviderConfigDir(entry.configDir);
+  if (!configDir) return {};
+
+  switch (entry.type) {
+    case "anthropic-cli":
+      return { CLAUDE_CONFIG_DIR: configDir };
+    case "openai-cli":
+      return { CODEX_HOME: configDir };
+    default:
+      return {};
   }
 }
 
@@ -80,12 +94,22 @@ function loginCli(entry: ProviderEntry): void {
     process.exit(1);
   }
 
+  const configEnv = getCliConfigEnv(entry);
+  const configDir = resolveProviderConfigDir(entry.configDir);
+  if (configDir && Object.keys(configEnv).length > 0) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+
   console.log(`\nRunning: ${login.cmd} ${login.args.join(" ")}`);
+  if (Object.keys(configEnv).length > 0) {
+    const envSummary = Object.entries(configEnv).map(([key, value]) => `${key}=${value}`).join(" ");
+    console.log(`Using: ${envSummary}`);
+  }
   console.log("──────────────────────────────────────\n");
 
   const result = spawnSync(login.cmd, login.args, {
     stdio: "inherit",
-    env: { ...process.env },
+    env: { ...process.env, ...configEnv },
   });
 
   if (result.error) {
@@ -116,6 +140,7 @@ function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail:
           encoding: "utf-8",
           timeout: 5000,
           stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, ...getCliConfigEnv(entry) },
         });
         if (result.status === 0 && result.stdout) {
           const data = JSON.parse(result.stdout);
@@ -127,8 +152,8 @@ function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail:
       return { loggedIn: false, detail: "not logged in" };
     }
     case "openai-cli": {
-      // Codex stores auth in ~/.codex/auth.json
-      const authPath = path.join(homedir(), ".codex", "auth.json");
+      // Codex stores auth in CODEX_HOME/auth.json, defaulting to ~/.codex/auth.json
+      const authPath = path.join(resolveProviderConfigDir(entry.configDir) ?? path.join(homedir(), ".codex"), "auth.json");
       try {
         if (fs.existsSync(authPath)) {
           const raw = JSON.parse(fs.readFileSync(authPath, "utf-8"));

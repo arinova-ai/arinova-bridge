@@ -34,6 +34,7 @@ COMMANDS
 LOGIN SUBCOMMAND
   login                     Interactive provider selection
   login <provider-id>       Login to a specific provider (e.g. anthropic-oauth, minimax-oauth)
+                             Providers with configDir login in that isolated account directory
 
 AGENTS SUBCOMMAND
   agents                                    List all running agents
@@ -79,7 +80,11 @@ CONFIG FILE
     },
     "defaultProvider": "anthropic-oauth",
     "providers": [
-      { "id": "anthropic-oauth", "type": "anthropic-cli", "displayName": "...", "enabled": true }
+      { "id": "anthropic-oauth", "type": "anthropic-cli", "displayName": "...", "enabled": true },
+      { "id": "anthropic-oauth2", "type": "anthropic-cli", "displayName": "...", "enabled": true,
+        "configDir": "~/.arinova-bridge/accounts/anthropic-oauth2" },
+      { "id": "openai-oauth2", "type": "openai-cli", "displayName": "...", "enabled": true,
+        "configDir": "~/.arinova-bridge/accounts/openai-oauth2" }
     ],
     "defaults": {
       "cwd": "~/projects",
@@ -143,6 +148,14 @@ ENVIRONMENT VARIABLES
   MCP_CONFIG_PATH       Override MCP config file path
   DB_PATH               Override SQLite database path
   GITHUB_TOKEN          Enable GitHub MCP server (auto-detected)
+
+MULTI-OAUTH ACCOUNTS
+  Add an extra provider manually with "configDir", then run:
+    arinova-bridge login openai-oauth2
+    arinova-bridge login anthropic-oauth2
+
+  openai-cli maps configDir to CODEX_HOME.
+  anthropic-cli maps configDir to CLAUDE_CONFIG_DIR.
 `.trim());
 }
 

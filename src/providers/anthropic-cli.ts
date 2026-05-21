@@ -23,6 +23,7 @@ export interface AnthropicCliConfig {
   idleTimeoutMs: number;
   env?: Record<string, string>;
   models?: string[];
+  configDir?: string;
 }
 
 /** Errors raised from ClaudeProcess when the CLI is dead or dies mid-turn. */

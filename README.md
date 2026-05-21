@@ -51,6 +51,7 @@ The setup wizard will guide you through:
 | `arinova-bridge stop` | Stop the running bridge server |
 | `arinova-bridge config` | Show current configuration (secrets masked) |
 | `arinova-bridge setup` | Interactive setup wizard |
+| `arinova-bridge login [provider-id]` | OAuth login for configured CLI providers |
 | `arinova-bridge help` | Show detailed help with config examples |
 
 ## Configuration
@@ -127,6 +128,44 @@ Add an `agents` array to run multiple agents, each with its own bot token, provi
 ```
 
 Without the `agents` array, the bridge runs in single-agent mode using `arinova.botToken`.
+
+### Multiple OAuth Accounts
+
+The setup wizard keeps the default provider list small. To use a second Codex or Claude OAuth account, add another provider manually with `configDir`, then login through the bridge CLI:
+
+```json
+{
+  "providers": [
+    {
+      "id": "openai-oauth",
+      "type": "openai-cli",
+      "displayName": "Codex Local",
+      "enabled": true
+    },
+    {
+      "id": "openai-oauth2",
+      "type": "openai-cli",
+      "displayName": "Codex Second Account",
+      "enabled": true,
+      "configDir": "~/.arinova-bridge/accounts/openai-oauth2"
+    },
+    {
+      "id": "anthropic-oauth2",
+      "type": "anthropic-cli",
+      "displayName": "Claude Second Account",
+      "enabled": true,
+      "configDir": "~/.arinova-bridge/accounts/anthropic-oauth2"
+    }
+  ]
+}
+```
+
+```bash
+arinova-bridge login openai-oauth2
+arinova-bridge login anthropic-oauth2
+```
+
+For `openai-cli`, `configDir` maps to `CODEX_HOME`. For `anthropic-cli`, it maps to `CLAUDE_CONFIG_DIR`. Providers without `configDir` keep using the local default accounts in `~/.codex` and `~/.claude`.
 
 ## Providers
 

@@ -240,10 +240,10 @@ export function ensureCodexMcpServers(
   }
 }
 
-function ensureCodexAuthLink(codexHome: string, logger: Logger): void {
+function ensureCodexAuthLink(codexHome: string, logger: Logger, authSourceDir?: string): void {
   mkdirSync(codexHome, { recursive: true });
 
-  const sourceAuth = path.join(homedir(), ".codex", "auth.json");
+  const sourceAuth = path.join(authSourceDir ?? path.join(homedir(), ".codex"), "auth.json");
   const targetAuth = path.join(codexHome, "auth.json");
   if (!existsSync(sourceAuth)) {
     logger.warn(`mcp: Codex auth source not found at ${sourceAuth}; per-agent CODEX_HOME may need login`);
@@ -274,8 +274,9 @@ export function ensureAgentCodexHome(
   codexHome: string,
   arinova: ArinovaMcpEnv,
   userServers?: Record<string, McpStdioServer>,
+  authSourceDir?: string,
 ): string {
-  ensureCodexAuthLink(codexHome, logger);
+  ensureCodexAuthLink(codexHome, logger, authSourceDir);
   ensureCodexMcpServers(codexPath, logger, arinova, userServers, {
     arinovaAuth: "explicit",
     codexHome,

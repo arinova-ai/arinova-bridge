@@ -15,6 +15,7 @@ export interface ProviderEntry {
   claudePath?: string;
   codexPath?: string;
   geminiPath?: string;
+  configDir?: string;
   defaultModel?: string;
   models?: string[];
 }
@@ -61,6 +62,10 @@ export function getConfigDir(): string {
 
 export function getConfigPath(): string {
   return CONFIG_FILE;
+}
+
+export function resolveProviderConfigDir(configDir: string | undefined): string | undefined {
+  return configDir?.replace(/^~/, homedir());
 }
 
 export function readConfigFile(): ConfigFile | null {

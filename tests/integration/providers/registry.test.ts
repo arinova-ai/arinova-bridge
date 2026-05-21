@@ -62,6 +62,8 @@ vi.mock("../../../src/oauth/minimax.js", () => ({
 }));
 
 import { createProviders } from "../../../src/providers/registry.js";
+import { AnthropicCliProvider } from "../../../src/providers/anthropic-cli.js";
+import { OpenAICliProvider } from "../../../src/providers/openai-cli.js";
 import { ensureCodexMcpServers, ensureGeminiMcpServers } from "../../../src/mcp/preinstalled.js";
 import { readOAuthToken, isTokenExpired } from "../../../src/oauth/token-store.js";
 import type { BridgeConfig } from "../../../src/config.js";
@@ -71,6 +73,8 @@ const mockReadOAuthToken = vi.mocked(readOAuthToken);
 const mockIsTokenExpired = vi.mocked(isTokenExpired);
 const mockEnsureCodexMcpServers = vi.mocked(ensureCodexMcpServers);
 const mockEnsureGeminiMcpServers = vi.mocked(ensureGeminiMcpServers);
+const mockAnthropicCliProvider = vi.mocked(AnthropicCliProvider);
+const mockOpenAICliProvider = vi.mocked(OpenAICliProvider);
 
 const logger = {
   info: vi.fn(),
@@ -167,6 +171,65 @@ describe("createProviders", () => {
       logger,
     );
     expect(providers.has("openai-oauth")).toBe(true);
+  });
+
+  it("passes configDir to openai-cli and registers MCP in that Codex home", async () => {
+    await createProviders(
+      createConfig([
+        {
+          id: "openai-oauth2",
+          type: "openai-cli",
+          displayName: "OpenAI OAuth 2",
+          enabled: true,
+          configDir: "~/codex-oauth2",
+        },
+      ]),
+      logger,
+    );
+
+    expect(mockOpenAICliProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "openai-oauth2",
+        configDir: expect.stringMatching(/\/codex-oauth2$/),
+        env: expect.objectContaining({
+          CODEX_HOME: expect.stringMatching(/\/codex-oauth2$/),
+        }),
+      }),
+      logger,
+    );
+    expect(mockEnsureCodexMcpServers).toHaveBeenCalledWith(
+      "codex",
+      logger,
+      { botToken: "tok", serverUrl: "ws://test" },
+      undefined,
+      { arinovaAuth: "inherited", codexHome: expect.stringMatching(/\/codex-oauth2$/) },
+    );
+  });
+
+  it("passes configDir to anthropic-cli as CLAUDE_CONFIG_DIR", async () => {
+    await createProviders(
+      createConfig([
+        {
+          id: "anthropic-oauth2",
+          type: "anthropic-cli",
+          displayName: "Anthropic OAuth 2",
+          enabled: true,
+          configDir: "~/claude-oauth2",
+        },
+      ]),
+      logger,
+    );
+
+    expect(mockAnthropicCliProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "anthropic-oauth2",
+        configDir: expect.stringMatching(/\/claude-oauth2$/),
+        env: expect.objectContaining({
+          CLAUDE_CONFIG_DIR: expect.stringMatching(/\/claude-oauth2$/),
+        }),
+      }),
+      logger,
+    );
   });
 
   it("registers Codex Arinova MCP with inherited per-agent auth", async () => {
