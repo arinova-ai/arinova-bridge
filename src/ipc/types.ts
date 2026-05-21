@@ -151,6 +151,19 @@ export interface IpcForkCancelRequest {
   params: { id: string };
 }
 
+// --- Inspector / Bridge layer IPC Requests ---
+
+export interface IpcSnapshotRequest {
+  id: number;
+  method: "snapshot";
+}
+
+export interface IpcCancelDeliveryRequest {
+  id: number;
+  method: "cancel-delivery";
+  params: { delivery_id: string };
+}
+
 export type IpcRequest =
   | IpcListAgentsRequest
   | IpcDeliverRequest
@@ -169,7 +182,9 @@ export type IpcRequest =
   | IpcSpawnLogsRequest
   | IpcForkAddRequest
   | IpcForkListRequest
-  | IpcForkCancelRequest;
+  | IpcForkCancelRequest
+  | IpcSnapshotRequest
+  | IpcCancelDeliveryRequest;
 
 // --- IPC Responses ---
 
