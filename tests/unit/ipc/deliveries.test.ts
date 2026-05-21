@@ -279,4 +279,34 @@ describe("BridgeDeliveryState wire shape", () => {
       "target_agent_id",
     ]);
   });
+
+  it("emits UUID when caller passes UUID, falls back to source label otherwise", () => {
+    const tracker = new BridgeDeliveryTracker();
+    const sourceUuid = "9c5e0d8b-1234-4abc-9def-0123456789ab";
+    const targetUuid = "1a2b3c4d-5678-4abc-9def-fedcba987654";
+
+    tracker.register({
+      sourceAgentId: sourceUuid,
+      targetAgentId: targetUuid,
+      payload: "p",
+      abortController: new AbortController(),
+    });
+    tracker.register({
+      sourceAgentId: "spawn:job-abc-123",
+      targetAgentId: "hank",
+      payload: "p",
+      abortController: new AbortController(),
+    });
+
+    const items = tracker.snapshot();
+    expect(items).toHaveLength(2);
+
+    const uuidEntry = items.find((d) => d.source_agent_id === sourceUuid);
+    expect(uuidEntry).toBeDefined();
+    expect(uuidEntry!.target_agent_id).toBe(targetUuid);
+
+    const fallbackEntry = items.find((d) => d.source_agent_id === "spawn:job-abc-123");
+    expect(fallbackEntry).toBeDefined();
+    expect(fallbackEntry!.target_agent_id).toBe("hank");
+  });
 });

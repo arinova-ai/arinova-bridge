@@ -97,7 +97,17 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void },
+  opts?: {
+    source?: string;
+    sourceAgentId?: string;
+    targetAgentId?: string;
+    sourceConversationId?: string;
+    timeoutMs?: number;
+    cwd?: string;
+    model?: string;
+    bridgeSessionStore?: BridgeSessionStore;
+    onLog?: (text: string) => void;
+  },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -110,105 +120,100 @@ export async function deliverToAgent(
   const preview = content.length > 80 ? content.slice(0, 80) + "..." : content;
   log.info(`${from} → ${target.name}: ${preview}`);
 
-  // Register the delivery for Inspector snapshot / cancel-delivery before any
-  // async work — controller is shared with the per-call timeout below so that
-  // a cancel-delivery IPC and the timeout abort use the same signal path.
-  const controller = new AbortController();
-  const deliveryId = activeDeliveries.register({
-    sourceAgentId: from,
-    targetAgentId: target.name,
-    payload: content,
-    abortController: controller,
-  });
-
   // Use the same session as Chat — single session per agent
   const syntheticId = `${target.name}:default`;
   const start = Date.now();
 
-  let handled = false;
   let responseText = "";
 
-  try {
-    const cmdResult = await target.commandHandler.handle(content, {
-      conversationId: syntheticId,
-      sendChunk: (text) => { responseText += text; },
-      sendComplete: (text) => { responseText = text; },
-      sendError: (text) => { responseText = `Error: ${text}`; },
-      uploadFile: async () => ({ url: "", fileName: "", fileType: "", fileSize: 0 }),
+  const cmdResult = await target.commandHandler.handle(content, {
+    conversationId: syntheticId,
+    sendChunk: (text) => { responseText += text; },
+    sendComplete: (text) => { responseText = text; },
+    sendError: (text) => { responseText = `Error: ${text}`; },
+    uploadFile: async () => ({ url: "", fileName: "", fileType: "", fileSize: 0 }),
+  });
+
+  if (!cmdResult.handled) {
+    const cwd = opts?.cwd ?? target.agentConfig.cwd;
+    const model = opts?.model ?? target.agentConfig.model;
+
+    // Controller, tracker entry, and timeout live only for the provider phase:
+    // the command-handler phase runs synchronously with no bridge-managed
+    // cancellation point, and exposing it would let cancel-delivery report
+    // "success" while the handler kept running uncancelled.
+    const controller = new AbortController();
+    const timeout = opts?.timeoutMs ?? 600_000;
+    const timer = setTimeout(() => controller.abort(), timeout);
+
+    const deliveryId = activeDeliveries.register({
+      sourceAgentId: opts?.sourceAgentId ?? from,
+      targetAgentId: opts?.targetAgentId ?? target.name,
+      payload: content,
+      abortController: controller,
     });
 
-    handled = cmdResult.handled;
-
-    if (!handled) {
-      const cwd = opts?.cwd ?? target.agentConfig.cwd;
-      const model = opts?.model ?? target.agentConfig.model;
-
-      const timeout = opts?.timeoutMs ?? 600_000;
-      const timer = setTimeout(() => controller.abort(), timeout);
-
-      try {
-        // Query sender's long-term memories (A2A only, regardless of bridgeSessionStore)
-        // Run this outside the per-agent send lock — it's a CLI subprocess call
-        // against the sender, unrelated to the target's Claude process.
-        let extraContext: string | undefined;
-        if (from !== "cli") {
-          extraContext = await querySenderMemories(from, content);
-        }
-
-        await runExclusiveOnAgent(target.name, async () => {
-          // Inside the per-agent lock: we're about to hand the payload to the
-          // provider. Mark acked here so cancel-delivery can tell whether the
-          // target had already started processing.
-          activeDeliveries.markAcked(deliveryId);
-          if (opts?.bridgeSessionStore) {
-            // Full pipeline: context injection, recording, auto-compact
-            const result = await runMessagePipeline({
-              provider: target.provider,
-              bridgeSessionStore: opts.bridgeSessionStore,
-              sessionId: syntheticId,
-              content,
-              agentName: target.name,
-              cwd,
-              model,
-              systemPrompt: target.agentConfig.systemPrompt,
-              compactModel: target.agentConfig.compactModel,
-              onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
-              signal: controller.signal,
-              queue: true,
-              extraContext,
-              senderName: from,
-              reportToolCall: (report) => target.agent.reportToolCall(report),
-            });
-            responseText = result.text;
-          } else {
-            // Lightweight path: no session store (e.g. tests, raw IPC)
-            // Still inject sender memories as bridgeSessionContext if available
-            const result = await target.provider.sendMessage({
-              conversationId: syntheticId,
-              content,
-              cwd,
-              model,
-              systemPrompt: target.agentConfig.systemPrompt,
-              onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
-              signal: controller.signal,
-              queue: true,
-              bridgeSessionContext: extraContext,
-              reportToolCall: (report) => target.agent.reportToolCall(report),
-            });
-            responseText = result.text;
-          }
-        });
-      } finally {
-        clearTimeout(timer);
+    try {
+      // Query sender's long-term memories (A2A only, regardless of bridgeSessionStore)
+      // Run this outside the per-agent send lock — it's a CLI subprocess call
+      // against the sender, unrelated to the target's Claude process.
+      let extraContext: string | undefined;
+      if (from !== "cli") {
+        extraContext = await querySenderMemories(from, content);
       }
-    }
 
-    const durationMs = Date.now() - start;
-    log.info(`${from} → ${target.name}: done (${durationMs}ms)`);
-    return { text: responseText, durationMs };
-  } finally {
-    activeDeliveries.complete(deliveryId);
+      await runExclusiveOnAgent(target.name, async () => {
+        // Inside the per-agent lock: we're about to hand the payload to the
+        // provider. Mark acked here so cancel-delivery can tell whether the
+        // target had already started processing.
+        activeDeliveries.markAcked(deliveryId);
+        if (opts?.bridgeSessionStore) {
+          // Full pipeline: context injection, recording, auto-compact
+          const result = await runMessagePipeline({
+            provider: target.provider,
+            bridgeSessionStore: opts.bridgeSessionStore,
+            sessionId: syntheticId,
+            content,
+            agentName: target.name,
+            cwd,
+            model,
+            systemPrompt: target.agentConfig.systemPrompt,
+            compactModel: target.agentConfig.compactModel,
+            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            signal: controller.signal,
+            queue: true,
+            extraContext,
+            senderName: from,
+            reportToolCall: (report) => target.agent.reportToolCall(report),
+          });
+          responseText = result.text;
+        } else {
+          // Lightweight path: no session store (e.g. tests, raw IPC)
+          // Still inject sender memories as bridgeSessionContext if available
+          const result = await target.provider.sendMessage({
+            conversationId: syntheticId,
+            content,
+            cwd,
+            model,
+            systemPrompt: target.agentConfig.systemPrompt,
+            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            signal: controller.signal,
+            queue: true,
+            bridgeSessionContext: extraContext,
+            reportToolCall: (report) => target.agent.reportToolCall(report),
+          });
+          responseText = result.text;
+        }
+      });
+    } finally {
+      activeDeliveries.complete(deliveryId);
+      clearTimeout(timer);
+    }
   }
+
+  const durationMs = Date.now() - start;
+  log.info(`${from} → ${target.name}: done (${durationMs}ms)`);
+  return { text: responseText, durationMs };
 }
 
 // --- Watch subscribers ---
@@ -322,13 +327,20 @@ function handleListAgents(id: number, agents: ActiveAgent[]): IpcResponse {
 async function handleDeliver(
   id: number,
   agents: ActiveAgent[],
-  params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean },
+  params: { target: string; content: string; source?: string; source_agent_id?: string; target_agent_id?: string; cwd?: string; model?: string; wait?: boolean },
   bridgeSessionStore?: BridgeSessionStore,
 ): Promise<IpcResponse> {
   const target = findAgent(agents, params.target);
   if (!target) return agentNotFound(id, params.target, agents);
 
-  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore };
+  const deliverOpts = {
+    source: params.source,
+    sourceAgentId: params.source_agent_id,
+    targetAgentId: params.target_agent_id,
+    cwd: params.cwd,
+    model: params.model,
+    bridgeSessionStore,
+  };
 
   // Fire-and-forget mode
   if (params.wait === false) {

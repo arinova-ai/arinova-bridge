@@ -35,6 +35,10 @@ export interface IpcDeliverRequest {
     target: string;
     content: string;
     source?: string;  // sender agent/user name for logging
+    /** Sender Arinova agent UUID, when caller has it. Snapshot falls back to `source` otherwise. */
+    source_agent_id?: string;
+    /** Target Arinova agent UUID, when caller has it. Snapshot falls back to `target` otherwise. */
+    target_agent_id?: string;
     cwd?: string;
     model?: string;
     wait?: boolean;  // default true; false = fire-and-forget
