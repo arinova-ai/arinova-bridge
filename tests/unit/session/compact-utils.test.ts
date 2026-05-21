@@ -13,7 +13,7 @@ describe("getSummaryMaxTokens", () => {
     // All 1M-window models should hit the 2000 cap
     expect(getSummaryMaxTokens("claude-opus-4-6")).toBe(2000);
     expect(getSummaryMaxTokens("gpt-4.1-mini")).toBe(2000);
-    expect(getSummaryMaxTokens("gemini-2.5-flash-lite")).toBe(2000);
+    expect(getSummaryMaxTokens("gpt-4.1-nano")).toBe(2000);
   });
 
   it("returns clamped value for 200k-context models (200000 × 5% = 10000 → 2000)", () => {
@@ -39,8 +39,6 @@ describe("getSummaryMaxTokens", () => {
   it("uses reverse prefix fallback (key longer than model)", () => {
     // "gpt-4.1" is a prefix of "gpt-4.1-mini" key → 1M → 2000
     expect(getSummaryMaxTokens("gpt-4.1")).toBe(2000);
-    // "gemini-2.5" is a prefix of "gemini-2.5-pro" key → 1M → 2000
-    expect(getSummaryMaxTokens("gemini-2.5")).toBe(2000);
   });
 
   it("never goes below 500", () => {
@@ -169,7 +167,7 @@ describe("buildCompactPrompt", () => {
   });
 
   it("compact prompt + token budget integration: general mode with compactModel", () => {
-    const compactModel = "gemini-2.5-flash-lite";
+    const compactModel = "gpt-4.1-nano";
     const tokenBudget = getSummaryMaxTokens(compactModel);
     const messages = [
       { role: "user", content: "你好嗎" },

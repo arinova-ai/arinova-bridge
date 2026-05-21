@@ -40,21 +40,6 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"],
   },
   {
-    id: "gemini-oauth",
-    type: "gemini-cli",
-    displayName: "Google Gemini (OAuth)",
-    needsApiKey: false,
-    models: ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-  },
-  {
-    id: "google-api",
-    type: "gemini-cli",
-    displayName: "Google Gemini API (Gemini CLI)",
-    needsApiKey: true,
-    apiKeyPrompt: "Google Gemini API Key",
-    models: ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-  },
-  {
     id: "openai-api",
     type: "openai-cli",
     displayName: "OpenAI API (Codex CLI)",

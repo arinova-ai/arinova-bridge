@@ -1,12 +1,12 @@
 # Arinova Bridge
 
-Multi-provider bridge between [Arinova Chat](https://chat.arinova.ai) and AI coding assistants (Claude, Codex, Gemini).
+Multi-provider bridge between [Arinova Chat](https://chat.arinova.ai) and AI coding assistants (Claude, Codex).
 
 Connect one or more AI agents to Arinova Chat through a single bridge process. Each agent gets its own provider, session management, and working directory.
 
 ## Features
 
-- **Multi-provider** — Claude (CLI + SDK), OpenAI Codex, Gemini CLI
+- **Multi-provider** — Claude (CLI + SDK), OpenAI Codex
 - **Multi-agent** — Run multiple agents in one process, each with independent config
 - **MCP support** — Pre-installed Playwright and GitHub MCP servers
 - **HUD monitoring** — Real-time context usage, rate limits, and cost tracking
@@ -18,7 +18,6 @@ Connect one or more AI agents to Arinova Chat through a single bridge process. E
 - One or more AI CLI tools installed:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
   - [OpenAI Codex](https://github.com/openai/codex) (`codex`)
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
 - An Arinova Chat bot token (`ari_...`)
 
 ## Install
@@ -39,7 +38,7 @@ arinova-bridge start
 
 The setup wizard will guide you through:
 - Connecting to Arinova Chat (bot token)
-- Choosing AI providers (Claude, Codex, Gemini)
+- Choosing AI providers (Claude, Codex)
 - Configuring OAuth or API keys
 - Enabling rate limit monitoring (optional)
 
@@ -174,7 +173,6 @@ For `openai-cli`, `configDir` maps to `CODEX_HOME`. For `anthropic-cli`, it maps
 | Claude (OAuth) | `anthropic-cli` | OAuth (automatic) | `claude` |
 | Claude (API Key) | `anthropic-sdk` | API key | — |
 | OpenAI Codex | `openai-cli` | OAuth | `codex` |
-| Gemini | `gemini-cli` | API key | `gemini` |
 
 ## MCP Servers
 

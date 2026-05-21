@@ -28,21 +28,11 @@ vi.mock("../../../src/providers/openai-cli.js", () => ({
   }),
 }));
 
-vi.mock("../../../src/providers/gemini-cli.js", () => ({
-  GeminiCliProvider: vi.fn(function (this: any, config: any) {
-    this.id = config.providerId;
-    this.type = "gemini-cli";
-    this.displayName = config.displayName;
-    this.shutdown = vi.fn(async () => {});
-  }),
-}));
-
 // Mock MCP preinstalled module (avoid require.resolve of @arinova-ai/mcp-server)
 vi.mock("../../../src/mcp/preinstalled.js", () => ({
   ensureCliMcpConfig: vi.fn(() => "/mock/mcp-config.json"),
   getPreinstalledMcpServers: vi.fn(() => ({})),
   ensureCodexMcpServers: vi.fn(),
-  ensureGeminiMcpServers: vi.fn(),
 }));
 
 // Mock OAuth token store
@@ -64,7 +54,7 @@ vi.mock("../../../src/oauth/minimax.js", () => ({
 import { createProviders } from "../../../src/providers/registry.js";
 import { AnthropicCliProvider } from "../../../src/providers/anthropic-cli.js";
 import { OpenAICliProvider } from "../../../src/providers/openai-cli.js";
-import { ensureCodexMcpServers, ensureGeminiMcpServers } from "../../../src/mcp/preinstalled.js";
+import { ensureCodexMcpServers } from "../../../src/mcp/preinstalled.js";
 import { readOAuthToken, isTokenExpired } from "../../../src/oauth/token-store.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { ProviderEntry } from "../../../src/config-file.js";
@@ -72,7 +62,6 @@ import type { ProviderEntry } from "../../../src/config-file.js";
 const mockReadOAuthToken = vi.mocked(readOAuthToken);
 const mockIsTokenExpired = vi.mocked(isTokenExpired);
 const mockEnsureCodexMcpServers = vi.mocked(ensureCodexMcpServers);
-const mockEnsureGeminiMcpServers = vi.mocked(ensureGeminiMcpServers);
 const mockAnthropicCliProvider = vi.mocked(AnthropicCliProvider);
 const mockOpenAICliProvider = vi.mocked(OpenAICliProvider);
 
@@ -242,23 +231,6 @@ describe("createProviders", () => {
 
     expect(mockEnsureCodexMcpServers).toHaveBeenCalledWith(
       "codex",
-      logger,
-      { botToken: "tok", serverUrl: "ws://test" },
-      undefined,
-      { arinovaAuth: "inherited" },
-    );
-  });
-
-  it("registers Gemini Arinova MCP with inherited per-agent auth", async () => {
-    await createProviders(
-      createConfig([
-        { id: "gemini-oauth", type: "gemini-cli", displayName: "Gemini OAuth", enabled: true },
-      ]),
-      logger,
-    );
-
-    expect(mockEnsureGeminiMcpServers).toHaveBeenCalledWith(
-      "gemini",
       logger,
       { botToken: "tok", serverUrl: "ws://test" },
       undefined,

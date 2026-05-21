@@ -5,10 +5,9 @@ import type { Logger } from "../util/logger.js";
 import { AnthropicCliProvider } from "./anthropic-cli.js";
 import { AnthropicSdkProvider } from "./anthropic-sdk.js";
 import { OpenAICliProvider } from "./openai-cli.js";
-import { GeminiCliProvider } from "./gemini-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
-import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, ensureGeminiMcpServers, type ArinovaMcpEnv } from "../mcp/preinstalled.js";
+import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, type ArinovaMcpEnv } from "../mcp/preinstalled.js";
 
 /** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
 const DEFAULT_ANTHROPIC_MODELS = [
@@ -57,11 +56,6 @@ async function buildEnv(entry: ProviderEntry, logger: Logger): Promise<Record<st
     }
     if (entry.apiKey) {
       env.OPENAI_API_KEY = entry.apiKey;
-      hasEnv = true;
-    }
-  } else if (entry.type === "gemini-cli") {
-    if (entry.apiKey) {
-      env.GEMINI_API_KEY = entry.apiKey;
       hasEnv = true;
     }
   }
@@ -198,33 +192,6 @@ async function createProvider(
           models: entry.models,
           userMcp,
           configDir,
-        },
-        logger,
-      );
-    }
-
-    case "gemini-cli": {
-      const geminiPath = entry.geminiPath ?? "gemini";
-      ensureGeminiMcpServers(geminiPath, logger, arinovaMcp, userMcp, {
-        arinovaAuth: "inherited",
-      });
-      return new GeminiCliProvider(
-        {
-          providerId: entry.id,
-          displayName: entry.displayName,
-          geminiPath: entry.geminiPath,
-          apiKey: entry.apiKey,
-          defaultCwd: config.defaults.cwd,
-          dbPath: config.defaults.dbPath,
-          env,
-          models: entry.models ?? [
-            "gemini-3.1-pro-preview",
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-          ],
         },
         logger,
       );

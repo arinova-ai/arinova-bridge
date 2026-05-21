@@ -122,8 +122,8 @@ export class OpenAICliProvider implements Provider {
     const content = systemPromptPrefix + buildContextPrefix(opts) + opts.content;
     const effectiveCwd = cwd ?? this.getConvCwd(conversationId) ?? this.defaultCwd;
     const effectiveModel = model ?? this.getConvModel(conversationId) ?? undefined;
-    // Per-thread agent name — CodexAppServer is a long-running process so we
-    // cannot set env per-turn like Gemini.  Pass via thread config instead.
+    // Per-thread agent name — CodexAppServer is a long-running process, so
+    // set the agent name via thread config rather than process env.
     const agentName = conversationId.split(":")[0] || undefined;
     const agentEnv = agentName ? this.agentMcpEnv.get(agentName) : undefined;
     const server = this.resolveServer(agentName);

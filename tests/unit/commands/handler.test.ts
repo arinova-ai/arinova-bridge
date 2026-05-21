@@ -417,55 +417,6 @@ describe("CommandHandler", () => {
       expect(ctx2.completed).toContain("已壓縮");
     });
 
-    it("gemini: compacts via sessionStore and resets session", async () => {
-      const geminiProvider = createMockProvider("gemini-api", "gemini-cli", "Gemini");
-      const providersWithGemini = new Map<string, Provider>();
-      providersWithGemini.set("anthropic-oauth", anthropicProvider);
-      providersWithGemini.set("gemini-api", geminiProvider);
-
-      const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
-          await summariser(
-            [{ role: "user", content: "test msg" }],
-            "existing summary",
-          );
-        }),
-      };
-      const configWithGemini = {
-        ...createMockConfig(),
-        providers: [
-          { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-          { id: "gemini-api", type: "gemini-cli", displayName: "Gemini", enabled: true, apiKey: "gm-test" },
-        ],
-      };
-      const handlerWithGemini = new CommandHandler(
-        providersWithGemini,
-        configWithGemini,
-        mockSessionStore as any,
-      );
-
-      // Switch to gemini
-      const ctx = createCtx("conv-4");
-      await handlerWithGemini.handle("/provider gemini-api", ctx);
-
-      const ctx2 = createCtx("conv-4");
-      await handlerWithGemini.handle("/compact", ctx2);
-
-      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-4", expect.any(Function), expect.objectContaining({ model: undefined }));
-      // Summariser should include existing summary in the prompt
-      expect(geminiProvider.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "conv-4:compact",
-          content: expect.stringContaining("existing summary"),
-        }),
-      );
-      expect(geminiProvider.resetSession).toHaveBeenCalledWith(
-        "conv-4",
-        expect.objectContaining({ cwd: "/default/cwd" }),
-      );
-      expect(ctx2.completed).toContain("已壓縮");
-    });
-
     it("non-anthropic: summariser prompt includes token budget", async () => {
       let capturedPrompt = "";
       const mockSessionStore = {
@@ -633,47 +584,6 @@ describe("CommandHandler", () => {
         expect.any(Function),
         expect.objectContaining({ model: undefined }),
       );
-    });
-
-    it("gemini: uses compactModel from agent config", async () => {
-      const geminiProvider = createMockProvider("gemini-api", "gemini-cli", "Gemini");
-      const providersWithGemini = new Map<string, Provider>();
-      providersWithGemini.set("anthropic-oauth", anthropicProvider);
-      providersWithGemini.set("gemini-api", geminiProvider);
-
-      let capturedModel = "";
-      vi.mocked(geminiProvider.sendMessage).mockImplementation(async (opts: any) => {
-        capturedModel = opts.model;
-        return { text: "gemini summary" };
-      });
-
-      const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
-          await summariser([{ role: "user", content: "test" }], undefined);
-        }),
-      };
-      const configWithGemini = {
-        ...createMockConfig(),
-        providers: [
-          { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-          { id: "gemini-api", type: "gemini-cli", displayName: "Gemini", enabled: true, apiKey: "gm-test" },
-        ],
-        agents: [{ name: "gemini-bot", botToken: "tok", provider: "gemini-cli", compactModel: "gemini-2.5-flash-lite" }],
-      };
-      const handlerWithGemini = new CommandHandler(
-        providersWithGemini,
-        configWithGemini,
-        mockSessionStore as any,
-      );
-      handlerWithGemini.agentName = "gemini-bot";
-
-      const ctx = createCtx("conv-cm-3");
-      await handlerWithGemini.handle("/provider gemini-api", ctx);
-      const ctx2 = createCtx("conv-cm-3");
-      await handlerWithGemini.handle("/compact", ctx2);
-
-      expect(capturedModel).toBe("gemini-2.5-flash-lite");
-      expect(ctx2.completed).toContain("已壓縮");
     });
 
     // ── Compact v2: buildCompactPrompt integration ──

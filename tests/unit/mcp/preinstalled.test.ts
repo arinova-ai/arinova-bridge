@@ -15,7 +15,6 @@ import {
   getPreinstalledMcpServers,
   ensureCliMcpConfig,
   ensureCodexMcpServers,
-  ensureGeminiMcpServers,
 } from "../../../src/mcp/preinstalled.js";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -206,60 +205,4 @@ describe("mcp/preinstalled", () => {
     });
   });
 
-  describe("ensureGeminiMcpServers", () => {
-    it("calls execFileSync for each server", () => {
-      ensureGeminiMcpServers("gemini", mockLogger as never);
-      expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-      const args = mockExecFileSync.mock.calls[0][1] as string[];
-      expect(args[0]).toBe("mcp");
-      expect(args[1]).toBe("add");
-      expect(args[2]).toBe("playwright");
-      expect(args).toContain("--scope");
-      expect(args).toContain("user");
-      expect(args).toContain("--trust");
-    });
-
-    it("includes -e for github server env vars", () => {
-      process.env.GITHUB_TOKEN = "ghp_test";
-      ensureGeminiMcpServers("gemini", mockLogger as never);
-
-      const githubCall = mockExecFileSync.mock.calls.find(
-        (call) => (call[1] as string[])[2] === "github",
-      );
-      expect(githubCall).toBeDefined();
-      const args = githubCall![1] as string[];
-      expect(args).toContain("-e");
-      expect(args).toContain("GITHUB_PERSONAL_ACCESS_TOKEN=ghp_test");
-    });
-
-    it("can register Arinova for Gemini without writing a global bot token", () => {
-      ensureGeminiMcpServers(
-        "gemini",
-        mockLogger as never,
-        {
-          botToken: "ari_global",
-          serverUrl: "wss://chat.example.com",
-        },
-        undefined,
-        { arinovaAuth: "inherited" },
-      );
-
-      const arinovaCall = mockExecFileSync.mock.calls.find(
-        (call) => (call[1] as string[])[2] === "arinova",
-      );
-      expect(arinovaCall).toBeDefined();
-      const args = arinovaCall![1] as string[];
-      expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
-      expect(args).toContain("--server-url");
-      expect(args).toContain("wss://chat.example.com");
-      expect(args).not.toContain("--token");
-      expect(args).not.toContain("ari_global");
-    });
-
-    it("logs error but continues on failure", () => {
-      mockExecFileSync.mockImplementation(() => { throw new Error("auth error"); });
-      ensureGeminiMcpServers("gemini", mockLogger as never);
-      expect(mockLogger.error).toHaveBeenCalled();
-    });
-  });
 });

@@ -19,7 +19,7 @@ function loginStrategy(entry: ProviderEntry): "minimax" | "cli" | "none" {
   if (entry.type === "anthropic-cli" && entry.baseUrl) return "minimax";
 
   // CLI-based providers use their respective CLI login commands
-  if (entry.type === "anthropic-cli" || entry.type === "openai-cli" || entry.type === "gemini-cli") {
+  if (entry.type === "anthropic-cli" || entry.type === "openai-cli") {
     return "cli";
   }
 
@@ -35,8 +35,6 @@ function getCliLoginCommand(entry: ProviderEntry): { cmd: string; args: string[]
       return { cmd: entry.claudePath ?? "claude", args: ["login"] };
     case "openai-cli":
       return { cmd: entry.codexPath ?? "codex", args: ["auth", "login"] };
-    case "gemini-cli":
-      return { cmd: entry.geminiPath ?? "gemini", args: ["auth", "login"] };
     default:
       return null;
   }
@@ -85,7 +83,7 @@ async function loginMiniMax(entry: ProviderEntry): Promise<void> {
 }
 
 /**
- * Run CLI-based login (claude login, codex auth login, gemini auth login).
+ * Run CLI-based login (claude login, codex auth login).
  */
 function loginCli(entry: ProviderEntry): void {
   const login = getCliLoginCommand(entry);
@@ -168,16 +166,6 @@ function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail:
               : undefined;
             return { loggedIn: true, detail: email ?? "logged in" };
           }
-        }
-      } catch { /* ignore */ }
-      return { loggedIn: false, detail: "not logged in" };
-    }
-    case "gemini-cli": {
-      // Gemini stores auth in ~/.gemini/ — check if credentials exist
-      const credPath = path.join(homedir(), ".gemini", "credentials.json");
-      try {
-        if (fs.existsSync(credPath)) {
-          return { loggedIn: true, detail: "logged in" };
         }
       } catch { /* ignore */ }
       return { loggedIn: false, detail: "not logged in" };

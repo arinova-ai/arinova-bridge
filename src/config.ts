@@ -139,6 +139,5 @@ function defaultCompactModel(provider: string): string {
   if (provider === "openai-cli") return "gpt-5.4-mini";
   if (provider === "openai-oauth") return "gpt-5.4-mini";
   if (provider === "openai-api") return "gpt-4.1-mini";
-  if (provider.startsWith("gemini")) return "gemini-2.5-flash-lite";
   return "claude-haiku-4-5";
 }

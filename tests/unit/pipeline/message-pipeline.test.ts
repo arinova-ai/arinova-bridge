@@ -56,7 +56,7 @@ describe("runMessagePipeline history bootstrap", () => {
     clearContextInjected("agent:default");
   });
 
-  it.each(["anthropic-cli", "openai-cli", "gemini-cli"])(
+  it.each(["anthropic-cli", "openai-cli"])(
     "uses bridge context only once for persistent %s sessions",
     async (providerType) => {
       const provider = createProvider(providerType);

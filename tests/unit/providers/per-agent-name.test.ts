@@ -8,7 +8,6 @@ import { spawn } from "node:child_process";
  * each other's agentName. Each provider type uses a different strategy:
  * - Claude: per-session (process env)
  * - OpenAI: per-thread (thread config)
- * - Gemini: per-turn (ephemeral process env)
  */
 
 // --- OpenAI per-thread agentName ---
@@ -43,67 +42,6 @@ describe("OpenAI per-thread agentName", () => {
     expect(threadConfigs[1].config!.env.ARINOVA_AGENT_NAME).toBe("pan");
     // They must NOT be the same reference
     expect(threadConfigs[0].config).not.toBe(threadConfigs[1].config);
-  });
-});
-
-// --- Gemini per-turn agentName ---
-
-describe("Gemini per-turn agentName", () => {
-  it("builds per-turn env with agentName from conversationId", () => {
-    // Replicates gemini-cli.ts:231-234
-    const customEnv = { GEMINI_API_KEY: "test-key", SOME_VAR: "value" };
-
-    const conversationId = "lucy:default";
-    const agentName = conversationId.split(":")[0];
-    const turnEnv = agentName
-      ? { ...customEnv, ARINOVA_AGENT_NAME: agentName }
-      : customEnv;
-
-    expect(turnEnv.ARINOVA_AGENT_NAME).toBe("lucy");
-    expect(turnEnv.GEMINI_API_KEY).toBe("test-key");
-  });
-
-  it("different agents get different per-turn env (not shared)", () => {
-    const customEnv = { GEMINI_API_KEY: "test-key" };
-
-    function buildTurnEnv(conversationId: string) {
-      const agentName = conversationId.split(":")[0];
-      return agentName
-        ? { ...customEnv, ARINOVA_AGENT_NAME: agentName }
-        : customEnv;
-    }
-
-    const lucyEnv = buildTurnEnv("lucy:default");
-    const panEnv = buildTurnEnv("pan:default");
-
-    expect(lucyEnv.ARINOVA_AGENT_NAME).toBe("lucy");
-    expect(panEnv.ARINOVA_AGENT_NAME).toBe("pan");
-    // Changing one must not affect the other (spread creates new object)
-    expect(lucyEnv).not.toBe(panEnv);
-  });
-
-  it("each turn creates a fresh env object (no stale state)", () => {
-    const customEnv = { GEMINI_API_KEY: "key" };
-
-    // Turn 1: lucy
-    const turn1Env = { ...customEnv, ARINOVA_AGENT_NAME: "lucy" };
-    // Turn 2: pan (same provider instance)
-    const turn2Env = { ...customEnv, ARINOVA_AGENT_NAME: "pan" };
-
-    // Turn 1 env is not mutated by turn 2
-    expect(turn1Env.ARINOVA_AGENT_NAME).toBe("lucy");
-    expect(turn2Env.ARINOVA_AGENT_NAME).toBe("pan");
-  });
-
-  it("no agentName when conversationId has no agent prefix", () => {
-    const customEnv = { GEMINI_API_KEY: "key" };
-    const conversationId = "";
-    const agentName = conversationId.split(":")[0];
-    const turnEnv = agentName
-      ? { ...customEnv, ARINOVA_AGENT_NAME: agentName }
-      : customEnv;
-
-    expect(turnEnv).not.toHaveProperty("ARINOVA_AGENT_NAME");
   });
 });
 

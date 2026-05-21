@@ -112,36 +112,33 @@ describe("Chat path: session respawn detection", () => {
     expect(contextInjected.has(SESSION)).toBe(true);
   });
 
-  it("does NOT clear flag for Gemini idle session (alive:true, status ready)", () => {
-    // Gemini's alive should be true when status is "ready" (idle).
-    // Previously alive was conv.status === "busy", which caused false respawn
-    // detection on every idle turn.
+  it("does NOT clear flag for alive idle session (alive:true)", () => {
     contextInjected.add(SESSION);
     lastProviderSid.set(SESSION, PROVIDER_SID);
 
-    const geminiIdle: SessionInfo = {
+    const idle: SessionInfo = {
       sessionId: PROVIDER_SID,
-      alive: true, // status "ready" → alive: true (fixed)
+      alive: true,
       cwd: "/workspace",
     };
 
-    detectRespawn(SESSION, geminiIdle, contextInjected, lastProviderSid);
+    detectRespawn(SESSION, idle, contextInjected, lastProviderSid);
 
     expect(contextInjected.has(SESSION)).toBe(true);
     expect(lastProviderSid.has(SESSION)).toBe(true);
   });
 
-  it("clears flag for Gemini error session (alive:false, status error)", () => {
+  it("clears flag for error session (alive:false)", () => {
     contextInjected.add(SESSION);
     lastProviderSid.set(SESSION, PROVIDER_SID);
 
-    const geminiError: SessionInfo = {
+    const errored: SessionInfo = {
       sessionId: PROVIDER_SID,
-      alive: false, // status "error" → alive: false
+      alive: false,
       cwd: "/workspace",
     };
 
-    detectRespawn(SESSION, geminiError, contextInjected, lastProviderSid);
+    detectRespawn(SESSION, errored, contextInjected, lastProviderSid);
 
     expect(contextInjected.has(SESSION)).toBe(false);
     expect(lastProviderSid.has(SESSION)).toBe(false);

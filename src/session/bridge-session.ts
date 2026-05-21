@@ -56,13 +56,6 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "gpt-4.1": 1_000_000,
   "gpt-4.1-mini": 1_000_000,
   "gpt-4.1-nano": 1_000_000,
-  // Gemini
-  "gemini-3.1-pro-preview": 1_000_000,
-  "gemini-3-pro-preview": 1_000_000,
-  "gemini-3-flash-preview": 1_000_000,
-  "gemini-2.5-pro": 1_000_000,
-  "gemini-2.5-flash": 1_000_000,
-  "gemini-2.5-flash-lite": 1_000_000,
 };
 
 const DEFAULT_CONTEXT_WINDOW = 200_000;
