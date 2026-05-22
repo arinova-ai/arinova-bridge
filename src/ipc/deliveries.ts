@@ -3,14 +3,11 @@ import { randomUUID } from "node:crypto";
 const PAYLOAD_PREVIEW_LIMIT = 100;
 
 /**
- * Wire shape returned by the bridge `snapshot` IPC handler. Field names are
- * snake_case to match the rust-server consumer.
+ * Wire shape returned by the bridge `snapshot` IPC handler.
  *
- * `source_agent_id` / `target_agent_id` carry an Arinova agent UUID when the
- * caller supplied one via the IPC `deliver` params, and fall back to the
- * bridge-layer label otherwise: agent name, `spawn:<job-id>`, `fork:<job-id>`,
- * or `cli`. Consumers requiring strict UUIDs join only when the value matches
- * the UUID regex; otherwise treat as a display label.
+ * One row per active A2A delivery the bridge process is currently tracking.
+ * Field names are snake_case to match the rust-server consumer
+ * (`services/queue_inspector/bridge.rs`).
  */
 export interface BridgeDeliveryState {
   delivery_id: string;
