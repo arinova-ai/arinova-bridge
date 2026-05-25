@@ -17,6 +17,7 @@ import { SpawnStore } from "./spawn/store.js";
 import { SpawnManager } from "./spawn/manager.js";
 import { ForkStore } from "./fork/store.js";
 import { ForkManager } from "./fork/manager.js";
+import { resolveProviderConfigDir } from "./config-file.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -72,9 +73,21 @@ logger.info(`Enabled providers: ${Array.from(providers.keys()).join(", ")}`);
 
 const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
 
-// Shared HUD monitor (statusLine only needs one)
-const hudMonitor = new HudMonitor({ logger });
-hudMonitor.start();
+// Claude rate-limit HUD monitor is account-specific because Claude Code reads
+// OAuth state from CLAUDE_CONFIG_DIR. Keep one PTY per anthropic-cli provider.
+const hudMonitors = new Map<string, HudMonitor>();
+for (const entry of config.providers) {
+  if (!entry.enabled || entry.type !== "anthropic-cli") continue;
+
+  const configDir = resolveProviderConfigDir(entry.configDir);
+  const hudMonitor = new HudMonitor({
+    logger,
+    claudePath: entry.claudePath,
+    env: configDir ? { CLAUDE_CONFIG_DIR: configDir } : undefined,
+  });
+  hudMonitor.start();
+  hudMonitors.set(entry.id, hudMonitor);
+}
 
 // Track all agents for shutdown
 const activeAgents: ActiveAgent[] = [];
@@ -300,7 +313,6 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
       // HUD push: fire-and-forget
       (async () => {
-        await hudMonitor.notify();
         const hudData: HudData = {};
 
         if (hudUsage?.context) {
@@ -315,6 +327,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
         if (msgProvider.type.startsWith("anthropic")) {
           try {
+            await hudMonitors.get(msgProvider.id)?.notify();
             const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
             if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
             if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
@@ -391,7 +404,9 @@ async function shutdown(signal: string) {
   spawnManager.stopAll();
   forkManager.stopAll();
   stopIpc();
-  hudMonitor.stop();
+  for (const hudMonitor of hudMonitors.values()) {
+    hudMonitor.stop();
+  }
   stopRefreshTimer();
 
   for (const { agent, name } of activeAgents) {

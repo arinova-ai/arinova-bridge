@@ -9,6 +9,7 @@ const BRIDGE_CLAUDE_SETTINGS = path.join(homedir(), ".arinova-bridge", "claude-s
 
 export type HudMonitorOptions = {
   claudePath?: string;
+  env?: Record<string, string>;
   /** Minimum interval between pings (debounce). Default: 60s */
   debounceMs?: number;
   logger: Logger;
@@ -63,7 +64,7 @@ export class HudMonitor {
         name: "xterm-256color",
         cols: 120,
         rows: 24,
-        env: { ...process.env, TERM: "xterm-256color" },
+        env: { ...process.env, ...this.opts.env, TERM: "xterm-256color" },
       });
 
       log.info(`hud-monitor: started (pid ${this.ptyProcess.pid}, debounce ${this.debounceMs}ms)`);
