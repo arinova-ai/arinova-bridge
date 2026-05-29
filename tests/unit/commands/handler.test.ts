@@ -22,6 +22,7 @@ function createMockProvider(id: string, type: string, displayName: string, sessi
     getCostInfo: vi.fn(() => ({
       totalCostUsd: 0.1234,
     })),
+    getUsageInfo: vi.fn(() => null),
     listSessions: vi.fn(() => [
       {
         providerId: id,
@@ -1420,6 +1421,720 @@ describe("CommandHandler", () => {
       await h.handle("/spawn logs nonexist", ctx);
       const reply = ctx.completed as string;
       expect(reply).toContain("找不到");
+    });
+
+    it("requires job id argument", async () => {
+      const h = setupLogsHandler("agent-a", []);
+      const ctx = createCtx("conv-spawn-logs");
+      await h.handle("/spawn logs", ctx);
+      const reply = ctx.completed as string;
+      expect(reply).toContain("用法");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn — routing and edge cases
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn routing", () => {
+    it("replies spawn manager not enabled when spawnManager is missing", async () => {
+      const ctx = createCtx();
+      await handler.handle("/spawn list", ctx);
+      expect(ctx.completed).toContain("Spawn manager 未啟用");
+    });
+
+    it("replies spawn manager not enabled when agentName is missing", async () => {
+      handler.spawnManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn list", ctx);
+      expect(ctx.completed).toContain("Spawn manager 未啟用");
+    });
+
+    it("shows help when no subcommand given", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn", ctx);
+      expect(ctx.completed).toContain("用法:");
+      expect(ctx.completed).toContain("/spawn list");
+    });
+
+    it("shows help with explicit help subcommand", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn help", ctx);
+      expect(ctx.completed).toContain("用法:");
+    });
+
+    it("rejects unknown spawn subcommand", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn badcmd", ctx);
+      expect(ctx.completed).toContain("未知的 spawn 子指令");
+    });
+
+    it("routes /spawn ls to list", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn ls", ctx);
+      expect(ctx.completed).toContain("沒有 spawn 子任務");
+    });
+
+    it("routes /spawn log to logs handler", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        getJob: vi.fn(() => null),
+        getLogs: vi.fn(() => []),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn log abc123", ctx);
+      expect(ctx.completed).toContain("找不到");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn list — empty
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn list empty", () => {
+    it("shows empty message when no spawn jobs", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn list", ctx);
+      expect(ctx.completed).toContain("沒有 spawn 子任務");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn result — no id
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn result no-id", () => {
+    it("requires job id argument", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        getJob: vi.fn(() => null),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn result", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /spawn cancel
+  // ---------------------------------------------------------------------------
+
+  describe("/spawn cancel", () => {
+    it("cancels a spawn job successfully", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        cancel: vi.fn(() => true),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn cancel job-123", ctx);
+      expect(ctx.completed).toContain("已取消 spawn job");
+      expect(ctx.completed).toContain("job-123");
+    });
+
+    it("reports failure when cancel returns false", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        cancel: vi.fn(() => false),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn cancel job-123", ctx);
+      expect(ctx.completed).toContain("找不到或無法取消");
+    });
+
+    it("requires target id argument", async () => {
+      handler.agentName = "agent-a";
+      handler.spawnManager = {
+        cancel: vi.fn(() => false),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/spawn cancel", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /fork
+  // ---------------------------------------------------------------------------
+
+  describe("/fork", () => {
+    it("replies fork manager not enabled when forkManager is missing", async () => {
+      const ctx = createCtx();
+      await handler.handle("/fork list", ctx);
+      expect(ctx.completed).toContain("Fork manager 未啟用");
+    });
+
+    it("replies fork manager not enabled when agentName is missing", async () => {
+      handler.forkManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork list", ctx);
+      expect(ctx.completed).toContain("Fork manager 未啟用");
+    });
+
+    it("shows help when no subcommand given", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork", ctx);
+      expect(ctx.completed).toContain("用法:");
+      expect(ctx.completed).toContain("/fork list");
+    });
+
+    it("shows help with explicit help subcommand", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = { listByParent: vi.fn() } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork help", ctx);
+      expect(ctx.completed).toContain("用法:");
+    });
+
+    it("lists fork jobs", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        listByParent: vi.fn(() => [
+          {
+            id: "fork-001",
+            parentAgent: "agent-a",
+            task: "run tests",
+            status: "running",
+            createdAt: Date.now(),
+            durationMs: 5000,
+          },
+        ]),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork list", ctx);
+      expect(ctx.completed).toContain("Fork Jobs:");
+      expect(ctx.completed).toContain("fork-001");
+      expect(ctx.completed).toContain("run tests");
+    });
+
+    it("routes /fork ls to list", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork ls", ctx);
+      expect(ctx.completed).toContain("沒有 fork 任務");
+    });
+
+    it("shows empty message when no fork jobs", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork list", ctx);
+      expect(ctx.completed).toContain("沒有 fork 任務");
+    });
+
+    it("cancels a fork job successfully", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        cancel: vi.fn(() => true),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork cancel job-456", ctx);
+      expect(ctx.completed).toContain("已取消 fork job");
+      expect(ctx.completed).toContain("job-456");
+    });
+
+    it("reports failure when fork cancel returns false", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        cancel: vi.fn(() => false),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork cancel job-456", ctx);
+      expect(ctx.completed).toContain("找不到或無法取消");
+    });
+
+    it("requires target id for fork cancel", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        cancel: vi.fn(() => false),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork cancel", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+
+    it("creates a fork when subcommand is not list/cancel/help", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        fork: vi.fn(() => ({ id: "fork-new-1" })),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork run the integration tests", ctx);
+      expect(ctx.completed).toContain("已建立 fork");
+      expect(ctx.completed).toContain("fork-new-1");
+      expect(handler.forkManager!.fork).toHaveBeenCalledWith({
+        parentAgent: "agent-a",
+        task: "run the integration tests",
+      });
+    });
+
+    it("reports error when fork creation fails", async () => {
+      handler.agentName = "agent-a";
+      handler.forkManager = {
+        fork: vi.fn(() => { throw new Error("too many forks"); }),
+        listByParent: vi.fn(() => []),
+      } as any;
+      const ctx = createCtx();
+      await handler.handle("/fork do something", ctx);
+      expect(ctx.completed).toContain("Fork 建立失敗");
+      expect(ctx.completed).toContain("too many forks");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /search
+  // ---------------------------------------------------------------------------
+
+  describe("/search", () => {
+    it("reports unavailable when sessionStore is missing", async () => {
+      const ctx = createCtx();
+      await handler.handle("/search foo", ctx);
+      expect(ctx.completed).toContain("搜尋功能不可用");
+    });
+
+    it("requires search keyword", async () => {
+      const mockSessionStore = { search: vi.fn(() => []) };
+      const h = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
+      const ctx = createCtx();
+      await h.handle("/search", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+
+    it("reports no results when nothing matches", async () => {
+      const mockSessionStore = { search: vi.fn(() => []) };
+      const h = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
+      const ctx = createCtx();
+      await h.handle("/search nonexistent", ctx);
+      expect(ctx.completed).toContain("找不到");
+      expect(ctx.completed).toContain("nonexistent");
+    });
+
+    it("shows search results with sender and preview", async () => {
+      const mockSessionStore = {
+        search: vi.fn(() => [
+          {
+            sender: "Alice",
+            role: "user",
+            content: "I found the bug in the auth module",
+            timestamp: "2026-03-01T10:00:00Z",
+          },
+          {
+            sender: undefined,
+            role: "assistant",
+            content: "Great, let me fix it for you",
+            timestamp: "2026-03-01T10:01:00Z",
+          },
+        ]),
+      };
+      const h = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
+      const ctx = createCtx();
+      await h.handle("/search auth bug", ctx);
+      expect(ctx.completed).toContain("搜尋「auth bug」");
+      expect(ctx.completed).toContain("2 筆結果");
+      expect(ctx.completed).toContain("**Alice**");
+      expect(ctx.completed).toContain("**assistant**");
+      expect(ctx.completed).toContain("auth module");
+      expect(mockSessionStore.search).toHaveBeenCalledWith("auth bug", 10);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /hud-for-usage
+  // ---------------------------------------------------------------------------
+
+  describe("/hud-for-usage", () => {
+    it("shows no data when provider has no usage info", async () => {
+      vi.mocked(anthropicProvider.getUsageInfo).mockReturnValue(null);
+      // Use a non-existent status file so readStatusFile returns null
+      const h = new CommandHandler(providers, createMockConfig(), undefined, "/tmp/nonexistent-status-file-xyz.json");
+      const ctx = createCtx();
+      await h.handle("/hud-for-usage", ctx);
+      expect(ctx.completed).toContain("目前無使用資料");
+    });
+
+    it("shows context usage for anthropic provider", async () => {
+      vi.mocked(anthropicProvider.getUsageInfo).mockReturnValue({
+        context: { contextTokens: 50000, contextWindow: 200000 },
+      });
+      // statusFilePath points to a non-existent file, so readStatusFile returns null
+      const h = new CommandHandler(providers, createMockConfig(), undefined, "/tmp/nonexistent-status.json");
+      const ctx = createCtx();
+      await h.handle("/hud-for-usage", ctx);
+      const parsed = JSON.parse(ctx.completed!);
+      expect(parsed.context).toBeDefined();
+      expect(parsed.context.percent).toBe(25);
+    });
+
+    it("shows rate limits from status file for anthropic", async () => {
+      vi.mocked(anthropicProvider.getUsageInfo).mockReturnValue({
+        context: { contextTokens: 10000, contextWindow: 200000 },
+      });
+
+      // Write a temp status file
+      const fs = await import("node:fs");
+      const tmpFile = `/tmp/test-status-${Date.now()}.json`;
+      fs.writeFileSync(tmpFile, JSON.stringify({
+        limit5h: { percent: 42, resetIn: "2h 30m" },
+        limit7d: { percent: 15, resetIn: "5d" },
+        model: "claude-sonnet-4-20250514",
+        cost: 1.23,
+      }));
+
+      const h = new CommandHandler(providers, createMockConfig(), undefined, tmpFile);
+      const ctx = createCtx();
+      await h.handle("/hud-for-usage", ctx);
+      const parsed = JSON.parse(ctx.completed!);
+      expect(parsed.limit5h).toEqual({ percent: 42, resetIn: "2h 30m" });
+      expect(parsed.limit7d).toEqual({ percent: 15, resetIn: "5d" });
+      expect(parsed.model).toBe("claude-sonnet-4-20250514");
+      expect(parsed.cost).toBe(1.23);
+
+      fs.unlinkSync(tmpFile);
+    });
+
+    it("shows rate limits from getUsageInfo for non-anthropic provider", async () => {
+      vi.mocked(openaiProvider.getUsageInfo).mockReturnValue({
+        context: { contextTokens: 5000, contextWindow: 128000 },
+        rateLimits: [
+          { status: "ok", rateLimitType: "five_hour", utilization: 0.35, resetsAt: Date.now() + 3600000 },
+          { status: "ok", rateLimitType: "seven_day", utilization: 0.1, resetsAt: Date.now() + 86400000 },
+        ],
+      });
+
+      const h = new CommandHandler(providers, createMockConfig(), undefined);
+      // Switch to openai
+      const ctx = createCtx("conv-usage-1");
+      await h.handle("/provider openai-api", ctx);
+
+      const ctx2 = createCtx("conv-usage-1");
+      await h.handle("/hud-for-usage", ctx2);
+      const parsed = JSON.parse(ctx2.completed!);
+      expect(parsed.limit5h).toBeDefined();
+      expect(parsed.limit5h.percent).toBe(35);
+      expect(parsed.limit7d).toBeDefined();
+      expect(parsed.limit7d.percent).toBe(10);
+    });
+
+    it("skips cost from status file when cost is 0", async () => {
+      vi.mocked(anthropicProvider.getUsageInfo).mockReturnValue({
+        context: { contextTokens: 1000, contextWindow: 200000 },
+      });
+      const fs = await import("node:fs");
+      const tmpFile = `/tmp/test-status-zero-${Date.now()}.json`;
+      fs.writeFileSync(tmpFile, JSON.stringify({ cost: 0 }));
+
+      const h = new CommandHandler(providers, createMockConfig(), undefined, tmpFile);
+      const ctx = createCtx();
+      await h.handle("/hud-for-usage", ctx);
+      const parsed = JSON.parse(ctx.completed!);
+      expect(parsed.cost).toBeUndefined();
+
+      fs.unlinkSync(tmpFile);
+    });
+
+    it("handles missing context window gracefully (pct=0)", async () => {
+      vi.mocked(anthropicProvider.getUsageInfo).mockReturnValue({
+        context: { contextTokens: 1000 },
+      });
+      const h = new CommandHandler(providers, createMockConfig(), undefined, "/tmp/nonexistent.json");
+      const ctx = createCtx();
+      await h.handle("/hud-for-usage", ctx);
+      const parsed = JSON.parse(ctx.completed!);
+      expect(parsed.context.percent).toBe(0);
+      expect(parsed.context.total).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /cost — token usage details
+  // ---------------------------------------------------------------------------
+
+  describe("/cost token details", () => {
+    it("shows token breakdown when inputTokens are available", async () => {
+      vi.mocked(anthropicProvider.getCostInfo).mockReturnValue({
+        totalCostUsd: 0.5,
+        inputTokens: 10000,
+        cachedInputTokens: 3000,
+        outputTokens: 5000,
+      });
+      const ctx = createCtx();
+      await handler.handle("/cost", ctx);
+      expect(ctx.completed).toContain("$0.5000");
+      expect(ctx.completed).toContain("**Token Usage:**");
+      expect(ctx.completed).toContain("Input:");
+      expect(ctx.completed).toContain("10,000");
+      expect(ctx.completed).toContain("cached: 3,000");
+      expect(ctx.completed).toContain("Output:");
+      expect(ctx.completed).toContain("5,000");
+      expect(ctx.completed).toContain("Total:");
+      expect(ctx.completed).toContain("15,000");
+    });
+
+    it("shows no data when cost info has no cost or tokens", async () => {
+      vi.mocked(anthropicProvider.getCostInfo).mockReturnValue({});
+      const ctx = createCtx();
+      await handler.handle("/cost", ctx);
+      expect(ctx.completed).toContain("目前無使用資料");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /status — token info
+  // ---------------------------------------------------------------------------
+
+  describe("/status with tokens", () => {
+    it("shows token counts when available", async () => {
+      vi.mocked(anthropicProvider.getCostInfo).mockReturnValue({
+        totalCostUsd: 0.25,
+        inputTokens: 8000,
+        cachedInputTokens: 2000,
+        outputTokens: 3000,
+      });
+      const ctx = createCtx();
+      await handler.handle("/status", ctx);
+      expect(ctx.completed).toContain("$0.2500");
+      expect(ctx.completed).toContain("Tokens:");
+      expect(ctx.completed).toContain("in=8000");
+      expect(ctx.completed).toContain("cached=2000");
+      expect(ctx.completed).toContain("out=3000");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /new — valid path
+  // ---------------------------------------------------------------------------
+
+  describe("/new with valid path", () => {
+    it("sets cwd override for valid path", async () => {
+      const ctx = createCtx();
+      await handler.handle("/new /tmp", ctx);
+      expect(ctx.completed).toContain("已開啟新的工作階段");
+      expect(ctx.completed).toContain("/tmp");
+      expect(handler.getCwdForConversation("conv-1")).toBe("/tmp");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /resume — ambiguous match
+  // ---------------------------------------------------------------------------
+
+  describe("/resume ambiguous match", () => {
+    it("reports multiple matches when session prefix is ambiguous", async () => {
+      // Both providers have sessions starting with the same prefix
+      vi.mocked(anthropicProvider.listSessions).mockReturnValue([
+        {
+          providerId: "anthropic-oauth",
+          sessionId: "shared-prefix-aaa",
+          conversationId: "conv-1",
+          alive: true,
+          status: "ready",
+          cwd: "/test",
+          model: "sonnet",
+        },
+      ]);
+      vi.mocked(openaiProvider.listSessions).mockReturnValue([
+        {
+          providerId: "openai-api",
+          sessionId: "shared-prefix-bbb",
+          conversationId: "conv-2",
+          alive: true,
+          status: "ready",
+          cwd: "/test",
+          model: "gpt-4",
+        },
+      ]);
+      const ctx = createCtx();
+      await handler.handle("/resume shared-prefix", ctx);
+      expect(ctx.completed).toContain("多個 session 匹配");
+      expect(ctx.completed).toContain("anthropic-oauth");
+      expect(ctx.completed).toContain("openai-api");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /model — fuzzy match
+  // ---------------------------------------------------------------------------
+
+  describe("/model fuzzy match", () => {
+    it("matches by substring when exact match fails", async () => {
+      const ctx = createCtx();
+      await handler.handle("/model opu", ctx);
+      expect(ctx.completed).toContain("已切換模型為 opus");
+    });
+
+    it("reports ambiguous match when multiple models match", async () => {
+      vi.mocked(anthropicProvider.supportedModels).mockReturnValue([
+        "sonnet-3.5",
+        "sonnet-4",
+      ]);
+      const ctx = createCtx();
+      await handler.handle("/model sonnet", ctx);
+      expect(ctx.completed).toContain("多個模型匹配");
+      expect(ctx.completed).toContain("sonnet-3.5");
+      expect(ctx.completed).toContain("sonnet-4");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getProviderForConversation — fallback
+  // ---------------------------------------------------------------------------
+
+  describe("getProviderForConversation fallback", () => {
+    it("falls back to first provider when default is not found", () => {
+      const config = createMockConfig("nonexistent-default");
+      const h = new CommandHandler(providers, config);
+      const provider = h.getProviderForConversation("conv-1");
+      // Should get the first provider in the Map
+      expect(provider).toBeDefined();
+      expect(["anthropic-oauth", "openai-api"]).toContain(provider.id);
+    });
+
+    it("throws when no providers are available", () => {
+      const config = createMockConfig("nonexistent");
+      const emptyProviders = new Map<string, Provider>();
+      const h = new CommandHandler(emptyProviders, config);
+      expect(() => h.getProviderForConversation("conv-1")).toThrow("No providers are enabled");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /notes — error and hasMore paths
+  // ---------------------------------------------------------------------------
+
+  describe("/notes edge cases", () => {
+    it("shows hasMore indicator when there are more notes", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.listNotes!).mockResolvedValue({ notes: mockNotes, hasMore: true });
+      await handler.handle("/notes", ctx);
+      expect(ctx.completed).toContain("還有更多筆記");
+    });
+
+    it("handles error from listNotes API", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.listNotes!).mockRejectedValue(new Error("network error"));
+      await handler.handle("/notes", ctx);
+      expect(ctx.completed).toContain("取得筆記失敗");
+      expect(ctx.completed).toContain("network error");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /note-add — edge cases
+  // ---------------------------------------------------------------------------
+
+  describe("/note-add edge cases", () => {
+    it("shows unavailable when createNote is missing", async () => {
+      const ctx = createCtx();
+      ctx.createNote = undefined;
+      await handler.handle("/note-add My Title", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+
+    it("handles error from createNote API", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.createNote!).mockRejectedValue(new Error("quota exceeded"));
+      await handler.handle("/note-add My Title", ctx);
+      expect(ctx.completed).toContain("新增筆記失敗");
+      expect(ctx.completed).toContain("quota exceeded");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /note-edit — edge cases
+  // ---------------------------------------------------------------------------
+
+  describe("/note-edit edge cases", () => {
+    it("shows unavailable when updateNote is missing", async () => {
+      const ctx = createCtx();
+      ctx.updateNote = undefined;
+      await handler.handle("/note-edit abc New Title", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+
+    it("shows unavailable when listNotes is missing", async () => {
+      const ctx = createCtx();
+      ctx.listNotes = undefined;
+      await handler.handle("/note-edit abc New Title", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+
+    it("requires id and space-separated content", async () => {
+      const ctx = createCtx();
+      await handler.handle("/note-edit justanid", ctx);
+      expect(ctx.completed).toContain("用法");
+    });
+
+    it("handles error from updateNote API", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.updateNote!).mockRejectedValue(new Error("db error"));
+      await handler.handle("/note-edit note-aabb New Title", ctx);
+      expect(ctx.completed).toContain("更新筆記失敗");
+      expect(ctx.completed).toContain("db error");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /note-del — edge cases
+  // ---------------------------------------------------------------------------
+
+  describe("/note-del edge cases", () => {
+    it("shows unavailable when deleteNote is missing", async () => {
+      const ctx = createCtx();
+      ctx.deleteNote = undefined;
+      await handler.handle("/note-del abc", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+
+    it("shows unavailable when listNotes is missing", async () => {
+      const ctx = createCtx();
+      ctx.listNotes = undefined;
+      await handler.handle("/note-del abc", ctx);
+      expect(ctx.completed).toContain("不可用");
+    });
+
+    it("handles error from deleteNote API", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.deleteNote!).mockRejectedValue(new Error("permission denied"));
+      await handler.handle("/note-del note-aabb", ctx);
+      expect(ctx.completed).toContain("刪除筆記失敗");
+      expect(ctx.completed).toContain("permission denied");
+    });
+
+    it("handles error from resolveNoteId listNotes call", async () => {
+      const ctx = createCtx();
+      vi.mocked(ctx.listNotes!).mockRejectedValue(new Error("timeout"));
+      await handler.handle("/note-del note-aabb", ctx);
+      expect(ctx.completed).toContain("取得筆記失敗");
+      expect(ctx.completed).toContain("timeout");
     });
   });
 });

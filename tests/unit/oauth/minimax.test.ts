@@ -10,6 +10,7 @@ import {
   requestDeviceCode,
   pollForToken,
   refreshAccessToken,
+  performMiniMaxOAuth,
 } from "../../../src/oauth/minimax.js";
 
 beforeEach(() => {
@@ -123,6 +124,109 @@ describe("requestDeviceCode", () => {
 
     await expect(requestDeviceCode()).rejects.toThrow("state mismatch");
   });
+
+  it("throws with data.error when response is incomplete and error is present", async () => {
+    mockFetch.mockImplementation(async (_url: string, opts: any) => {
+      const body = new URLSearchParams(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          // missing user_code and verification_uri
+          expired_in: 300,
+          state: body.get("state"),
+          error: "custom_error_from_server",
+        }),
+      };
+    });
+
+    await expect(requestDeviceCode()).rejects.toThrow("custom_error_from_server");
+  });
+
+  it("throws default message when response is incomplete and no error field", async () => {
+    mockFetch.mockImplementation(async (_url: string, opts: any) => {
+      const body = new URLSearchParams(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          // missing user_code and verification_uri
+          expired_in: 300,
+          state: body.get("state"),
+        }),
+      };
+    });
+
+    await expect(requestDeviceCode()).rejects.toThrow(
+      "MiniMax OAuth returned incomplete response",
+    );
+  });
+
+  it("normalizes expired_in from Unix seconds timestamp", async () => {
+    const unixSeconds = 1740012345; // > 1_000_000_000 but < 1_000_000_000_000
+    mockFetch.mockImplementation(async (_url: string, opts: any) => {
+      const body = new URLSearchParams(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          user_code: "TS-1234",
+          verification_uri: "https://minimax.io/verify",
+          expired_in: unixSeconds,
+          interval: 2,
+          state: body.get("state"),
+        }),
+      };
+    });
+
+    const result = await requestDeviceCode();
+    // Unix seconds should be converted to ms
+    expect(result.deviceCode.expiresAt).toBe(unixSeconds * 1000);
+  });
+
+  it("normalizes expired_in from relative seconds", async () => {
+    const relativeSeconds = 300; // < 1_000_000_000
+    const nowBefore = Date.now();
+    mockFetch.mockImplementation(async (_url: string, opts: any) => {
+      const body = new URLSearchParams(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          user_code: "RS-5678",
+          verification_uri: "https://minimax.io/verify",
+          expired_in: relativeSeconds,
+          interval: 5,
+          state: body.get("state"),
+        }),
+      };
+    });
+
+    const result = await requestDeviceCode();
+    const nowAfter = Date.now();
+    // Relative seconds: expiresAt should be Date.now() + seconds*1000
+    expect(result.deviceCode.expiresAt).toBeGreaterThanOrEqual(
+      nowBefore + relativeSeconds * 1000,
+    );
+    expect(result.deviceCode.expiresAt).toBeLessThanOrEqual(
+      nowAfter + relativeSeconds * 1000,
+    );
+  });
+
+  it("defaults interval to 2 when not provided", async () => {
+    mockFetch.mockImplementation(async (_url: string, opts: any) => {
+      const body = new URLSearchParams(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          user_code: "NO-INT",
+          verification_uri: "https://minimax.io/verify",
+          expired_in: Date.now() + 300_000,
+          // no interval field
+          state: body.get("state"),
+        }),
+      };
+    });
+
+    const result = await requestDeviceCode();
+    expect(result.deviceCode.interval).toBe(2);
+  });
 });
 
 describe("pollForToken", () => {
@@ -215,6 +319,43 @@ describe("pollForToken", () => {
       pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
     ).rejects.toThrow("invalid code");
   });
+
+  it("throws when response is OK but body is not valid JSON", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => "this is not json",
+    });
+
+    await expect(
+      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
+    ).rejects.toThrow("MiniMax OAuth: failed to parse response");
+  });
+
+  it("throws when status is success but token fields are missing", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        status: "success",
+        access_token: "at-123",
+        // missing refresh_token and expired_in
+      }),
+    });
+
+    await expect(
+      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
+    ).rejects.toThrow("MiniMax OAuth returned incomplete token");
+  });
+
+  it("throws on HTTP error with fallback text when no base_resp", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      text: async () => "plain error text",
+    });
+
+    await expect(
+      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
+    ).rejects.toThrow("plain error text");
+  });
 });
 
 describe("refreshAccessToken", () => {
@@ -276,5 +417,67 @@ describe("refreshAccessToken", () => {
     });
 
     await expect(refreshAccessToken("bad-rt")).rejects.toThrow("refresh failed");
+  });
+});
+
+describe("performMiniMaxOAuth", () => {
+  it("runs the full device code flow and returns a token", async () => {
+    // Suppress console.log output during this test
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    let callCount = 0;
+    mockFetch.mockImplementation(async (url: string, opts: any) => {
+      callCount++;
+      if (url.includes("/oauth/code")) {
+        // Device code request
+        const body = new URLSearchParams(opts.body);
+        return {
+          ok: true,
+          json: async () => ({
+            user_code: "FLOW-1234",
+            verification_uri: "https://minimax.io/verify?client=test",
+            expired_in: Date.now() + 300_000,
+            interval: 0.01,
+            state: body.get("state"),
+          }),
+        };
+      }
+      // Token poll request
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          status: "success",
+          access_token: "flow-at",
+          refresh_token: "flow-rt",
+          expired_in: 3600,
+        }),
+      };
+    });
+
+    const token = await performMiniMaxOAuth("global");
+
+    expect(token.accessToken).toBe("flow-at");
+    expect(token.refreshToken).toBe("flow-rt");
+    expect(token.expiresAt).toBeGreaterThan(0);
+    // Should have called code endpoint + token endpoint
+    expect(callCount).toBeGreaterThanOrEqual(2);
+
+    logSpy.mockRestore();
+  });
+
+  it("propagates error from requestDeviceCode", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    mockFetch.mockResolvedValue({
+      ok: false,
+      statusText: "Server Error",
+      text: async () => "internal error",
+    });
+
+    await expect(performMiniMaxOAuth()).rejects.toThrow(
+      "MiniMax OAuth code request failed",
+    );
+
+    logSpy.mockRestore();
   });
 });
