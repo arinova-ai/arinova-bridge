@@ -59,6 +59,37 @@ describe("loadConfig", () => {
     expect(config.providers).toEqual([]);
   });
 
+  it("rejects invalid MAX_SESSIONS env values", () => {
+    mockReadConfigFile.mockReturnValue(null);
+    process.env.ARINOVA_BOT_TOKEN = "test-token";
+
+    for (const value of ["NaN", "0", "-1", "1.5"]) {
+      process.env.MAX_SESSIONS = value;
+      expect(() => loadConfig()).toThrow("MAX_SESSIONS must be a positive integer");
+    }
+  });
+
+  it("falls back to default maxSessions when env and config omit it", () => {
+    mockReadConfigFile.mockReturnValue(null);
+    process.env.ARINOVA_BOT_TOKEN = "test-token";
+
+    const config = loadConfig();
+
+    expect(config.defaults.maxSessions).toBe(5);
+  });
+
+  it("rejects invalid idleTimeoutMs config values", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "anthropic-oauth",
+      providers: [],
+      defaults: { cwd: "/home/test", idleTimeoutMs: 0 },
+    });
+
+    expect(() => loadConfig()).toThrow("defaults.idleTimeoutMs must be a positive integer");
+  });
+
   it("loads providers from config file array", () => {
     mockReadConfigFile.mockReturnValue({
       version: 2,

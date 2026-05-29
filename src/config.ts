@@ -33,6 +33,17 @@ export interface BridgeConfig {
   agents: ResolvedAgent[];
 }
 
+function readPositiveInteger(value: unknown, fallback: number, name: string): number {
+  if (value === undefined || value === null) return fallback;
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 /**
  * Load config from JSON file + env var overrides.
  * Env vars always take highest priority.
@@ -67,12 +78,17 @@ export function loadConfig(): BridgeConfig {
     path.join(homedir(), "projects");
   const defaultCwd = rawCwd.replace(/^~/, homedir());
 
-  const maxSessions = parseInt(
-    process.env.MAX_SESSIONS ?? String(file?.defaults?.maxSessions ?? 5),
-    10,
+  const maxSessions = readPositiveInteger(
+    process.env.MAX_SESSIONS ?? file?.defaults?.maxSessions,
+    5,
+    "MAX_SESSIONS",
   );
 
-  const idleTimeoutMs = file?.defaults?.idleTimeoutMs ?? 3_600_000;
+  const idleTimeoutMs = readPositiveInteger(
+    file?.defaults?.idleTimeoutMs,
+    3_600_000,
+    "defaults.idleTimeoutMs",
+  );
 
   const dbPath =
     process.env.DB_PATH ??
