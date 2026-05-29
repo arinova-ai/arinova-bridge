@@ -35,6 +35,8 @@ LOGIN SUBCOMMAND
   login                     Interactive provider selection
   login <provider-id>       Login to a specific provider (e.g. anthropic-oauth, minimax-oauth)
                              Providers with configDir login in that isolated account directory
+  login <provider-id> --device-auth
+                             Use device code auth flow (openai-oauth only)
 
 AGENTS SUBCOMMAND
   agents                                    List all running agents
@@ -246,7 +248,8 @@ async function cmdSetup(): Promise<void> {
 async function cmdLogin(args: string[]): Promise<void> {
   const { runLogin } = await import("./login.js");
   const providerId = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
-  await runLogin(providerId);
+  const deviceAuth = args.includes("--device-auth");
+  await runLogin(providerId, { deviceAuth });
 }
 
 function parseFlag(args: string[], flag: string): string | undefined {

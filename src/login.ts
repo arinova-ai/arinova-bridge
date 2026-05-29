@@ -26,15 +26,22 @@ function loginStrategy(entry: ProviderEntry): "minimax" | "cli" | "none" {
   return "none";
 }
 
+export interface LoginOptions {
+  deviceAuth?: boolean;
+}
+
 /**
  * Get the CLI login command for a provider type.
  */
-function getCliLoginCommand(entry: ProviderEntry): { cmd: string; args: string[] } | null {
+function getCliLoginCommand(entry: ProviderEntry, options?: LoginOptions): { cmd: string; args: string[] } | null {
   switch (entry.type) {
     case "anthropic-cli":
       return { cmd: entry.claudePath ?? "claude", args: ["login"] };
-    case "openai-cli":
-      return { cmd: entry.codexPath ?? "codex", args: ["auth", "login"] };
+    case "openai-cli": {
+      const args = ["auth", "login"];
+      if (options?.deviceAuth) args.push("--device-auth");
+      return { cmd: entry.codexPath ?? "codex", args };
+    }
     default:
       return null;
   }
@@ -85,8 +92,8 @@ async function loginMiniMax(entry: ProviderEntry): Promise<void> {
 /**
  * Run CLI-based login (claude login, codex auth login).
  */
-function loginCli(entry: ProviderEntry): void {
-  const login = getCliLoginCommand(entry);
+function loginCli(entry: ProviderEntry, options?: LoginOptions): void {
+  const login = getCliLoginCommand(entry, options);
   if (!login) {
     console.error(`No login command for provider type "${entry.type}"`);
     process.exit(1);
@@ -198,8 +205,9 @@ function getProviderStatus(entry: ProviderEntry): string {
 /**
  * Main login flow.
  * @param providerId - optional provider ID to login directly
+ * @param options - login options (e.g. deviceAuth for codex --device-auth)
  */
-export async function runLogin(providerId?: string): Promise<void> {
+export async function runLogin(providerId?: string, options?: LoginOptions): Promise<void> {
   const config = readConfigFile();
   if (!config) {
     console.error("No config found. Run `arinova-bridge setup` first.");
@@ -259,7 +267,7 @@ export async function runLogin(providerId?: string): Promise<void> {
       await loginMiniMax(target);
       break;
     case "cli":
-      loginCli(target);
+      loginCli(target, options);
       break;
   }
 }
