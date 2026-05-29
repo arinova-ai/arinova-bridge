@@ -5,6 +5,7 @@ import { deliverToAgent } from "../ipc/router.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
 import { getErrorMessage } from "../util/errors.js";
+import { buildJobReportContent, clearTrackedInterval, clearTrackedTimeout } from "../jobs/lifecycle.js";
 
 const log = createLogger("spawn");
 
@@ -49,11 +50,7 @@ export class SpawnManager {
 
   /** Cancel a running spawn job. */
   cancel(id: string): boolean {
-    const timeout = this.timeouts.get(id);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.timeouts.delete(id);
-    }
+    clearTrackedTimeout(id, this.timeouts);
     const cancelled = this.store.cancel(id);
     if (cancelled) {
       log.info(`spawn[${id}] cancelled`);
@@ -176,11 +173,9 @@ export class SpawnManager {
       });
 
       // Clear timers and flush remaining log
-      clearTimeout(timer);
-      clearInterval(flushTimer);
-      this.flushTimers.delete(job.id);
+      clearTrackedTimeout(job.id, this.timeouts);
+      clearTrackedInterval(job.id, this.flushTimers);
       flushLog();
-      this.timeouts.delete(job.id);
 
       // Check if already cancelled/timed out
       const current = this.store.get(job.id);
@@ -198,11 +193,9 @@ export class SpawnManager {
       this.reportToParent(job, "completed", result.text);
     } catch (err) {
       // Clear timers and flush remaining log
-      clearTimeout(timer);
-      clearInterval(flushTimer);
-      this.flushTimers.delete(job.id);
+      clearTrackedTimeout(job.id, this.timeouts);
+      clearTrackedInterval(job.id, this.flushTimers);
       flushLog();
-      this.timeouts.delete(job.id);
 
       const msg = getErrorMessage(err);
 
@@ -224,9 +217,13 @@ export class SpawnManager {
       return;
     }
 
-    const statusLabel = status === "completed" ? "完成" : "失敗";
-    const preview = result.length > 2000 ? result.slice(0, 2000) + "\n...(truncated)" : result;
-    const content = `[spawn:${job.id} from:${job.targetAgent}] ${statusLabel}\n${preview}`;
+    const content = buildJobReportContent({
+      kind: "spawn",
+      id: job.id,
+      targetAgent: job.targetAgent,
+      status,
+      result,
+    });
 
     deliverToAgent(parent, content, {
       source: `spawn:${job.id}`,
