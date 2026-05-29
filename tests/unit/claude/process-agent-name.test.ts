@@ -56,11 +56,13 @@ describe("ClaudeProcess per-session ARINOVA_AGENT_NAME", () => {
   it("different agents get different ARINOVA_AGENT_NAME values (not shared)", () => {
     const procLucy = new ClaudeProcess({ logger, agentName: "lucy" });
     procLucy.start();
-    const lucyEnv = ((spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as { env: Record<string, string> }).env;
+    const lucyEnv = ((spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as { env: Record<string, string> })
+      .env;
 
     const procPan = new ClaudeProcess({ logger, agentName: "pan" });
     procPan.start();
-    const panEnv = ((spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[1][2] as { env: Record<string, string> }).env;
+    const panEnv = ((spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[1][2] as { env: Record<string, string> })
+      .env;
 
     expect(lucyEnv.ARINOVA_AGENT_NAME).toBe("lucy");
     expect(panEnv.ARINOVA_AGENT_NAME).toBe("pan");

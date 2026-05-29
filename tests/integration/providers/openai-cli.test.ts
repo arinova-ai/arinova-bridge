@@ -10,24 +10,23 @@ vi.mock("../../../src/codex/app-server.js", () => ({
   CodexAppServer: class {
     private threadIds = new Map<string, string>();
     private instance: { config: any; shutdowns: number };
-    private usage = new Map<string, {
-      total: {
-        inputTokens: number;
-        cachedInputTokens: number;
-        outputTokens: number;
-      };
-    }>();
+    private usage = new Map<
+      string,
+      {
+        total: {
+          inputTokens: number;
+          cachedInputTokens: number;
+          outputTokens: number;
+        };
+      }
+    >();
 
     constructor(config: any) {
       this.instance = { config, shutdowns: 0 };
       appServerInstances.push(this.instance);
     }
 
-    async sendMessage(
-      conversationId: string,
-      _content: string,
-      onChunk?: (text: string) => void,
-    ) {
+    async sendMessage(conversationId: string, _content: string, onChunk?: (text: string) => void) {
       onChunk?.("Codex says hello");
       this.threadIds.set(conversationId, "thread-xyz");
       this.usage.set(conversationId, {
@@ -41,13 +40,27 @@ vi.mock("../../../src/codex/app-server.js", () => ({
     }
 
     interrupt() {}
-    clearThread(conversationId: string) { this.threadIds.delete(conversationId); }
-    getThreadId(conversationId: string) { return this.threadIds.get(conversationId) ?? null; }
-    getTokenUsage(conversationId: string) { return this.usage.get(conversationId) ?? null; }
-    getContextUsage() { return null; }
-    getRateLimits() { return null; }
-    isReady() { return true; }
-    async shutdown() { this.instance.shutdowns++; }
+    clearThread(conversationId: string) {
+      this.threadIds.delete(conversationId);
+    }
+    getThreadId(conversationId: string) {
+      return this.threadIds.get(conversationId) ?? null;
+    }
+    getTokenUsage(conversationId: string) {
+      return this.usage.get(conversationId) ?? null;
+    }
+    getContextUsage() {
+      return null;
+    }
+    getRateLimits() {
+      return null;
+    }
+    isReady() {
+      return true;
+    }
+    async shutdown() {
+      this.instance.shutdowns++;
+    }
   },
 }));
 

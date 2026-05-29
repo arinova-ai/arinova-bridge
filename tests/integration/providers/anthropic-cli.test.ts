@@ -35,7 +35,9 @@ vi.mock("../../../src/claude/process.js", () => {
       this.getTotalCost = vi.fn(() => 0.1);
       this.getCwd = vi.fn(() => "/test");
       this.getModel = vi.fn(() => "sonnet");
-      this.setReportToolCall = vi.fn((reporter: any) => { this.opts.reportToolCall = reporter; });
+      this.setReportToolCall = vi.fn((reporter: any) => {
+        this.opts.reportToolCall = reporter;
+      });
       procInstances.push(this);
       procCtorOpts.push(opts);
     }),

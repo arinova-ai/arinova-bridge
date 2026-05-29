@@ -16,19 +16,17 @@ async function querySenderMemories(source: string, content: string): Promise<str
 
   try {
     const queryText = content.length > 200 ? content.slice(0, 200) : content;
-    const { stdout } = await execFileAsync("arinova", [
-      "--profile", source,
-      "--json",
-      "memory", "query",
-      "--query", queryText,
-      "--limit", "10",
-    ], { timeout: 10_000 });
+    const { stdout } = await execFileAsync(
+      "arinova",
+      ["--profile", source, "--json", "memory", "query", "--query", queryText, "--limit", "10"],
+      { timeout: 10_000 },
+    );
 
     const memories = JSON.parse(stdout);
     if (!Array.isArray(memories) || memories.length === 0) return undefined;
 
     const lines = memories.map((m: { content?: string; title?: string }) =>
-      m.title ? `- ${m.title}: ${m.content ?? ""}` : `- ${m.content ?? ""}`
+      m.title ? `- ${m.title}: ${m.content ?? ""}` : `- ${m.content ?? ""}`,
     );
     return `[Sender memories — from ${source}]\n${lines.join("\n")}`;
   } catch {
@@ -76,9 +74,7 @@ describe("querySenderMemories", () => {
       ["--profile", "lucy", "--json", "memory", "query", "--query", "What's the status?", "--limit", "10"],
       { timeout: 10_000 },
     );
-    expect(result).toBe(
-      "[Sender memories — from lucy]\n- Preference: User likes dark mode\n- Always use TypeScript",
-    );
+    expect(result).toBe("[Sender memories — from lucy]\n- Preference: User likes dark mode\n- Always use TypeScript");
   });
 
   it("truncates query text to 200 chars", async () => {
@@ -168,14 +164,14 @@ describe("A2A deliver sender memory injection (integration)", () => {
 
   it("first A2A message from agent: injects sender memories + bridge context", () => {
     const ctx = simulateDeliverContextBuild(
-      "pan:default", "lucy", "Please review this PR",
+      "pan:default",
+      "lucy",
+      "Please review this PR",
       "[Previous conversation]",
       "[Sender memories — from lucy]\n- Lucy prefers concise reviews",
     );
 
-    expect(ctx).toBe(
-      "[Sender memories — from lucy]\n- Lucy prefers concise reviews\n\n[Previous conversation]",
-    );
+    expect(ctx).toBe("[Sender memories — from lucy]\n- Lucy prefers concise reviews\n\n[Previous conversation]");
   });
 
   it("second A2A message: skips memory injection (not isFirstA2a)", () => {
@@ -183,18 +179,16 @@ describe("A2A deliver sender memory injection (integration)", () => {
     simulateDeliverContextBuild("pan:default", "lucy", "msg1", "[ctx]", "[memories]");
 
     // Second message
-    const ctx = simulateDeliverContextBuild(
-      "pan:default", "lucy", "msg2",
-      "[ctx]",
-      "[memories]",
-    );
+    const ctx = simulateDeliverContextBuild("pan:default", "lucy", "msg2", "[ctx]", "[memories]");
 
     expect(ctx).toBeUndefined();
   });
 
   it("source = 'cli': no memory injection even on first message", () => {
     const ctx = simulateDeliverContextBuild(
-      "pan:default", "cli", "hello",
+      "pan:default",
+      "cli",
+      "hello",
       "[Previous conversation]",
       undefined, // querySenderMemories returns undefined for cli
     );
@@ -205,7 +199,9 @@ describe("A2A deliver sender memory injection (integration)", () => {
 
   it("first A2A with memories but no bridge context: memories only", () => {
     const ctx = simulateDeliverContextBuild(
-      "pan:default", "lucy", "hello",
+      "pan:default",
+      "lucy",
+      "hello",
       undefined, // no bridge context (empty session store)
       "[Sender memories — from lucy]\n- Some memory",
     );
@@ -214,11 +210,7 @@ describe("A2A deliver sender memory injection (integration)", () => {
   });
 
   it("first A2A with no memories and no bridge context: undefined", () => {
-    const ctx = simulateDeliverContextBuild(
-      "pan:default", "lucy", "hello",
-      undefined,
-      undefined,
-    );
+    const ctx = simulateDeliverContextBuild("pan:default", "lucy", "hello", undefined, undefined);
 
     expect(ctx).toBeUndefined();
   });
@@ -231,11 +223,7 @@ describe("A2A deliver sender memory injection (integration)", () => {
     a2aContextInjected.delete("pan:default");
 
     // Should re-inject
-    const ctx = simulateDeliverContextBuild(
-      "pan:default", "lucy", "msg2",
-      "[new ctx]",
-      "[new memories]",
-    );
+    const ctx = simulateDeliverContextBuild("pan:default", "lucy", "msg2", "[new ctx]", "[new memories]");
 
     expect(ctx).toBe("[new memories]\n\n[new ctx]");
   });

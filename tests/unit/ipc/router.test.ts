@@ -186,10 +186,7 @@ describe("router.ts", () => {
     it("returns all agents with provider info", async () => {
       const alice = makeMockAgent("alice");
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({ id: 1, method: "list-agents" } as IpcRequest);
       const list = (res as any).result;
       expect(list).toHaveLength(2);
@@ -205,10 +202,7 @@ describe("router.ts", () => {
     it("uses 'default' when model is undefined", async () => {
       const agent = makeMockAgent("nomodel");
       agent.agentConfig.model = undefined;
-      const router = createIpcRouter(
-        [agent],
-        new Map([["mock-provider", agent.provider]]),
-      );
+      const router = createIpcRouter([agent], new Map([["mock-provider", agent.provider]]));
       const res = await router({ id: 1, method: "list-agents" } as IpcRequest);
       expect((res as any).result[0].model).toBe("default");
     });
@@ -233,10 +227,7 @@ describe("router.ts", () => {
           },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 2,
         method: "agent-status",
@@ -265,14 +256,27 @@ describe("router.ts", () => {
     it("filters sessions to only the target agent", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1s1s1s1s1s1s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
-          { providerId: "p", sessionId: "s2s2s2s2s2s2s2", conversationId: "bob:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1s1s1s1s1s1s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
+          {
+            providerId: "p",
+            sessionId: "s2s2s2s2s2s2s2",
+            conversationId: "bob:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 4,
         method: "agent-status",
@@ -290,13 +294,18 @@ describe("router.ts", () => {
     it("returns alive for existing agent", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 5,
         method: "ping",
@@ -313,13 +322,18 @@ describe("router.ts", () => {
     it("hasActiveSession is false when all sessions dead", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: false, status: "idle", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: false,
+            status: "idle",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 6,
         method: "ping",
@@ -347,7 +361,15 @@ describe("router.ts", () => {
     it("returns cost for a specific agent", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
         getCostInfo: vi.fn().mockReturnValue({
           totalCostUsd: 0.05,
@@ -355,10 +377,7 @@ describe("router.ts", () => {
           outputTokens: 500,
         } as CostInfo),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 8,
         method: "agent-cost",
@@ -376,10 +395,7 @@ describe("router.ts", () => {
     it("returns all agents when target is omitted", async () => {
       const alice = makeMockAgent("alice");
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 9,
         method: "agent-cost",
@@ -404,14 +420,19 @@ describe("router.ts", () => {
     it("handles null cost info gracefully", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
         getCostInfo: vi.fn().mockReturnValue(null),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 11,
         method: "agent-cost",
@@ -426,24 +447,38 @@ describe("router.ts", () => {
     it("aggregates cost across multiple sessions", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
-          { providerId: "p", sessionId: "s2", conversationId: "alice:other", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
+          {
+            providerId: "p",
+            sessionId: "s2",
+            conversationId: "alice:other",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
-        getCostInfo: vi.fn()
+        getCostInfo: vi
+          .fn()
           .mockReturnValueOnce({ totalCostUsd: 0.03, inputTokens: 500, outputTokens: 200 } as CostInfo)
           .mockReturnValueOnce({ totalCostUsd: 0.07, inputTokens: 800, outputTokens: 300 } as CostInfo),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 12,
         method: "agent-cost",
         params: { target: "alice" },
       } as IpcRequest);
       const result = (res as any).result;
-      expect(result.totalCostUsd).toBeCloseTo(0.10);
+      expect(result.totalCostUsd).toBeCloseTo(0.1);
       expect(result.inputTokens).toBe(1300);
       expect(result.outputTokens).toBe(500);
     });
@@ -457,13 +492,18 @@ describe("router.ts", () => {
     it("interrupts agent sessions", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "busy", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "busy",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 13,
         method: "agent-stop",
@@ -490,17 +530,33 @@ describe("router.ts", () => {
     it("handles interrupt errors gracefully (best effort)", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "busy", cwd: "/", model: "m" },
-          { providerId: "p", sessionId: "s2", conversationId: "alice:other", alive: true, status: "busy", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "busy",
+            cwd: "/",
+            model: "m",
+          },
+          {
+            providerId: "p",
+            sessionId: "s2",
+            conversationId: "alice:other",
+            alive: true,
+            status: "busy",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
-        interrupt: vi.fn()
-          .mockImplementationOnce(() => { throw new Error("interrupt failed"); })
+        interrupt: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            throw new Error("interrupt failed");
+          })
           .mockImplementationOnce(() => {}),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 15,
         method: "agent-stop",
@@ -522,13 +578,18 @@ describe("router.ts", () => {
     it("resets agent sessions and clears context", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 16,
         method: "agent-reset",
@@ -556,14 +617,19 @@ describe("router.ts", () => {
     it("handles reset errors gracefully (best effort)", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/",
+            model: "m",
+          },
         ] as SessionListEntry[]),
         resetSession: vi.fn().mockRejectedValue(new Error("reset failed")),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 18,
         method: "agent-reset",
@@ -584,14 +650,19 @@ describe("router.ts", () => {
     it("returns handoff info between two agents", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/project", model: "gpt-4" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/project",
+            model: "gpt-4",
+          },
         ] as SessionListEntry[]),
       });
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 19,
         method: "handoff",
@@ -607,10 +678,7 @@ describe("router.ts", () => {
 
     it("returns error when from agent not found", async () => {
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [bob],
-        new Map([["mock-provider", bob.provider]]),
-      );
+      const router = createIpcRouter([bob], new Map([["mock-provider", bob.provider]]));
       const res = await router({
         id: 20,
         method: "handoff",
@@ -622,10 +690,7 @@ describe("router.ts", () => {
 
     it("returns error when to agent not found", async () => {
       const alice = makeMockAgent("alice");
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 21,
         method: "handoff",
@@ -637,10 +702,7 @@ describe("router.ts", () => {
 
     it("returns error when from and to are the same", async () => {
       const alice = makeMockAgent("alice");
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 22,
         method: "handoff",
@@ -656,10 +718,7 @@ describe("router.ts", () => {
         listSessions: vi.fn().mockReturnValue([]),
       });
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 23,
         method: "handoff",
@@ -672,14 +731,19 @@ describe("router.ts", () => {
     it("uses agent config cwd as fallback when session has no cwd", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "", model: "m" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "",
+            model: "m",
+          },
         ] as SessionListEntry[]),
       });
       const bob = makeMockAgent("bob");
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 24,
         method: "handoff",
@@ -693,15 +757,19 @@ describe("router.ts", () => {
     it("uses target agent model default when session model is undefined", async () => {
       const alice = makeMockAgent("alice", {
         listSessions: vi.fn().mockReturnValue([
-          { providerId: "p", sessionId: "s1", conversationId: "alice:default", alive: true, status: "ready", cwd: "/proj" },
+          {
+            providerId: "p",
+            sessionId: "s1",
+            conversationId: "alice:default",
+            alive: true,
+            status: "ready",
+            cwd: "/proj",
+          },
         ] as SessionListEntry[]),
       });
       const bob = makeMockAgent("bob");
       bob.agentConfig.model = undefined;
-      const router = createIpcRouter(
-        [alice, bob],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice, bob], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 25,
         method: "handoff",
@@ -820,10 +888,7 @@ describe("router.ts", () => {
     it("handles command path (handled = true)", async () => {
       const alice = makeMockAgent("alice");
       (alice.commandHandler.handle as any).mockResolvedValue({ handled: true });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 31,
         method: "deliver",
@@ -837,10 +902,7 @@ describe("router.ts", () => {
 
     it("fire-and-forget returns queued immediately", async () => {
       const alice = makeMockAgent("alice");
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 32,
         method: "deliver",
@@ -856,10 +918,7 @@ describe("router.ts", () => {
       const alice = makeMockAgent("alice", {
         sendMessage: vi.fn().mockRejectedValue(new Error("provider down")),
       });
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 33,
         method: "deliver",
@@ -872,10 +931,7 @@ describe("router.ts", () => {
 
     it("case-insensitive agent lookup", async () => {
       const alice = makeMockAgent("Alice");
-      const router = createIpcRouter(
-        [alice],
-        new Map([["mock-provider", alice.provider]]),
-      );
+      const router = createIpcRouter([alice], new Map([["mock-provider", alice.provider]]));
       const res = await router({
         id: 34,
         method: "deliver",
@@ -896,12 +952,7 @@ describe("router.ts", () => {
         const alice = makeMockAgent("alice");
         const bob = makeMockAgent("bob");
         const sm = makeMockSpawnManager();
-        const router = createIpcRouter(
-          [alice, bob],
-          new Map(),
-          undefined,
-          sm,
-        );
+        const router = createIpcRouter([alice, bob], new Map(), undefined, sm);
         const res = await router({
           id: 40,
           method: "spawn-add",
@@ -957,7 +1008,9 @@ describe("router.ts", () => {
         const alice = makeMockAgent("alice");
         const bob = makeMockAgent("bob");
         const sm = makeMockSpawnManager({
-          spawn: vi.fn().mockImplementation(() => { throw new Error("limit reached"); }),
+          spawn: vi.fn().mockImplementation(() => {
+            throw new Error("limit reached");
+          }),
         });
         const router = createIpcRouter([alice, bob], new Map(), undefined, sm);
         const res = await router({
@@ -975,9 +1028,17 @@ describe("router.ts", () => {
         const sm = makeMockSpawnManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-              status: "completed", result: "done", createdAt: Date.now(),
-              completedAt: Date.now(), durationMs: 500, model: "m", costUsd: 0.01,
+              id: "s1",
+              parentAgent: "alice",
+              targetAgent: "bob",
+              context: "task",
+              status: "completed",
+              result: "done",
+              createdAt: Date.now(),
+              completedAt: Date.now(),
+              durationMs: 500,
+              model: "m",
+              costUsd: 0.01,
             },
           ]),
         });
@@ -1020,9 +1081,17 @@ describe("router.ts", () => {
         const sm = makeMockSpawnManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-              status: "completed", result: multiLineResult, createdAt: Date.now(),
-              completedAt: Date.now(), durationMs: 500, model: "m", costUsd: 0.01,
+              id: "s1",
+              parentAgent: "alice",
+              targetAgent: "bob",
+              context: "task",
+              status: "completed",
+              result: multiLineResult,
+              createdAt: Date.now(),
+              completedAt: Date.now(),
+              durationMs: 500,
+              model: "m",
+              costUsd: 0.01,
             },
           ]),
         });
@@ -1043,9 +1112,17 @@ describe("router.ts", () => {
         const sm = makeMockSpawnManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-              status: "completed", result: longResult, createdAt: Date.now(),
-              completedAt: Date.now(), durationMs: 500, model: "m", costUsd: 0.01,
+              id: "s1",
+              parentAgent: "alice",
+              targetAgent: "bob",
+              context: "task",
+              status: "completed",
+              result: longResult,
+              createdAt: Date.now(),
+              completedAt: Date.now(),
+              durationMs: 500,
+              model: "m",
+              costUsd: 0.01,
             },
           ]),
         });
@@ -1064,9 +1141,17 @@ describe("router.ts", () => {
         const sm = makeMockSpawnManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-              status: "running", result: null, createdAt: Date.now(),
-              completedAt: null, durationMs: null, model: null, costUsd: null,
+              id: "s1",
+              parentAgent: "alice",
+              targetAgent: "bob",
+              context: "task",
+              status: "running",
+              result: null,
+              createdAt: Date.now(),
+              completedAt: null,
+              durationMs: null,
+              model: null,
+              costUsd: null,
             },
           ]),
         });
@@ -1083,9 +1168,17 @@ describe("router.ts", () => {
         const sm = makeMockSpawnManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-              status: "completed", result: "short result", createdAt: Date.now(),
-              completedAt: Date.now(), durationMs: 500, model: "m", costUsd: 0.01,
+              id: "s1",
+              parentAgent: "alice",
+              targetAgent: "bob",
+              context: "task",
+              status: "completed",
+              result: "short result",
+              createdAt: Date.now(),
+              completedAt: Date.now(),
+              durationMs: 500,
+              model: "m",
+              costUsd: 0.01,
             },
           ]),
         });
@@ -1144,9 +1237,17 @@ describe("router.ts", () => {
       it("returns full spawn result", async () => {
         const sm = makeMockSpawnManager({
           getJob: vi.fn().mockReturnValue({
-            id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-            status: "completed", result: "done", createdAt: Date.now(),
-            completedAt: Date.now(), durationMs: 500, model: "m", costUsd: 0.01,
+            id: "s1",
+            parentAgent: "alice",
+            targetAgent: "bob",
+            context: "task",
+            status: "completed",
+            result: "done",
+            createdAt: Date.now(),
+            completedAt: Date.now(),
+            durationMs: 500,
+            model: "m",
+            costUsd: 0.01,
           }),
         });
         const router = createIpcRouter([], new Map(), undefined, sm);
@@ -1189,9 +1290,17 @@ describe("router.ts", () => {
       it("returns logs for a spawn job", async () => {
         const sm = makeMockSpawnManager({
           getJob: vi.fn().mockReturnValue({
-            id: "s1", parentAgent: "alice", targetAgent: "bob", context: "task",
-            status: "running", result: null, createdAt: Date.now(),
-            completedAt: null, durationMs: null, model: null, costUsd: null,
+            id: "s1",
+            parentAgent: "alice",
+            targetAgent: "bob",
+            context: "task",
+            status: "running",
+            result: null,
+            createdAt: Date.now(),
+            completedAt: null,
+            durationMs: null,
+            model: null,
+            costUsd: null,
           }),
           getLogs: vi.fn().mockReturnValue([
             { content: "log line 1", createdAt: Date.now() },
@@ -1283,7 +1392,9 @@ describe("router.ts", () => {
       it("returns error when fork manager throws", async () => {
         const alice = makeMockAgent("alice");
         const fm = makeMockForkManager({
-          fork: vi.fn().mockImplementation(() => { throw new Error("fork limit"); }),
+          fork: vi.fn().mockImplementation(() => {
+            throw new Error("fork limit");
+          }),
         });
         const router = createIpcRouter([alice], new Map(), undefined, undefined, fm);
         const res = await router({
@@ -1301,9 +1412,15 @@ describe("router.ts", () => {
         const fm = makeMockForkManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "f1", parentAgent: "alice", task: "do stuff",
-              status: "completed", result: "done", createdAt: Date.now(),
-              completedAt: Date.now(), durationMs: 200, model: "m",
+              id: "f1",
+              parentAgent: "alice",
+              task: "do stuff",
+              status: "completed",
+              result: "done",
+              createdAt: Date.now(),
+              completedAt: Date.now(),
+              durationMs: 200,
+              model: "m",
             },
           ]),
         });
@@ -1359,9 +1476,15 @@ describe("router.ts", () => {
         const fm = makeMockForkManager({
           listAll: vi.fn().mockReturnValue([
             {
-              id: "f1", parentAgent: "alice", task: "do stuff",
-              status: "running", result: null, createdAt: Date.now(),
-              completedAt: null, durationMs: null, model: null,
+              id: "f1",
+              parentAgent: "alice",
+              task: "do stuff",
+              status: "running",
+              result: null,
+              createdAt: Date.now(),
+              completedAt: null,
+              durationMs: null,
+              model: null,
             },
           ]),
         });
@@ -1421,12 +1544,10 @@ describe("router.ts", () => {
   describe("deliverToAgent", () => {
     it("returns response when command handler handles the message", async () => {
       const alice = makeMockAgent("alice");
-      (alice.commandHandler.handle as any).mockImplementation(
-        async (_content: string, ctx: any) => {
-          ctx.sendComplete("command result");
-          return { handled: true };
-        },
-      );
+      (alice.commandHandler.handle as any).mockImplementation(async (_content: string, ctx: any) => {
+        ctx.sendComplete("command result");
+        return { handled: true };
+      });
       const result = await deliverToAgent(alice, "/help");
       expect(result.text).toBe("command result");
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
@@ -1434,9 +1555,9 @@ describe("router.ts", () => {
 
     it("throws on A2A recursion limit", async () => {
       const alice = makeMockAgent("alice");
-      await expect(
-        deliverToAgent(alice, "hello", { sourceConversationId: "a2a:1:test" }),
-      ).rejects.toThrow("A2A recursion limit reached");
+      await expect(deliverToAgent(alice, "hello", { sourceConversationId: "a2a:1:test" })).rejects.toThrow(
+        "A2A recursion limit reached",
+      );
     });
 
     it("does NOT throw when depth is 0", async () => {
@@ -1487,25 +1608,21 @@ describe("router.ts", () => {
 
     it("handles sendChunk accumulation in command handler path", async () => {
       const alice = makeMockAgent("alice");
-      (alice.commandHandler.handle as any).mockImplementation(
-        async (_content: string, ctx: any) => {
-          ctx.sendChunk("chunk1");
-          ctx.sendChunk("chunk2");
-          return { handled: true };
-        },
-      );
+      (alice.commandHandler.handle as any).mockImplementation(async (_content: string, ctx: any) => {
+        ctx.sendChunk("chunk1");
+        ctx.sendChunk("chunk2");
+        return { handled: true };
+      });
       const result = await deliverToAgent(alice, "/help");
       expect(result.text).toBe("chunk1chunk2");
     });
 
     it("handles sendError in command handler path", async () => {
       const alice = makeMockAgent("alice");
-      (alice.commandHandler.handle as any).mockImplementation(
-        async (_content: string, ctx: any) => {
-          ctx.sendError("something went wrong");
-          return { handled: true };
-        },
-      );
+      (alice.commandHandler.handle as any).mockImplementation(async (_content: string, ctx: any) => {
+        ctx.sendError("something went wrong");
+        return { handled: true };
+      });
       const result = await deliverToAgent(alice, "/bad");
       expect(result.text).toBe("Error: something went wrong");
     });
@@ -1582,7 +1699,9 @@ describe("router.ts", () => {
     });
 
     it("notifyWatch handles subscriber errors gracefully", () => {
-      const unsub = subscribeWatch(() => { throw new Error("subscriber error"); });
+      const unsub = subscribeWatch(() => {
+        throw new Error("subscriber error");
+      });
       const record: TaskRecord = {
         agent: "alice",
         content: "test",
@@ -1681,10 +1800,7 @@ describe("router.ts", () => {
       const alice = makeMockAgent("alice");
       const mockStore = {} as any;
       const executor = makeMockExecutor({
-        stdout: JSON.stringify([
-          { title: "Pref", content: "Uses TS" },
-          { content: "Likes tests" },
-        ]),
+        stdout: JSON.stringify([{ title: "Pref", content: "Uses TS" }, { content: "Likes tests" }]),
         stderr: "",
       });
 

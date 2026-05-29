@@ -39,13 +39,25 @@ function makeMockAgent(sendMessageMock: ReturnType<typeof vi.fn>) {
       displayName: "Mock",
       sendMessage: sendMessageMock,
       async resetSession() {},
-      async resumeSession() { return true; },
-      getSessionInfo() { return null; },
-      listSessions() { return []; },
+      async resumeSession() {
+        return true;
+      },
+      getSessionInfo() {
+        return null;
+      },
+      listSessions() {
+        return [];
+      },
       interrupt() {},
-      getCostInfo() { return null; },
-      getUsageInfo() { return null; },
-      supportedModels() { return []; },
+      getCostInfo() {
+        return null;
+      },
+      getUsageInfo() {
+        return null;
+      },
+      supportedModels() {
+        return [];
+      },
       async shutdown() {},
       setEnv() {},
     } as any,
@@ -61,10 +73,7 @@ describe("deliverToAgent — degraded path (no bridgeSessionStore)", () => {
   it("injects sender memories into bridgeSessionContext even without bridgeSessionStore", async () => {
     const { deliverToAgent } = await import("../../../src/ipc/router.js");
 
-    const memories = [
-      { title: "Preference", content: "Uses TypeScript" },
-      { content: "Works on arinova-bridge" },
-    ];
+    const memories = [{ title: "Preference", content: "Uses TypeScript" }, { content: "Works on arinova-bridge" }];
     setupExecFileMock(memories);
 
     const sendMessageMock = vi.fn().mockResolvedValue({ text: "ok", sessionId: "s1" });

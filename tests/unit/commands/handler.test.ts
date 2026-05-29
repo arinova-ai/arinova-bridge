@@ -93,9 +93,15 @@ function createCtx(conversationId = "conv-1"): CommandContext & {
     chunks: [] as string[],
     completed: null as string | null,
     errored: null as string | null,
-    sendChunk: vi.fn((text: string) => { ctx.chunks.push(text); }),
-    sendComplete: vi.fn((text: string) => { ctx.completed = text; }),
-    sendError: vi.fn((text: string) => { ctx.errored = text; }),
+    sendChunk: vi.fn((text: string) => {
+      ctx.chunks.push(text);
+    }),
+    sendComplete: vi.fn((text: string) => {
+      ctx.completed = text;
+    }),
+    sendError: vi.fn((text: string) => {
+      ctx.errored = text;
+    }),
     listNotes: vi.fn(async () => ({ notes: mockNotes, hasMore: false })),
     createNote: vi.fn(async (body: { title: string; content?: string }) => ({
       ...mockNotes[0],
@@ -309,11 +315,7 @@ describe("CommandHandler", () => {
     it("auto-switches provider when resuming cross-provider session", async () => {
       const ctx = createCtx();
       await handler.handle("/resume openai-api-ses", ctx);
-      expect(openaiProvider.resumeSession).toHaveBeenCalledWith(
-        "conv-1",
-        "openai-api-session-id",
-        expect.anything(),
-      );
+      expect(openaiProvider.resumeSession).toHaveBeenCalledWith("conv-1", "openai-api-session-id", expect.anything());
       expect(ctx.completed).toContain("已恢復 session");
       expect(ctx.completed).toContain("Provider 已切換");
     });
@@ -340,10 +342,7 @@ describe("CommandHandler", () => {
       await handler.handle("/compact", ctx);
 
       expect(anthropicProvider.getSessionInfo).toHaveBeenCalledWith("conv-1");
-      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
-        "conv-1",
-        expect.objectContaining({ compact: true }),
-      );
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith("conv-1", expect.objectContaining({ compact: true }));
       expect(anthropicProvider.resumeSession).toHaveBeenCalledWith(
         "conv-1",
         "anthropic-oauth-session-id",
@@ -371,10 +370,7 @@ describe("CommandHandler", () => {
       const ctx = createCtx();
       await handler.handle("/compact", ctx);
 
-      expect(anthropicProvider.resetSession).toHaveBeenCalledWith(
-        "conv-1",
-        expect.objectContaining({ compact: true }),
-      );
+      expect(anthropicProvider.resetSession).toHaveBeenCalledWith("conv-1", expect.objectContaining({ compact: true }));
       expect(anthropicProvider.resumeSession).not.toHaveBeenCalled();
       expect(ctx.completed).toContain("已壓縮");
     });
@@ -386,16 +382,15 @@ describe("CommandHandler", () => {
         compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           // Simulate the summariser being called with middle messages
           await summariser(
-            [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }],
+            [
+              { role: "user", content: "hello" },
+              { role: "assistant", content: "hi" },
+            ],
             undefined,
           );
         }),
       };
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       // Switch to openai provider
       const ctx = createCtx("conv-3");
@@ -404,7 +399,11 @@ describe("CommandHandler", () => {
       const ctx2 = createCtx("conv-3");
       await handlerWithStore.handle("/compact", ctx2);
 
-      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-3", expect.any(Function), expect.objectContaining({ model: undefined }));
+      expect(mockSessionStore.compact).toHaveBeenCalledWith(
+        "conv-3",
+        expect.any(Function),
+        expect.objectContaining({ model: undefined }),
+      );
       expect(openaiProvider.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: "conv-3:compact",
@@ -432,11 +431,7 @@ describe("CommandHandler", () => {
           openaiProvider.sendMessage = origSendMessage;
         }),
       };
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-5");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -468,11 +463,7 @@ describe("CommandHandler", () => {
           throw new Error("DB write failed");
         }),
       };
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-7");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -497,11 +488,7 @@ describe("CommandHandler", () => {
       };
       vi.mocked(openaiProvider.sendMessage).mockRejectedValue(new Error("API timeout"));
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-8");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -536,11 +523,7 @@ describe("CommandHandler", () => {
         ...createMockConfig(),
         agents: [{ name: "test-agent", botToken: "tok", provider: "openai-cli", compactModel: "gpt-4.1-nano" }],
       };
-      const handlerWithAgent = new CommandHandler(
-        providers,
-        configWithAgent,
-        mockSessionStore as any,
-      );
+      const handlerWithAgent = new CommandHandler(providers, configWithAgent, mockSessionStore as any);
       handlerWithAgent.agentName = "test-agent";
 
       const ctx = createCtx("conv-cm-1");
@@ -567,11 +550,7 @@ describe("CommandHandler", () => {
       };
 
       // agents array is empty — no agentCfg match, so compactModel = undefined ?? model
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-cm-2");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -593,10 +572,7 @@ describe("CommandHandler", () => {
       let capturedContent = "";
       const mockSessionStore = {
         compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
-          await summariser(
-            [{ role: "user", content: "fix bug in commit a1b2c3d, card ID bd4921d5-xxxx" }],
-            undefined,
-          );
+          await summariser([{ role: "user", content: "fix bug in commit a1b2c3d, card ID bd4921d5-xxxx" }], undefined);
         }),
       };
       vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
@@ -604,11 +580,7 @@ describe("CommandHandler", () => {
         return { text: "task summary" };
       });
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-task-1");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -626,7 +598,10 @@ describe("CommandHandler", () => {
       const mockSessionStore = {
         compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
           await summariser(
-            [{ role: "user", content: "你好嗎" }, { role: "assistant", content: "我很好" }],
+            [
+              { role: "user", content: "你好嗎" },
+              { role: "assistant", content: "我很好" },
+            ],
             undefined,
           );
         }),
@@ -636,11 +611,7 @@ describe("CommandHandler", () => {
         return { text: "general summary" };
       });
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-gen-1");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -663,11 +634,7 @@ describe("CommandHandler", () => {
         return { text: "summary" };
       });
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-dedicated-1");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -689,11 +656,7 @@ describe("CommandHandler", () => {
         return { text: "summary" };
       });
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-sys-1");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -823,20 +786,12 @@ describe("CommandHandler", () => {
       };
       vi.mocked(anthropicProvider.sendMessage).mockResolvedValue({ text: "summary" });
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-switch-1");
       await handlerWithStore.handle("/provider openai-api", ctx);
 
-      expect(mockSessionStore.compact).toHaveBeenCalledWith(
-        "conv-switch-1",
-        expect.any(Function),
-        expect.any(Object),
-      );
+      expect(mockSessionStore.compact).toHaveBeenCalledWith("conv-switch-1", expect.any(Function), expect.any(Object));
       expect(ctx.completed).toContain("Context 已透過 compact 轉移");
       expect(ctx.completed).toContain("已切換到");
     });
@@ -848,11 +803,7 @@ describe("CommandHandler", () => {
         }),
       };
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-switch-2");
       await handlerWithStore.handle("/provider openai-api", ctx);
@@ -874,11 +825,7 @@ describe("CommandHandler", () => {
         compact: vi.fn(async () => {}),
       };
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-switch-3");
       await handlerWithStore.handle("/provider anthropic-oauth", ctx);
@@ -916,11 +863,7 @@ describe("CommandHandler", () => {
         ...createMockConfig(),
         agents: [{ name: "my-agent", botToken: "tok", provider: "anthropic-cli", compactModel: "haiku" }],
       };
-      const handlerWithAgent = new CommandHandler(
-        providers,
-        configWithAgent,
-        mockSessionStore as any,
-      );
+      const handlerWithAgent = new CommandHandler(providers, configWithAgent, mockSessionStore as any);
       handlerWithAgent.agentName = "my-agent";
 
       const ctx = createCtx("conv-switch-5");
@@ -942,11 +885,7 @@ describe("CommandHandler", () => {
       };
       const onReset = vi.fn();
 
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
       handlerWithStore.onSessionReset = onReset;
 
       const ctx = createCtx("conv-switch-6");
@@ -1006,10 +945,7 @@ describe("CommandHandler", () => {
     it("updates note by id prefix", async () => {
       const ctx = createCtx();
       await handler.handle("/note-edit note-aabb New Title | New content", ctx);
-      expect(ctx.updateNote).toHaveBeenCalledWith(
-        "note-aabbccdd-1234",
-        { title: "New Title", content: "New content" },
-      );
+      expect(ctx.updateNote).toHaveBeenCalledWith("note-aabbccdd-1234", { title: "New Title", content: "New content" });
       expect(ctx.completed).toContain("已更新筆記");
     });
 
@@ -1140,11 +1076,7 @@ describe("CommandHandler", () => {
       const mockSessionStore = {
         compact: vi.fn(async () => {}),
       };
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
       handlerWithStore.onSessionReset = onReset;
 
       const ctx = createCtx("conv-compact-cb-2");
@@ -1158,13 +1090,11 @@ describe("CommandHandler", () => {
     it("/compact (non-anthropic) does NOT call onSessionReset on failure", async () => {
       const onReset = vi.fn();
       const mockSessionStore = {
-        compact: vi.fn(async () => { throw new Error("fail"); }),
+        compact: vi.fn(async () => {
+          throw new Error("fail");
+        }),
       };
-      const handlerWithStore = new CommandHandler(
-        providers,
-        createMockConfig(),
-        mockSessionStore as any,
-      );
+      const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
       handlerWithStore.onSessionReset = onReset;
 
       const ctx = createCtx("conv-compact-cb-3");
@@ -1184,10 +1114,16 @@ describe("CommandHandler", () => {
   // ---------------------------------------------------------------------------
 
   describe("/spawn result", () => {
-    function makeJob(overrides: Partial<{
-      id: string; parentAgent: string; targetAgent: string; status: string;
-      result: string | null; context: string;
-    }> = {}) {
+    function makeJob(
+      overrides: Partial<{
+        id: string;
+        parentAgent: string;
+        targetAgent: string;
+        status: string;
+        result: string | null;
+        context: string;
+      }> = {},
+    ) {
       return {
         id: overrides.id ?? "abc12345",
         parentAgent: overrides.parentAgent ?? "agent-a",
@@ -1266,10 +1202,16 @@ describe("CommandHandler", () => {
   // ---------------------------------------------------------------------------
 
   describe("/spawn list preview", () => {
-    function makeJob(overrides: Partial<{
-      id: string; parentAgent: string; targetAgent: string; status: string;
-      result: string | null; context: string;
-    }> = {}) {
+    function makeJob(
+      overrides: Partial<{
+        id: string;
+        parentAgent: string;
+        targetAgent: string;
+        status: string;
+        result: string | null;
+        context: string;
+      }> = {},
+    ) {
       return {
         id: overrides.id ?? "abc12345",
         parentAgent: overrides.parentAgent ?? "agent-a",
@@ -1342,9 +1284,13 @@ describe("CommandHandler", () => {
   // ---------------------------------------------------------------------------
 
   describe("/spawn logs", () => {
-    function makeJob(overrides: Partial<{
-      id: string; parentAgent: string; status: string;
-    }> = {}) {
+    function makeJob(
+      overrides: Partial<{
+        id: string;
+        parentAgent: string;
+        status: string;
+      }> = {},
+    ) {
       return {
         id: overrides.id ?? "log12345",
         parentAgent: overrides.parentAgent ?? "agent-a",
@@ -1360,7 +1306,11 @@ describe("CommandHandler", () => {
       };
     }
 
-    function setupLogsHandler(agentName: string, jobs: ReturnType<typeof makeJob>[], logs: Array<{ content: string; createdAt: number }> = []) {
+    function setupLogsHandler(
+      agentName: string,
+      jobs: ReturnType<typeof makeJob>[],
+      logs: Array<{ content: string; createdAt: number }> = [],
+    ) {
       const h = new CommandHandler(providers, createMockConfig());
       h.agentName = agentName;
       h.spawnManager = {
@@ -1700,7 +1650,9 @@ describe("CommandHandler", () => {
     it("reports error when fork creation fails", async () => {
       handler.agentName = "agent-a";
       handler.forkManager = {
-        fork: vi.fn(() => { throw new Error("too many forks"); }),
+        fork: vi.fn(() => {
+          throw new Error("too many forks");
+        }),
         listByParent: vi.fn(() => []),
       } as any;
       const ctx = createCtx();
@@ -1802,12 +1754,15 @@ describe("CommandHandler", () => {
       // Write a temp status file
       const fs = await import("node:fs");
       const tmpFile = `/tmp/test-status-${Date.now()}.json`;
-      fs.writeFileSync(tmpFile, JSON.stringify({
-        limit5h: { percent: 42, resetIn: "2h 30m" },
-        limit7d: { percent: 15, resetIn: "5d" },
-        model: "claude-sonnet-4-20250514",
-        cost: 1.23,
-      }));
+      fs.writeFileSync(
+        tmpFile,
+        JSON.stringify({
+          limit5h: { percent: 42, resetIn: "2h 30m" },
+          limit7d: { percent: 15, resetIn: "5d" },
+          model: "claude-sonnet-4-20250514",
+          cost: 1.23,
+        }),
+      );
 
       const h = new CommandHandler(providers, createMockConfig(), undefined, tmpFile);
       const ctx = createCtx();
@@ -1992,10 +1947,7 @@ describe("CommandHandler", () => {
     });
 
     it("reports ambiguous match when multiple models match", async () => {
-      vi.mocked(anthropicProvider.supportedModels).mockReturnValue([
-        "sonnet-3.5",
-        "sonnet-4",
-      ]);
+      vi.mocked(anthropicProvider.supportedModels).mockReturnValue(["sonnet-3.5", "sonnet-4"]);
       const ctx = createCtx();
       await handler.handle("/model sonnet", ctx);
       expect(ctx.completed).toContain("多個模型匹配");

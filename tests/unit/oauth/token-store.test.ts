@@ -51,10 +51,14 @@ describe("token-store", () => {
     const { readOAuthToken, writeOAuthToken } = await loadModule();
 
     writeOAuthToken("provider-a", {
-      accessToken: "a", refreshToken: "ra", expiresAt: 100,
+      accessToken: "a",
+      refreshToken: "ra",
+      expiresAt: 100,
     });
     writeOAuthToken("provider-b", {
-      accessToken: "b", refreshToken: "rb", expiresAt: 200,
+      accessToken: "b",
+      refreshToken: "rb",
+      expiresAt: 200,
     });
 
     expect(readOAuthToken("provider-a")!.accessToken).toBe("a");
@@ -65,7 +69,9 @@ describe("token-store", () => {
     const { readOAuthToken, writeOAuthToken } = await loadModule();
 
     writeOAuthToken("minimax-oauth", {
-      accessToken: "a", refreshToken: "r", expiresAt: 100,
+      accessToken: "a",
+      refreshToken: "r",
+      expiresAt: 100,
     });
 
     expect(readOAuthToken("nonexistent")).toBeNull();
@@ -86,7 +92,9 @@ describe("token-store", () => {
     const { writeOAuthToken, readOAuthToken } = await loadModule();
 
     writeOAuthToken("test-provider", {
-      accessToken: "a", refreshToken: "r", expiresAt: 100,
+      accessToken: "a",
+      refreshToken: "r",
+      expiresAt: 100,
     });
 
     expect(fs.existsSync(tmpDir)).toBe(true);
@@ -97,7 +105,9 @@ describe("token-store", () => {
     const { writeOAuthToken } = await loadModule();
 
     writeOAuthToken("test", {
-      accessToken: "a", refreshToken: "r", expiresAt: 100,
+      accessToken: "a",
+      refreshToken: "r",
+      expiresAt: 100,
     });
 
     const stat = fs.statSync(path.join(tmpDir, "tokens.json"));
@@ -109,7 +119,8 @@ describe("token-store", () => {
     it("returns false for future token", async () => {
       const { isTokenExpired } = await loadModule();
       const futureToken = {
-        accessToken: "a", refreshToken: "r",
+        accessToken: "a",
+        refreshToken: "r",
         expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
       };
       expect(isTokenExpired(futureToken)).toBe(false);
@@ -118,7 +129,8 @@ describe("token-store", () => {
     it("returns true for past token", async () => {
       const { isTokenExpired } = await loadModule();
       const pastToken = {
-        accessToken: "a", refreshToken: "r",
+        accessToken: "a",
+        refreshToken: "r",
         expiresAt: Math.floor(Date.now() / 1000) - 100,
       };
       expect(isTokenExpired(pastToken)).toBe(true);
@@ -127,7 +139,8 @@ describe("token-store", () => {
     it("returns true when within threshold", async () => {
       const { isTokenExpired } = await loadModule();
       const soonToken = {
-        accessToken: "a", refreshToken: "r",
+        accessToken: "a",
+        refreshToken: "r",
         expiresAt: Math.floor(Date.now() / 1000) + 60, // 1 minute from now
       };
       // Default threshold is 5 min (300s), so 60s away → expired
@@ -137,7 +150,8 @@ describe("token-store", () => {
     it("respects custom threshold", async () => {
       const { isTokenExpired } = await loadModule();
       const token = {
-        accessToken: "a", refreshToken: "r",
+        accessToken: "a",
+        refreshToken: "r",
         expiresAt: Math.floor(Date.now() / 1000) + 60,
       };
       // 30s threshold → 60s away → not expired

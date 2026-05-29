@@ -225,8 +225,8 @@ class UsageTracker {
     if (this.turnContextTokens > 0) {
       this.lastContext = {
         contextTokens: this.turnContextTokens,
-        contextWindow: this.turnContextWindow
-          ?? (this.resolvedModel ? MODEL_CONTEXT_WINDOWS[this.resolvedModel] : undefined),
+        contextWindow:
+          this.turnContextWindow ?? (this.resolvedModel ? MODEL_CONTEXT_WINDOWS[this.resolvedModel] : undefined),
         maxOutputTokens: this.turnMaxOutputTokens,
       };
     }
@@ -254,7 +254,10 @@ class UsageTracker {
     if (msgUsage.cache_read_input_tokens) this.turnCacheRead += msgUsage.cache_read_input_tokens;
     if (msgUsage.cache_creation_input_tokens) this.turnCacheCreation += msgUsage.cache_creation_input_tokens;
     // Track latest input as context size (last message_start = most recent context)
-    const totalInput = (msgUsage.input_tokens ?? 0) + (msgUsage.cache_read_input_tokens ?? 0) + (msgUsage.cache_creation_input_tokens ?? 0);
+    const totalInput =
+      (msgUsage.input_tokens ?? 0) +
+      (msgUsage.cache_read_input_tokens ?? 0) +
+      (msgUsage.cache_creation_input_tokens ?? 0);
     if (totalInput > 0) this.turnContextTokens = totalInput;
   }
 
@@ -382,8 +385,12 @@ export class ClaudeProcess {
    * Compatibility getter so that tests setting `(process as any).turnContextTokens`
    * still work after the field moved into UsageTracker.
    */
-  private get turnContextTokens(): number { return this.usage.turnContextTokens; }
-  private set turnContextTokens(v: number) { this.usage.turnContextTokens = v; }
+  private get turnContextTokens(): number {
+    return this.usage.turnContextTokens;
+  }
+  private set turnContextTokens(v: number) {
+    this.usage.turnContextTokens = v;
+  }
 
   constructor(opts: ClaudeProcessOptions, spawner?: ProcessSpawner) {
     this.opts = opts;
@@ -416,9 +423,12 @@ export class ClaudeProcess {
     const log = this.opts.logger;
 
     const argv: string[] = [
-      "-p", "",
-      "--output-format", "stream-json",
-      "--input-format", "stream-json",
+      "-p",
+      "",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
       "--verbose",
       "--include-partial-messages",
       "--dangerously-skip-permissions",
@@ -453,11 +463,13 @@ export class ClaudeProcess {
     // Strip node_modules/.bin from PATH to avoid picking up local
     // @anthropic-ai/claude-code binary which may be an incompatible version
     if (env.PATH) {
-      env.PATH = env.PATH.split(":").filter((p) => !p.includes("node_modules/.bin")).join(":");
+      env.PATH = env.PATH.split(":")
+        .filter((p) => !p.includes("node_modules/.bin"))
+        .join(":");
     }
 
     // Redact the long --append-system-prompt value from log output
-    const redactedArgs = argv.filter(a => a !== "");
+    const redactedArgs = argv.filter((a) => a !== "");
     const sysIdx = redactedArgs.indexOf("--append-system-prompt");
     if (sysIdx !== -1 && sysIdx + 1 < redactedArgs.length) {
       redactedArgs[sysIdx + 1] = "[...]";
@@ -517,9 +529,7 @@ export class ClaudeProcess {
       this.child = null;
       this.clearTurnTimeout();
       if (this.staleResults > 0) {
-        this.opts.logger.info(
-          `${this.logTag}: process exited while draining stale results, restarting`,
-        );
+        this.opts.logger.info(`${this.logTag}: process exited while draining stale results, restarting`);
         this.scheduleRestart();
         return;
       }
@@ -573,8 +583,7 @@ export class ClaudeProcess {
 
       this.turnTimeout = setTimeout(() => {
         log.error(
-          `${this.logTag}: turn timeout after ${TURN_TIMEOUT_MS / 1000}s ` +
-          `proseLen=${this.turnProseText.length}`,
+          `${this.logTag}: turn timeout after ${TURN_TIMEOUT_MS / 1000}s ` + `proseLen=${this.turnProseText.length}`,
         );
         this.completeTurn();
       }, TURN_TIMEOUT_MS);
@@ -677,9 +686,7 @@ export class ClaudeProcess {
     this.staleDrainTimer = setTimeout(() => {
       this.staleDrainTimer = null;
       if (this.staleResults <= 0) return;
-      log.warn(
-        `${this.logTag}: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`,
-      );
+      log.warn(`${this.logTag}: stale turn drain timeout (${STALE_DRAIN_TIMEOUT_MS}ms), restarting process`);
       this.scheduleRestart();
     }, STALE_DRAIN_TIMEOUT_MS);
   }
@@ -690,9 +697,7 @@ export class ClaudeProcess {
 
     this.restartPromise = this.restart()
       .catch((err) => {
-        this.opts.logger.error(
-          `${this.logTag}: restart failed: ${getErrorMessage(err)}`,
-        );
+        this.opts.logger.error(`${this.logTag}: restart failed: ${getErrorMessage(err)}`);
         throw err;
       })
       .finally(() => {
@@ -812,9 +817,7 @@ export class ClaudeProcess {
 
     this.usage.recordResult(event, this.opts.model);
 
-    const costUsd = typeof event.total_cost_usd === "number"
-      ? (event.total_cost_usd as number).toFixed(4)
-      : "?";
+    const costUsd = typeof event.total_cost_usd === "number" ? (event.total_cost_usd as number).toFixed(4) : "?";
     const numTurns = event.num_turns ?? "?";
     const durationMs = event.duration_ms ?? "?";
 
@@ -839,8 +842,8 @@ export class ClaudeProcess {
 
     log.info(
       `${this.logTag}: turn complete sid=${this.sessionId.slice(0, 12)} ` +
-      `proseLen=${this.turnProseText.length} ` +
-      `turns=${numTurns} cost=$${costUsd} dur=${durationMs}ms`,
+        `proseLen=${this.turnProseText.length} ` +
+        `turns=${numTurns} cost=$${costUsd} dur=${durationMs}ms`,
     );
 
     this.completeTurn();
@@ -915,9 +918,7 @@ export class ClaudeProcess {
       const id = typeof block.id === "string" ? block.id : "";
       if (!id) continue;
       const toolName = typeof block.name === "string" ? block.name : "";
-      const input = (block.input && typeof block.input === "object"
-        ? (block.input as Record<string, unknown>)
-        : {});
+      const input = block.input && typeof block.input === "object" ? (block.input as Record<string, unknown>) : {};
       this.pendingToolCalls.set(id, {
         toolName,
         input,
@@ -963,9 +964,7 @@ export class ClaudeProcess {
         Promise.resolve()
           .then(() => reporter(report))
           .catch((err) => {
-            this.opts.logger.warn(
-              `${this.logTag}: reportToolCall failed: ${getErrorMessage(err)}`,
-            );
+            this.opts.logger.warn(`${this.logTag}: reportToolCall failed: ${getErrorMessage(err)}`);
           });
       }
     }
@@ -1006,5 +1005,4 @@ export class ClaudeProcess {
   getWindowUsage(): WindowUsage | undefined {
     return this.usage.getWindowUsage();
   }
-
 }

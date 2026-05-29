@@ -119,9 +119,7 @@ describe("loadConfig", () => {
       version: 2,
       arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
       defaultProvider: "anthropic-oauth",
-      providers: [
-        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-      ],
+      providers: [{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true }],
       defaults: { cwd: "/home/file" },
     });
 
@@ -155,9 +153,7 @@ describe("loadConfig", () => {
       defaultProvider: "openai-cli",
       providers: [],
       defaults: { cwd: "/home/test" },
-      agents: [
-        { name: "bot", botToken: "bot-token", provider: "openai-cli" },
-      ],
+      agents: [{ name: "bot", botToken: "bot-token", provider: "openai-cli" }],
     });
 
     const config = loadConfig();
@@ -171,9 +167,7 @@ describe("loadConfig", () => {
       defaultProvider: "custom-llm",
       providers: [],
       defaults: { cwd: "/home/test" },
-      agents: [
-        { name: "bot", botToken: "bot-token", provider: "custom-llm" },
-      ],
+      agents: [{ name: "bot", botToken: "bot-token", provider: "custom-llm" }],
     });
 
     const config = loadConfig();
@@ -185,13 +179,9 @@ describe("loadConfig", () => {
       version: 2,
       arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
       defaultProvider: "openai-oauth",
-      providers: [
-        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
-      ],
+      providers: [{ id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true }],
       defaults: { cwd: "/home/test" },
-      agents: [
-        { name: "casey", botToken: "casey-token", provider: "openai-oauth" },
-      ],
+      agents: [{ name: "casey", botToken: "casey-token", provider: "openai-oauth" }],
     });
 
     const config = loadConfig();

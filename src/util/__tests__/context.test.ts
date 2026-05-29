@@ -38,9 +38,7 @@ describe("buildContextPrefix", () => {
   });
 
   it("does not include group line when conversationType is 'group' but members is empty", () => {
-    const result = buildContextPrefix(
-      baseOpts({ conversationType: "group", members: [] }),
-    );
+    const result = buildContextPrefix(baseOpts({ conversationType: "group", members: [] }));
     expect(result).not.toContain("Group conversation");
   });
 
@@ -57,9 +55,7 @@ describe("buildContextPrefix", () => {
   // --- sender username ----------------------------------------------------
 
   it("includes sender username when provided", () => {
-    const result = buildContextPrefix(
-      baseOpts({ senderUsername: "jan" }),
-    );
+    const result = buildContextPrefix(baseOpts({ senderUsername: "jan" }));
     expect(result).toContain("[Message from user: jan]");
   });
 
@@ -71,9 +67,7 @@ describe("buildContextPrefix", () => {
   // --- bridgeSessionContext (primary history path) -------------------------
 
   it("includes bridge session context when provided", () => {
-    const result = buildContextPrefix(
-      baseOpts({ bridgeSessionContext: "user: hi\nassistant: hey" }),
-    );
+    const result = buildContextPrefix(baseOpts({ bridgeSessionContext: "user: hi\nassistant: hey" }));
     expect(result).toContain("[Recent history]\nuser: hi\nassistant: hey\n[/Recent history]");
   });
 
@@ -81,9 +75,7 @@ describe("buildContextPrefix", () => {
     const result = buildContextPrefix(
       baseOpts({
         bridgeSessionContext: "bridge ctx",
-        history: [
-          { role: "user", content: "old", createdAt: "2024-01-01" },
-        ],
+        history: [{ role: "user", content: "old", createdAt: "2024-01-01" }],
       }),
     );
     expect(result).toContain("bridge ctx");
@@ -112,9 +104,7 @@ describe("buildContextPrefix", () => {
   it("uses role as sender when both senderUsername and senderAgentName are missing", () => {
     const result = buildContextPrefix(
       baseOpts({
-        history: [
-          { role: "system", content: "init", createdAt: "2024-01-01" },
-        ],
+        history: [{ role: "system", content: "init", createdAt: "2024-01-01" }],
       }),
     );
     expect(result).toContain("system: init");
@@ -123,9 +113,7 @@ describe("buildContextPrefix", () => {
   it("uses senderAgentName when senderUsername is missing", () => {
     const result = buildContextPrefix(
       baseOpts({
-        history: [
-          { role: "assistant", content: "hi", senderAgentName: "Claude", createdAt: "2024-01-01" },
-        ],
+        history: [{ role: "assistant", content: "hi", senderAgentName: "Claude", createdAt: "2024-01-01" }],
       }),
     );
     expect(result).toContain("Claude: hi");

@@ -611,15 +611,11 @@ clean user question
         store.addUserMessage(convId, `large message ${i} ${"y".repeat(80)}`, "user");
       }
 
-      await store.compact(
-        convId,
-        async (msgs, existing) => `summary-${existing ? "merged" : "initial"}`,
-        { compactInputChunkChars: 200 },
-      );
+      await store.compact(convId, async (msgs, existing) => `summary-${existing ? "merged" : "initial"}`, {
+        compactInputChunkChars: 200,
+      });
 
-      const infoLogs = logger._logs.filter(
-        (l) => l.level === "info" && l.msg.includes("chunks"),
-      );
+      const infoLogs = logger._logs.filter((l) => l.level === "info" && l.msg.includes("chunks"));
       expect(infoLogs.length).toBeGreaterThanOrEqual(1);
     });
 

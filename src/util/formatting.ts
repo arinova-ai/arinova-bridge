@@ -21,13 +21,7 @@ export function formatResetIn(epoch: number): string {
 
 /** Map a job status string to its emoji icon. */
 export function getStatusIcon(status: string): string {
-  return status === "running"
-    ? "🔄"
-    : status === "completed"
-      ? "✅"
-      : status === "failed"
-        ? "❌"
-        : "⏸️";
+  return status === "running" ? "🔄" : status === "completed" ? "✅" : status === "failed" ? "❌" : "⏸️";
 }
 
 /** Format a millisecond duration as e.g. "12s", or "—" when absent. */
@@ -40,10 +34,7 @@ export function formatDuration(durationMs?: number | null): string {
  * @param timestamp  epoch-ms number or ISO string
  * @param timeZone   IANA time zone (default "Asia/Taipei")
  */
-export function formatDateTime(
-  timestamp: number | string,
-  timeZone: string = "Asia/Taipei",
-): string {
+export function formatDateTime(timestamp: number | string, timeZone: string = "Asia/Taipei"): string {
   return new Date(timestamp).toLocaleString("zh-TW", { timeZone });
 }
 
@@ -51,10 +42,6 @@ export function formatDateTime(
  * Truncate a string to `maxLen` characters, appending `suffix` when truncated.
  * Returns the original string unchanged when it fits within `maxLen`.
  */
-export function truncate(
-  text: string,
-  maxLen: number,
-  suffix: string = "…",
-): string {
+export function truncate(text: string, maxLen: number, suffix: string = "…"): string {
   return text.length > maxLen ? text.slice(0, maxLen) + suffix : text;
 }

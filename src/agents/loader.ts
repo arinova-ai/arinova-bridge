@@ -138,7 +138,8 @@ export function loadAgentPrompts(agentsDir?: string): LoadedPrompts {
     return { shared: "", sharedGroups: [], agents: new Map() };
   }
 
-  const files = fs.readdirSync(dir)
+  const files = fs
+    .readdirSync(dir)
     .filter((f) => f.endsWith(".md"))
     .sort();
 
@@ -188,10 +189,7 @@ export function loadAgentPrompts(agentsDir?: string): LoadedPrompts {
  * Order: global shared → matching group-shared → agent-specific.
  * Returns empty string if nothing matches.
  */
-export function buildAgentSystemPrompt(
-  agentName: string,
-  prompts: LoadedPrompts,
-): string {
+export function buildAgentSystemPrompt(agentName: string, prompts: LoadedPrompts): string {
   const parts: string[] = [];
 
   if (prompts.shared) {

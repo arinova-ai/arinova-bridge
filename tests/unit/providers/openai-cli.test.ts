@@ -34,11 +34,7 @@ vi.mock("../../../src/codex/app-server.js", () => ({
         _contextUsage: new Map(),
         _rateLimits: null,
         _ready: true,
-        _sendMessageImpl: async (
-          conversationId: string,
-          _content: string,
-          onChunk?: (text: string) => void,
-        ) => {
+        _sendMessageImpl: async (conversationId: string, _content: string, onChunk?: (text: string) => void) => {
           onChunk?.("Codex says hello");
           this.instance._threadIds.set(conversationId, "thread-xyz");
           this.instance._tokenUsage.set(conversationId, {
@@ -54,12 +50,7 @@ vi.mock("../../../src/codex/app-server.js", () => ({
       appServerInstances.push(this.instance);
     }
 
-    async sendMessage(
-      conversationId: string,
-      content: string,
-      onChunk?: (text: string) => void,
-      opts?: any,
-    ) {
+    async sendMessage(conversationId: string, content: string, onChunk?: (text: string) => void, opts?: any) {
       return this.instance._sendMessageImpl(conversationId, content, onChunk, opts);
     }
 
@@ -170,9 +161,7 @@ describe("OpenAICliProvider — unit", () => {
         logger,
       );
 
-      expect(logger.info).toHaveBeenCalledWith(
-        "openai-cli: loaded cached rate limits from DB",
-      );
+      expect(logger.info).toHaveBeenCalledWith("openai-cli: loaded cached rate limits from DB");
 
       p1.shutdown();
       p2.shutdown();
@@ -214,9 +203,7 @@ describe("OpenAICliProvider — unit", () => {
         logger,
       );
 
-      expect(logger.info).not.toHaveBeenCalledWith(
-        "openai-cli: loaded cached rate limits from DB",
-      );
+      expect(logger.info).not.toHaveBeenCalledWith("openai-cli: loaded cached rate limits from DB");
       pBad.shutdown();
     });
   });
@@ -254,10 +241,7 @@ describe("OpenAICliProvider — unit", () => {
         }),
       ).rejects.toThrow("boom");
 
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        "abort",
-        expect.any(Function),
-      );
+      expect(removeEventListenerSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     });
 
     it("cleans up abort listener on success", async () => {
@@ -271,10 +255,7 @@ describe("OpenAICliProvider — unit", () => {
         signal: ac.signal,
       });
 
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        "abort",
-        expect.any(Function),
-      );
+      expect(removeEventListenerSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     });
   });
 
@@ -330,9 +311,7 @@ describe("OpenAICliProvider — unit", () => {
         },
         logger,
       );
-      expect(logger.info).toHaveBeenCalledWith(
-        "openai-cli: loaded cached rate limits from DB",
-      );
+      expect(logger.info).toHaveBeenCalledWith("openai-cli: loaded cached rate limits from DB");
       await p2.shutdown();
     });
   });
@@ -638,11 +617,13 @@ describe("OpenAICliProvider — unit", () => {
         throw new Error("fail");
       };
 
-      await provider.sendMessage({
-        conversationId: "conv-error",
-        content: "test again",
-        onChunk: () => {},
-      }).catch(() => {});
+      await provider
+        .sendMessage({
+          conversationId: "conv-error",
+          content: "test again",
+          onChunk: () => {},
+        })
+        .catch(() => {});
 
       const sessions = provider.listSessions();
       const errorEntry = sessions.find((s) => s.conversationId === "conv-error");

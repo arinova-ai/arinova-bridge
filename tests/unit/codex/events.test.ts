@@ -124,9 +124,7 @@ describe("processTurn", () => {
 
   it("calls onError on turn.failed", async () => {
     const sink = createSink();
-    const events: ThreadEvent[] = [
-      { type: "turn.failed", error: { message: "Out of tokens" } },
-    ];
+    const events: ThreadEvent[] = [{ type: "turn.failed", error: { message: "Out of tokens" } }];
 
     await processTurn(eventStream(events), sink);
     expect(sink.onError).toHaveBeenCalledWith("Out of tokens");
@@ -134,9 +132,7 @@ describe("processTurn", () => {
 
   it("calls onError on error event", async () => {
     const sink = createSink();
-    const events: ThreadEvent[] = [
-      { type: "error", message: "Connection lost" },
-    ];
+    const events: ThreadEvent[] = [{ type: "error", message: "Connection lost" }];
 
     await processTurn(eventStream(events), sink);
     expect(sink.onError).toHaveBeenCalledWith("Connection lost");
@@ -170,9 +166,7 @@ describe("processTurn", () => {
 
   it("returns null usage when turn.completed has no usage field", async () => {
     const sink = createSink();
-    const events: ThreadEvent[] = [
-      { type: "turn.completed" },
-    ];
+    const events: ThreadEvent[] = [{ type: "turn.completed" }];
 
     const result = await processTurn(eventStream(events), sink);
     expect(result.usage).toBeNull();
@@ -180,9 +174,7 @@ describe("processTurn", () => {
 
   it("uses string error directly for turn.failed", async () => {
     const sink = createSink();
-    const events: ThreadEvent[] = [
-      { type: "turn.failed", error: "Rate limited" } as unknown as ThreadEvent,
-    ];
+    const events: ThreadEvent[] = [{ type: "turn.failed", error: "Rate limited" } as unknown as ThreadEvent];
 
     await processTurn(eventStream(events), sink);
     expect(sink.onError).toHaveBeenCalledWith("Rate limited");
@@ -190,9 +182,7 @@ describe("processTurn", () => {
 
   it("falls back to default message when turn.failed error has non-string message", async () => {
     const sink = createSink();
-    const events: ThreadEvent[] = [
-      { type: "turn.failed", error: { message: 42 } } as unknown as ThreadEvent,
-    ];
+    const events: ThreadEvent[] = [{ type: "turn.failed", error: { message: 42 } } as unknown as ThreadEvent];
 
     await processTurn(eventStream(events), sink);
     expect(sink.onError).toHaveBeenCalledWith("Turn failed");

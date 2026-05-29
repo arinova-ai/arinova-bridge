@@ -103,9 +103,7 @@ describe("createProviders", () => {
 
   it("returns empty map when all providers are disabled", async () => {
     const providers = await createProviders(
-      createConfig([
-        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: false },
-      ]),
+      createConfig([{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: false }]),
       logger,
     );
     expect(providers.size).toBe(0);
@@ -113,9 +111,7 @@ describe("createProviders", () => {
 
   it("creates anthropic-cli provider when enabled", async () => {
     const providers = await createProviders(
-      createConfig([
-        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-      ]),
+      createConfig([{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true }]),
       logger,
     );
     expect(providers.has("anthropic-oauth")).toBe(true);
@@ -126,7 +122,13 @@ describe("createProviders", () => {
   it("creates anthropic-sdk provider when enabled with API key", async () => {
     const providers = await createProviders(
       createConfig([
-        { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true, apiKey: "sk-ant-test" },
+        {
+          id: "anthropic-api",
+          type: "anthropic-sdk",
+          displayName: "Anthropic API",
+          enabled: true,
+          apiKey: "sk-ant-test",
+        },
       ]),
       logger,
     );
@@ -135,9 +137,7 @@ describe("createProviders", () => {
 
   it("skips anthropic-sdk when enabled but no API key", async () => {
     const providers = await createProviders(
-      createConfig([
-        { id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true },
-      ]),
+      createConfig([{ id: "anthropic-api", type: "anthropic-sdk", displayName: "Anthropic API", enabled: true }]),
       logger,
     );
     expect(providers.has("anthropic-api")).toBe(false);
@@ -156,9 +156,7 @@ describe("createProviders", () => {
 
   it("creates openai-cli provider without API key (OAuth mode)", async () => {
     const providers = await createProviders(
-      createConfig([
-        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
-      ]),
+      createConfig([{ id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true }]),
       logger,
     );
     expect(providers.has("openai-oauth")).toBe(true);
@@ -225,9 +223,7 @@ describe("createProviders", () => {
 
   it("registers Codex Arinova MCP with inherited per-agent auth", async () => {
     await createProviders(
-      createConfig([
-        { id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true },
-      ]),
+      createConfig([{ id: "openai-oauth", type: "openai-cli", displayName: "OpenAI OAuth", enabled: true }]),
       logger,
     );
 
@@ -305,9 +301,7 @@ describe("createProviders", () => {
 
   it("skips unknown provider types", async () => {
     const providers = await createProviders(
-      createConfig([
-        { id: "unknown-provider", type: "unknown-type", displayName: "Unknown", enabled: true },
-      ]),
+      createConfig([{ id: "unknown-provider", type: "unknown-type", displayName: "Unknown", enabled: true }]),
       logger,
     );
     expect(providers.has("unknown-provider")).toBe(false);
@@ -316,14 +310,10 @@ describe("createProviders", () => {
 
   it("logs when providers are created", async () => {
     await createProviders(
-      createConfig([
-        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-      ]),
+      createConfig([{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true }]),
       logger,
     );
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("anthropic-oauth"),
-    );
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("anthropic-oauth"));
   });
 
   it("injects OAuth token for anthropic-cli provider without apiKey", async () => {
@@ -429,9 +419,7 @@ describe("createProviders", () => {
 
     // Provider should still be created (without OAuth token env)
     expect(providers.has("minimax-fail-refresh")).toBe(true);
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("OAuth token refresh failed"),
-    );
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("OAuth token refresh failed"));
   });
 
   // ── Coverage: line 117 — createProvider throws, caught by createProviders ──
@@ -454,8 +442,6 @@ describe("createProviders", () => {
     );
 
     expect(providers.has("broken-provider")).toBe(false);
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("failed to create broken-provider provider"),
-    );
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("failed to create broken-provider provider"));
   });
 });

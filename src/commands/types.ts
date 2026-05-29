@@ -47,7 +47,10 @@ export interface CommandContext {
   /** Fetch full conversation history with pagination. */
   fetchHistory?: (options?: FetchHistoryOptions) => Promise<FetchHistoryResult>;
   /** Notes API */
-  listNotes?: (options?: { before?: string; limit?: number }) => Promise<{ notes: Note[]; hasMore: boolean; nextCursor?: string }>;
+  listNotes?: (options?: {
+    before?: string;
+    limit?: number;
+  }) => Promise<{ notes: Note[]; hasMore: boolean; nextCursor?: string }>;
   createNote?: (body: { title: string; content?: string }) => Promise<Note>;
   updateNote?: (noteId: string, body: { title?: string; content?: string }) => Promise<Note>;
   deleteNote?: (noteId: string) => Promise<void>;

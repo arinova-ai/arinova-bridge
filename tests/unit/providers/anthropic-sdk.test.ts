@@ -117,10 +117,7 @@ describe("AnthropicSdkProvider (unit)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    setMockStream([
-      makeTextDeltaEvent("Hello"),
-      makeResultMessage(),
-    ]);
+    setMockStream([makeTextDeltaEvent("Hello"), makeResultMessage()]);
     provider = makeProvider();
   });
 
@@ -150,9 +147,7 @@ describe("AnthropicSdkProvider (unit)", () => {
   describe("sendMessage: fallback result text", () => {
     it("uses result.result when no streaming text was received (line 150)", async () => {
       // Only emit a result message with no preceding text delta
-      setMockStream([
-        makeResultMessage({ result: "Fallback result" }),
-      ]);
+      setMockStream([makeResultMessage({ result: "Fallback result" })]);
 
       const chunks: string[] = [];
       const result = await provider.sendMessage({
@@ -167,9 +162,7 @@ describe("AnthropicSdkProvider (unit)", () => {
     });
 
     it("returns 'Done.' when neither streaming text nor result text exist", async () => {
-      setMockStream([
-        makeResultMessage({ result: undefined }),
-      ]);
+      setMockStream([makeResultMessage({ result: undefined })]);
 
       const result = await provider.sendMessage({
         conversationId: "conv-empty",
@@ -363,9 +356,7 @@ describe("AnthropicSdkProvider (unit)", () => {
       vi.advanceTimersByTime(66_000);
 
       expect(shortProvider.getSessionInfo("conv-idle-sweep")).toBeNull();
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining("idle timeout for conv-idle-sweep"),
-      );
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("idle timeout for conv-idle-sweep"));
 
       await shortProvider.shutdown();
       vi.useRealTimers();

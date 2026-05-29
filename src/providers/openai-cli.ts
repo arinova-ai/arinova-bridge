@@ -1,6 +1,5 @@
 import type {
   Provider,
-  ProviderId,
   SendMessageOpts,
   SendResult,
   SessionOpts,
@@ -90,11 +89,15 @@ export class OpenAICliProvider implements Provider {
         // Inject into server (exposed for pre-warming /usage before first turn)
         (this.defaultServer as unknown as { rateLimitSnapshot: unknown }).rateLimitSnapshot = snapshot;
         logger.info("openai-cli: loaded cached rate limits from DB");
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  warmup(): void { /* no-op for openai-cli */ }
+  warmup(): void {
+    /* no-op for openai-cli */
+  }
 
   setAgentMcpEnv(agentName: string, env: Record<string, string>): void {
     this.agentMcpEnv.set(agentName, env);
@@ -136,12 +139,12 @@ export class OpenAICliProvider implements Provider {
     try {
       this.db.upsertConversation(conversationId, { status: "busy" });
 
-      const result = await server.sendMessage(
-        conversationId,
-        content,
-        onChunk,
-        { cwd: effectiveCwd, model: effectiveModel, agentName, env: agentEnv },
-      );
+      const result = await server.sendMessage(conversationId, content, onChunk, {
+        cwd: effectiveCwd,
+        model: effectiveModel,
+        agentName,
+        env: agentEnv,
+      });
 
       // Persist thread ID
       if (result.threadId) {
@@ -213,11 +216,7 @@ export class OpenAICliProvider implements Provider {
     }
   }
 
-  async resumeSession(
-    conversationId: string,
-    sessionId: string,
-    _opts?: SessionOpts,
-  ): Promise<boolean> {
+  async resumeSession(conversationId: string, sessionId: string, _opts?: SessionOpts): Promise<boolean> {
     this.db.upsertConversation(conversationId, {
       threadId: sessionId,
       status: "ready",
@@ -309,7 +308,10 @@ export class OpenAICliProvider implements Provider {
         sessionId: conv.threadId ?? "",
         conversationId: conv.convId,
         alive: server.isReady() && !!server.getThreadId(conv.convId),
-        status: (conv.status === "error" ? "error" : conv.status === "busy" ? "busy" : "ready") as "ready" | "busy" | "error",
+        status: (conv.status === "error" ? "error" : conv.status === "busy" ? "busy" : "ready") as
+          | "ready"
+          | "busy"
+          | "error",
         cwd: conv.cwd ?? this.defaultCwd,
         model: conv.model ?? undefined,
       };

@@ -39,7 +39,12 @@ export class CommandHandler {
   /** Command registry: maps command name to handler function. */
   private commandMap: Map<string, (arg: string, ctx: CommandContext) => Promise<void> | void>;
 
-  constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore, statusFilePath?: string) {
+  constructor(
+    providers: Map<string, Provider>,
+    config: BridgeConfig,
+    sessionStore?: BridgeSessionStore,
+    statusFilePath?: string,
+  ) {
     this.providers = providers;
     this.config = config;
     this.sessionStore = sessionStore;
@@ -108,9 +113,7 @@ export class CommandHandler {
 
   /** Get all configured (enabled) provider IDs from config, not just successfully created ones. */
   private getConfiguredProviderIds(): string[] {
-    return this.config.providers
-      .filter((p) => p.enabled)
-      .map((p) => p.id);
+    return this.config.providers.filter((p) => p.enabled).map((p) => p.id);
   }
 
   /** Check if any configured provider has a type starting with the given prefix. */
@@ -181,10 +184,7 @@ export class CommandHandler {
     await provider.resetSession(ctx.conversationId, { cwd, model, restartProcess: true });
     this.onSessionReset?.(ctx.conversationId);
 
-    this.reply(
-      ctx,
-      `已重啟 ${provider.displayName} session\n工作目錄: ${cwd}${model ? `\n模型: ${model}` : ""}`,
-    );
+    this.reply(ctx, `已重啟 ${provider.displayName} session\n工作目錄: ${cwd}${model ? `\n模型: ${model}` : ""}`);
   }
 
   private handleSessions(ctx: CommandContext): void {
@@ -213,10 +213,11 @@ export class CommandHandler {
 
     const lines = ["Sessions:\n"];
     for (const s of allSessions) {
-      const isCurrent = s.providerId === activeProvider.id
-        && s.conversationId === ctx.conversationId
-        && !!activeSession
-        && s.sessionId === activeSession.sessionId;
+      const isCurrent =
+        s.providerId === activeProvider.id &&
+        s.conversationId === ctx.conversationId &&
+        !!activeSession &&
+        s.sessionId === activeSession.sessionId;
       const dot = isCurrent ? "🟢" : "⚪";
       const id = s.sessionId.slice(0, 12);
       const model = s.model ?? "default";
@@ -249,7 +250,9 @@ export class CommandHandler {
         lines.push(`累計花費: $${cost.totalCostUsd.toFixed(4)}`);
       }
       if (cost.inputTokens !== undefined) {
-        lines.push(`Tokens: in=${cost.inputTokens} (cached=${cost.cachedInputTokens ?? 0}), out=${cost.outputTokens ?? 0}`);
+        lines.push(
+          `Tokens: in=${cost.inputTokens} (cached=${cost.cachedInputTokens ?? 0}), out=${cost.outputTokens ?? 0}`,
+        );
       }
     }
 
@@ -286,10 +289,7 @@ export class CommandHandler {
     const ids = this.getConfiguredProviderIds().join(" / ");
     lines.push(`/provider [name] — 切換 provider (${ids})`);
 
-    lines.push(
-      "/spawn list — 列出 spawn 子任務",
-      "/spawn cancel <id> — 取消 spawn 子任務",
-    );
+    lines.push("/spawn list — 列出 spawn 子任務", "/spawn cancel <id> — 取消 spawn 子任務");
 
     lines.push("/help — 列出所有可用指令");
     this.reply(ctx, lines.join("\n"));
@@ -352,9 +352,7 @@ export class CommandHandler {
       return;
     }
 
-    const switchNote = currentProvider.id !== targetProviderId
-      ? `\nProvider 已切換到 ${provider.displayName}`
-      : "";
+    const switchNote = currentProvider.id !== targetProviderId ? `\nProvider 已切換到 ${provider.displayName}` : "";
     this.reply(ctx, `已恢復 session: ${sessionId.slice(0, 12)}${switchNote}`);
   }
 
@@ -429,21 +427,26 @@ export class CommandHandler {
       try {
         const agentCfg = this.config.agents.find((a) => a.name === this.agentName);
         const compactModel = agentCfg?.compactModel ?? model;
-        await this.sessionStore.compact(ctx.conversationId, async (messages, existingSummary) => {
-          const tokenBudget = getSummaryMaxTokens(compactModel);
-          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
+        await this.sessionStore.compact(
+          ctx.conversationId,
+          async (messages, existingSummary) => {
+            const tokenBudget = getSummaryMaxTokens(compactModel);
+            const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+            const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
 
-          const compactResult = await provider.sendMessage({
-            conversationId: `${ctx.conversationId}:compact`,
-            content: summaryPrompt,
-            cwd,
-            model: compactModel,
-            onChunk: () => {},
-            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
-          });
-          return compactResult.text;
-        }, { model: compactModel });
+            const compactResult = await provider.sendMessage({
+              conversationId: `${ctx.conversationId}:compact`,
+              content: summaryPrompt,
+              cwd,
+              model: compactModel,
+              onChunk: () => {},
+              systemPrompt:
+                "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+            });
+            return compactResult.text;
+          },
+          { model: compactModel },
+        );
       } catch (err) {
         const msg = getErrorMessage(err);
         this.reply(ctx, `compact 失敗，session 維持原狀：${msg}`);
@@ -527,7 +530,9 @@ export class CommandHandler {
     if (cost.inputTokens !== undefined) {
       const total = (cost.inputTokens ?? 0) + (cost.outputTokens ?? 0);
       lines.push("**Token Usage:**");
-      lines.push(`  Input:  ${(cost.inputTokens ?? 0).toLocaleString()} tokens (cached: ${(cost.cachedInputTokens ?? 0).toLocaleString()})`);
+      lines.push(
+        `  Input:  ${(cost.inputTokens ?? 0).toLocaleString()} tokens (cached: ${(cost.cachedInputTokens ?? 0).toLocaleString()})`,
+      );
       lines.push(`  Output: ${(cost.outputTokens ?? 0).toLocaleString()} tokens`);
       lines.push(`  Total:  ${total.toLocaleString()} tokens`);
     }
@@ -559,9 +564,7 @@ export class CommandHandler {
       for (const note of result.notes) {
         const id = note.id.slice(0, 8);
         const creator = note.agentName ?? note.creatorName;
-        const preview = note.content
-          ? ` — ${truncate(note.content, 60)}`
-          : "";
+        const preview = note.content ? ` — ${truncate(note.content, 60)}` : "";
         lines.push(`\`${id}\` **${note.title}**${preview}  _(${creator})_`);
       }
 
@@ -690,16 +693,19 @@ export class CommandHandler {
     const sub = parts[0]?.toLowerCase();
 
     if (!sub || sub === "help") {
-      this.reply(ctx, [
-        "用法:",
-        "  /spawn list — 列出所有 spawn 子任務",
-        "  /spawn result <id> — 查看完整回傳內容",
-        "  /spawn logs <id> — 查看執行過程 log",
-        "  /spawn cancel <id> — 取消 spawn 子任務",
-        "",
-        "Spawn 透過 CLI 建立：",
-        "  arinova-bridge spawn --agent <parent> --target <target> --context '...'",
-      ].join("\n"));
+      this.reply(
+        ctx,
+        [
+          "用法:",
+          "  /spawn list — 列出所有 spawn 子任務",
+          "  /spawn result <id> — 查看完整回傳內容",
+          "  /spawn logs <id> — 查看執行過程 log",
+          "  /spawn cancel <id> — 取消 spawn 子任務",
+          "",
+          "Spawn 透過 CLI 建立：",
+          "  arinova-bridge spawn --agent <parent> --target <target> --context '...'",
+        ].join("\n"),
+      );
       return;
     }
 
@@ -844,15 +850,18 @@ export class CommandHandler {
     const sub = parts[0]?.toLowerCase();
 
     if (!sub || sub === "help") {
-      this.reply(ctx, [
-        "用法:",
-        "  /fork <task> — Fork 分身執行任務",
-        "  /fork list — 列出所有 fork 任務",
-        "  /fork cancel <id> — 取消 fork 任務",
-        "",
-        "也可透過 CLI 建立：",
-        "  arinova-bridge fork --agent <name> --task '...'",
-      ].join("\n"));
+      this.reply(
+        ctx,
+        [
+          "用法:",
+          "  /fork <task> — Fork 分身執行任務",
+          "  /fork list — 列出所有 fork 任務",
+          "  /fork cancel <id> — 取消 fork 任務",
+          "",
+          "也可透過 CLI 建立：",
+          "  arinova-bridge fork --agent <name> --task '...'",
+        ].join("\n"),
+      );
       return;
     }
 
@@ -876,7 +885,10 @@ export class CommandHandler {
         parentAgent: this.agentName!,
         task,
       });
-      this.reply(ctx, `已建立 fork \`${job.id}\`\n任務: ${truncate(task, 100)}\n\n分身正在背景執行，完成後會自動回報結果。`);
+      this.reply(
+        ctx,
+        `已建立 fork \`${job.id}\`\n任務: ${truncate(task, 100)}\n\n分身正在背景執行，完成後會自動回報結果。`,
+      );
     } catch (err) {
       this.reply(ctx, `Fork 建立失敗: ${getErrorMessage(err)}`);
     }
@@ -992,21 +1004,26 @@ export class CommandHandler {
         const model = this.getModelForConversation(ctx.conversationId);
         const agentCfg = this.config.agents.find((a) => a.name === this.agentName);
         const compactModel = agentCfg?.compactModel ?? model;
-        await this.sessionStore.compact(ctx.conversationId, async (messages, existingSummary) => {
-          const tokenBudget = getSummaryMaxTokens(compactModel);
-          const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
-          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
+        await this.sessionStore.compact(
+          ctx.conversationId,
+          async (messages, existingSummary) => {
+            const tokenBudget = getSummaryMaxTokens(compactModel);
+            const conversationText = messages.map((m) => `${m.sender ?? m.role}: ${m.content}`).join("\n");
+            const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
 
-          const compactResult = await currentProvider.sendMessage({
-            conversationId: `${ctx.conversationId}:compact`,
-            content: summaryPrompt,
-            cwd,
-            model: compactModel,
-            onChunk: () => {},
-            systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
-          });
-          return compactResult.text;
-        }, { model: compactModel });
+            const compactResult = await currentProvider.sendMessage({
+              conversationId: `${ctx.conversationId}:compact`,
+              content: summaryPrompt,
+              cwd,
+              model: compactModel,
+              onChunk: () => {},
+              systemPrompt:
+                "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+            });
+            return compactResult.text;
+          },
+          { model: compactModel },
+        );
         compactNote = "\nContext 已透過 compact 轉移";
       } catch (err) {
         const msg = getErrorMessage(err);

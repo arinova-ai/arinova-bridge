@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildCompactPrompt,
-  getSummaryMaxTokens,
-} from "../../../src/session/bridge-session.js";
+import { buildCompactPrompt, getSummaryMaxTokens } from "../../../src/session/bridge-session.js";
 
 // ---------------------------------------------------------------------------
 // getSummaryMaxTokens — dynamic token budget: 5% of context window, min 500, max 2000
@@ -244,13 +241,7 @@ describe("buildCompactPrompt", () => {
   });
 
   it("general mode: existing structured summary is preserved for re-compaction", () => {
-    const existingSummary = [
-      "## 重點摘要",
-      "- 討論了週末旅行計畫",
-      "",
-      "## 決策紀錄",
-      "- 選擇去花蓮",
-    ].join("\n");
+    const existingSummary = ["## 重點摘要", "- 討論了週末旅行計畫", "", "## 決策紀錄", "- 選擇去花蓮"].join("\n");
     const newText = "user: 住宿訂好了嗎\nassistant: 還沒";
     const prompt = buildCompactPrompt(newText, 1000, existingSummary);
 

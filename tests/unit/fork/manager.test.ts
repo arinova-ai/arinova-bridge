@@ -166,7 +166,10 @@ describe("ForkManager", () => {
   it("skips result when job already cancelled before delivery resolves", async () => {
     let resolveDeliver!: (v: { text: string; durationMs: number }) => void;
     deliverSpy.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveDeliver = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveDeliver = resolve;
+        }),
     );
 
     const agents = [makeAgent("lucy")];
@@ -192,7 +195,10 @@ describe("ForkManager", () => {
   it("skips result when job already failed (stale) before delivery resolves", async () => {
     let resolveDeliver!: (v: { text: string; durationMs: number }) => void;
     deliverSpy.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveDeliver = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveDeliver = resolve;
+        }),
     );
 
     const agents = [makeAgent("lucy")];
@@ -216,7 +222,10 @@ describe("ForkManager", () => {
   it("skips update when delivery rejects but job already cancelled", async () => {
     let rejectDeliver!: (err: Error) => void;
     deliverSpy.mockImplementationOnce(
-      () => new Promise((_resolve, reject) => { rejectDeliver = reject; }),
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDeliver = reject;
+        }),
     );
 
     const agents = [makeAgent("lucy")];

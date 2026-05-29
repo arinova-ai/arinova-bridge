@@ -129,7 +129,10 @@ export interface PipelineResult {
 // runMessagePipeline — the unified 8-step flow
 // ---------------------------------------------------------------------------
 
-export async function runMessagePipeline(ctx: PipelineContext, state: PipelineState = defaultState): Promise<PipelineResult> {
+export async function runMessagePipeline(
+  ctx: PipelineContext,
+  state: PipelineState = defaultState,
+): Promise<PipelineResult> {
   const {
     provider,
     bridgeSessionStore,
@@ -157,25 +160,16 @@ export async function runMessagePipeline(ctx: PipelineContext, state: PipelineSt
   // back to backend recent history only when the bridge has no context yet.
   const isFirstMessage = !state.contextInjected.has(sessionId);
   let injectedContextThisTurn = isFirstMessage;
-  let bridgeSessionContext = isFirstMessage
-    ? (bridgeSessionStore.buildContext(sessionId) || undefined)
-    : undefined;
+  let bridgeSessionContext = isFirstMessage ? bridgeSessionStore.buildContext(sessionId) || undefined : undefined;
   const historyForProvider = isFirstMessage && !bridgeSessionContext ? ctx.history : undefined;
 
   // Prepend extra context (e.g. A2A memory query results) if provided
   if (isFirstMessage && ctx.extraContext) {
-    bridgeSessionContext = bridgeSessionContext
-      ? `${ctx.extraContext}\n\n${bridgeSessionContext}`
-      : ctx.extraContext;
+    bridgeSessionContext = bridgeSessionContext ? `${ctx.extraContext}\n\n${bridgeSessionContext}` : ctx.extraContext;
   }
 
   // Step 3: Record user message in bridge session
-  bridgeSessionStore.addUserMessage(
-    sessionId,
-    content,
-    ctx.senderName,
-    { model, ...ctx.userMessageMeta },
-  );
+  bridgeSessionStore.addUserMessage(sessionId, content, ctx.senderName, { model, ...ctx.userMessageMeta });
 
   // Step 4: Send message to provider (auto-restart on unrecoverable turn errors)
   const sendMessageArgs: SendMessageOpts = {
@@ -247,27 +241,34 @@ export async function runMessagePipeline(ctx: PipelineContext, state: PipelineSt
   if (bridgeSessionStore.needsCompact(sessionId, model, runtimeContextWindow)) {
     const compactModel = compactModelOverride ?? model;
     const windowSource = runtimeContextWindow ? `reported window ${runtimeContextWindow}` : "fallback model window";
-    log.info(`[${agentName}] context threshold reached for ${sessionId} (${windowSource}), compacting with ${compactModel}...`);
+    log.info(
+      `[${agentName}] context threshold reached for ${sessionId} (${windowSource}), compacting with ${compactModel}...`,
+    );
     try {
-      await bridgeSessionStore.compact(sessionId, async (messages, existingSummary) => {
-        const tokenBudget = getSummaryMaxTokens(compactModel);
-        const conversationText = messages
-          .map((m) => `${m.sender ?? m.role}: ${m.role === "user" ? (m.userMessage?.trim() || m.content) : m.content}`)
-          .join("\n");
-        const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
-        const compactConversationId = `${sessionId}:compact`;
+      await bridgeSessionStore.compact(
+        sessionId,
+        async (messages, existingSummary) => {
+          const tokenBudget = getSummaryMaxTokens(compactModel);
+          const conversationText = messages
+            .map((m) => `${m.sender ?? m.role}: ${m.role === "user" ? m.userMessage?.trim() || m.content : m.content}`)
+            .join("\n");
+          const summaryPrompt = buildCompactPrompt(conversationText, tokenBudget, existingSummary);
+          const compactConversationId = `${sessionId}:compact`;
 
-        await provider.resetSession(compactConversationId, { cwd, model: compactModel });
-        const compactResult = await provider.sendMessage({
-          conversationId: compactConversationId,
-          content: summaryPrompt,
-          cwd,
-          model: compactModel,
-          onChunk: () => {},
-          systemPrompt: "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
-        });
-        return compactResult.text;
-      }, { model: compactModel });
+          await provider.resetSession(compactConversationId, { cwd, model: compactModel });
+          const compactResult = await provider.sendMessage({
+            conversationId: compactConversationId,
+            content: summaryPrompt,
+            cwd,
+            model: compactModel,
+            onChunk: () => {},
+            systemPrompt:
+              "You are a conversation summariser. Output only the summary, nothing else. Write in the same language as the conversation.",
+          });
+          return compactResult.text;
+        },
+        { model: compactModel },
+      );
 
       // Step 8: Reset provider session so it starts fresh with compacted context
       await provider.resetSession(sessionId, { cwd, model });

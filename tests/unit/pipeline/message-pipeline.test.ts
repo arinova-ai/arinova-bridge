@@ -67,13 +67,11 @@ describe("runMessagePipeline history bootstrap", () => {
       const provider = createProvider(providerType);
       const store = createSessionStore();
       const getSessionInfo = vi.mocked(provider.getSessionInfo);
-      getSessionInfo
-        .mockReturnValueOnce(null)
-        .mockReturnValueOnce({
-          sessionId: "provider-session-1",
-          alive: true,
-          cwd: "/tmp",
-        });
+      getSessionInfo.mockReturnValueOnce(null).mockReturnValueOnce({
+        sessionId: "provider-session-1",
+        alive: true,
+        cwd: "/tmp",
+      });
 
       await runMessagePipeline(baseCtx(provider, store));
       await runMessagePipeline(baseCtx(provider, store));
@@ -414,19 +412,24 @@ describe("auto-compaction (Step 7)", () => {
     const provider = createProvider();
     const store = createSessionStore();
     store.needsCompact.mockReturnValue(true);
-    store.compact.mockImplementation(async (
-      _sid: string,
-      fn: (msgs: Array<{ role: string; content: string; sender?: string; userMessage?: string }>, summary?: string) => Promise<string>,
-    ) => {
-      const summary = await fn(
-        [
-          { role: "user", content: "hi", sender: "user", userMessage: "hi" },
-          { role: "assistant", content: "hello", sender: "agent" },
-        ],
-        undefined,
-      );
-      expect(summary).toBe("compacted summary");
-    });
+    store.compact.mockImplementation(
+      async (
+        _sid: string,
+        fn: (
+          msgs: Array<{ role: string; content: string; sender?: string; userMessage?: string }>,
+          summary?: string,
+        ) => Promise<string>,
+      ) => {
+        const summary = await fn(
+          [
+            { role: "user", content: "hi", sender: "user", userMessage: "hi" },
+            { role: "assistant", content: "hello", sender: "agent" },
+          ],
+          undefined,
+        );
+        expect(summary).toBe("compacted summary");
+      },
+    );
 
     // Mock the compact sendMessage call
     vi.mocked(provider.sendMessage)
@@ -451,12 +454,14 @@ describe("auto-compaction (Step 7)", () => {
     const provider = createProvider();
     const store = createSessionStore();
     store.needsCompact.mockReturnValue(true);
-    store.compact.mockImplementation(async (
-      _sid: string,
-      fn: (msgs: Array<{ role: string; content: string }>, summary?: string) => Promise<string>,
-    ) => {
-      await fn([{ role: "user", content: "hi" }], undefined);
-    });
+    store.compact.mockImplementation(
+      async (
+        _sid: string,
+        fn: (msgs: Array<{ role: string; content: string }>, summary?: string) => Promise<string>,
+      ) => {
+        await fn([{ role: "user", content: "hi" }], undefined);
+      },
+    );
 
     vi.mocked(provider.sendMessage)
       .mockResolvedValueOnce({ text: "ok", sessionId: "ps-1" })
@@ -565,18 +570,13 @@ describe("result shape (Step 5/6/return)", () => {
     };
     await runMessagePipeline(ctx, state);
 
-    expect(store.addUserMessage).toHaveBeenCalledWith(
-      "agent:default",
-      "hello",
-      "testuser",
-      { model: "gpt-4.1", extra: true },
-    );
-    expect(store.addAssistantMessage).toHaveBeenCalledWith(
-      "agent:default",
-      "assistant reply",
-      "agent",
-      { model: "gpt-4.1" },
-    );
+    expect(store.addUserMessage).toHaveBeenCalledWith("agent:default", "hello", "testuser", {
+      model: "gpt-4.1",
+      extra: true,
+    });
+    expect(store.addAssistantMessage).toHaveBeenCalledWith("agent:default", "assistant reply", "agent", {
+      model: "gpt-4.1",
+    });
   });
 
   it("tracks provider session ID when sendResult includes one", async () => {

@@ -9,10 +9,7 @@ const REFRESH_INTERVAL_MS = 4 * 60 * 1000; // Check every 4 minutes
  * Start a background timer that checks and refreshes OAuth tokens.
  * Returns a cleanup function to stop the timer.
  */
-export function startOAuthRefreshTimer(
-  providers: ProviderEntry[],
-  logger: Logger,
-): () => void {
+export function startOAuthRefreshTimer(providers: ProviderEntry[], logger: Logger): () => void {
   // Find providers that need OAuth (anthropic-cli without apiKey and with baseUrl)
   const oauthProviderIds = providers
     .filter((p) => p.enabled && p.type === "anthropic-cli" && !p.apiKey && p.baseUrl)

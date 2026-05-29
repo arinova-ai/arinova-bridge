@@ -188,9 +188,7 @@ describe("codex/rpc-client", () => {
       stdout.write(JSON.stringify({ method: "bad.event", params: {} }) + "\n");
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("notification handler error (bad.event)"),
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining("notification handler error (bad.event)"));
     });
   });
 
@@ -229,9 +227,7 @@ describe("codex/rpc-client", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       expect(client.isClosed).toBe(true);
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("stdin error: pipe broken"),
-      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("stdin error: pipe broken"));
       const err = await caught;
       expect(err).toBeInstanceOf(Error);
       expect(err.message).toContain("stdin error: pipe broken");
@@ -249,9 +245,7 @@ describe("codex/rpc-client", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       // The warn about "stdin error" should NOT be called because closed was already true
-      expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("stdin error"),
-      );
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.stringContaining("stdin error"));
     });
   });
 
@@ -266,9 +260,7 @@ describe("codex/rpc-client", () => {
       // notify calls writeLine internally
       client.notify("test.event", { data: 1 });
 
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("write error"),
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining("write error"));
     });
   });
 });

@@ -45,10 +45,7 @@ describe("loadAgentPrompts", () => {
   });
 
   it("_shared_<name>.md with block-list include only reaches listed agents", () => {
-    write(
-      "_shared_eng.md",
-      "---\ninclude:\n  - pan\n  - bella\n---\nENG SHARED",
-    );
+    write("_shared_eng.md", "---\ninclude:\n  - pan\n  - bella\n---\nENG SHARED");
     write("pan.md", "PAN");
     write("bella.md", "BELLA");
     write("adora.md", "ADORA");
@@ -67,10 +64,7 @@ describe("loadAgentPrompts", () => {
   });
 
   it("accepts inline include list", () => {
-    write(
-      "_shared_ops.md",
-      "---\ninclude: [peter, mia]\n---\nOPS SHARED",
-    );
+    write("_shared_ops.md", "---\ninclude: [peter, mia]\n---\nOPS SHARED");
     write("peter.md", "PETER");
     write("pan.md", "PAN");
 
@@ -101,14 +95,8 @@ describe("loadAgentPrompts", () => {
 
   it("combines global shared, matching groups, and per-agent body in order", () => {
     write("_shared.md", "ALL");
-    write(
-      "_shared_eng.md",
-      "---\ninclude:\n  - pan\n---\nENG",
-    );
-    write(
-      "_shared_exec.md",
-      "---\ninclude: [pan, lucy]\n---\nEXEC",
-    );
+    write("_shared_eng.md", "---\ninclude:\n  - pan\n---\nENG");
+    write("_shared_exec.md", "---\ninclude: [pan, lucy]\n---\nEXEC");
     write("pan.md", "PAN");
 
     const prompts = loadAgentPrompts(tmpDir);
@@ -127,10 +115,7 @@ describe("loadAgentPrompts", () => {
   });
 
   it("parses per-agent frontmatter metadata as strings", () => {
-    write(
-      "pan.md",
-      "---\nname: Pan\nrole: engineer\n---\nBODY",
-    );
+    write("pan.md", "---\nname: Pan\nrole: engineer\n---\nBODY");
     const prompts = loadAgentPrompts(tmpDir);
     const pan = prompts.agents.get("pan");
     expect(pan?.meta).toEqual({ name: "Pan", role: "engineer" });
@@ -140,10 +125,7 @@ describe("loadAgentPrompts", () => {
   it("parses block-list followed by another key (commitPendingList mid-parse)", () => {
     // Frontmatter: block list 'include' then another key 'role'.
     // This triggers commitPendingList() at line 71 when the next key is encountered.
-    write(
-      "_shared_team.md",
-      "---\ninclude:\n  - pan\n  - bella\nrole: engineering\n---\nTEAM SHARED",
-    );
+    write("_shared_team.md", "---\ninclude:\n  - pan\n  - bella\nrole: engineering\n---\nTEAM SHARED");
     write("pan.md", "PAN");
 
     const prompts = loadAgentPrompts(tmpDir);
@@ -155,10 +137,7 @@ describe("loadAgentPrompts", () => {
 
   it("ignores non-key-value lines in frontmatter (blank or comment lines)", () => {
     // Line 75: `if (!kv) continue` when a line doesn't match key: value pattern
-    write(
-      "pan.md",
-      "---\nname: Pan\n\n# this is a comment\nrole: engineer\n---\nBODY",
-    );
+    write("pan.md", "---\nname: Pan\n\n# this is a comment\nrole: engineer\n---\nBODY");
     const prompts = loadAgentPrompts(tmpDir);
     const pan = prompts.agents.get("pan");
     expect(pan?.meta).toEqual({ name: "Pan", role: "engineer" });
@@ -167,10 +146,7 @@ describe("loadAgentPrompts", () => {
 
   it("accepts comma-separated string include (not array)", () => {
     // Lines 116-117: extractInclude takes the string path (not Array.isArray)
-    write(
-      "_shared_ops.md",
-      "---\ninclude: pan, bella\n---\nOPS BODY",
-    );
+    write("_shared_ops.md", "---\ninclude: pan, bella\n---\nOPS BODY");
     write("pan.md", "PAN");
     write("bella.md", "BELLA");
 

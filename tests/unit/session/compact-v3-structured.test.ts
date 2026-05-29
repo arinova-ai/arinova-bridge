@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  buildCompactPrompt,
-  getSummaryMaxTokens,
-} from "../../../src/session/bridge-session.js";
+import { buildCompactPrompt, getSummaryMaxTokens } from "../../../src/session/bridge-session.js";
 import { BridgeSessionStore } from "../../../src/session/bridge-session.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -323,13 +320,7 @@ describe("Structured summary in buildContext", () => {
       }
     }
 
-    const chineseSummary = [
-      "## 重點摘要",
-      "- 討論了系統架構",
-      "",
-      "## 決策紀錄",
-      "- 選擇 PostgreSQL",
-    ].join("\n");
+    const chineseSummary = ["## 重點摘要", "- 討論了系統架構", "", "## 決策紀錄", "- 選擇 PostgreSQL"].join("\n");
 
     await store.compact(convId, async () => chineseSummary);
 

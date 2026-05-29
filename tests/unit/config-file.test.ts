@@ -42,7 +42,14 @@ describe("config-file", () => {
       defaultProvider: "anthropic-oauth",
       providers: [
         { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic OAuth", enabled: true },
-        { id: "minimax", type: "anthropic-cli", displayName: "MiniMax", enabled: true, apiKey: "sk-mm", baseUrl: "https://api.minimax.io/anthropic" },
+        {
+          id: "minimax",
+          type: "anthropic-cli",
+          displayName: "MiniMax",
+          enabled: true,
+          apiKey: "sk-mm",
+          baseUrl: "https://api.minimax.io/anthropic",
+        },
       ],
       defaults: { cwd: "~/projects" },
     });

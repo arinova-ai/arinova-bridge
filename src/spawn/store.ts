@@ -67,7 +67,10 @@ export class SpawnStore {
     cleanupLogs: ReturnType<InstanceType<typeof Database>["prepare"]>;
   };
 
-  constructor(dbDir: string, private logger: Logger) {
+  constructor(
+    dbDir: string,
+    private logger: Logger,
+  ) {
     mkdirSync(dbDir, { recursive: true });
     const dbPath = path.join(dbDir, "spawn.db");
     this.db = new Database(dbPath);
@@ -121,7 +124,9 @@ export class SpawnStore {
       listByParent: this.db.prepare(`SELECT * FROM spawn_jobs WHERE parent_agent = ? ORDER BY created_at DESC`),
       listRunning: this.db.prepare(`SELECT * FROM spawn_jobs WHERE status = 'running' ORDER BY created_at`),
       listAll: this.db.prepare(`SELECT * FROM spawn_jobs ORDER BY created_at DESC LIMIT 50`),
-      countRunningByParent: this.db.prepare(`SELECT COUNT(*) AS cnt FROM spawn_jobs WHERE parent_agent = ? AND status = 'running'`),
+      countRunningByParent: this.db.prepare(
+        `SELECT COUNT(*) AS cnt FROM spawn_jobs WHERE parent_agent = ? AND status = 'running'`,
+      ),
       complete: this.db.prepare(`
         UPDATE spawn_jobs SET status = @status, result = @result, completed_at = @completedAt, duration_ms = @durationMs, cost_usd = @costUsd
         WHERE id = @id
@@ -212,9 +217,8 @@ export class SpawnStore {
     const job = this.get(id);
     if (!job) return;
 
-    const truncatedResult = result.length > MAX_RESULT_CHARS
-      ? result.slice(0, MAX_RESULT_CHARS) + "\n...(truncated)"
-      : result;
+    const truncatedResult =
+      result.length > MAX_RESULT_CHARS ? result.slice(0, MAX_RESULT_CHARS) + "\n...(truncated)" : result;
 
     const now = Date.now();
     this.stmts.complete.run({

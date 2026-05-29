@@ -37,6 +37,7 @@ arinova-bridge start
 ```
 
 The setup wizard will guide you through:
+
 - Connecting to Arinova Chat (bot token)
 - Choosing AI providers (Claude, Codex)
 - Configuring OAuth or API keys
@@ -44,14 +45,14 @@ The setup wizard will guide you through:
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `arinova-bridge start` | Start the bridge server |
-| `arinova-bridge stop` | Stop the running bridge server |
-| `arinova-bridge config` | Show current configuration (secrets masked) |
-| `arinova-bridge setup` | Interactive setup wizard |
-| `arinova-bridge login [provider-id]` | OAuth login for configured CLI providers |
-| `arinova-bridge help` | Show detailed help with config examples |
+| Command                              | Description                                 |
+| ------------------------------------ | ------------------------------------------- |
+| `arinova-bridge start`               | Start the bridge server                     |
+| `arinova-bridge stop`                | Stop the running bridge server              |
+| `arinova-bridge config`              | Show current configuration (secrets masked) |
+| `arinova-bridge setup`               | Interactive setup wizard                    |
+| `arinova-bridge login [provider-id]` | OAuth login for configured CLI providers    |
+| `arinova-bridge help`                | Show detailed help with config examples     |
 
 ## Configuration
 
@@ -168,36 +169,36 @@ For `openai-cli`, `configDir` maps to `CODEX_HOME`. For `anthropic-cli`, it maps
 
 ## Providers
 
-| Provider | Type | Auth | CLI Required |
-|----------|------|------|-------------|
-| Claude (OAuth) | `anthropic-cli` | OAuth (automatic) | `claude` |
-| Claude (API Key) | `anthropic-sdk` | API key | — |
-| OpenAI Codex | `openai-cli` | OAuth | `codex` |
+| Provider         | Type            | Auth              | CLI Required |
+| ---------------- | --------------- | ----------------- | ------------ |
+| Claude (OAuth)   | `anthropic-cli` | OAuth (automatic) | `claude`     |
+| Claude (API Key) | `anthropic-sdk` | API key           | —            |
+| OpenAI Codex     | `openai-cli`    | OAuth             | `codex`      |
 
 ## MCP Servers
 
 The bridge automatically pre-installs commonly used MCP servers:
 
-| MCP Server | Package | Condition |
-|------------|---------|-----------|
-| Playwright | `@playwright/mcp@0.0.68` | Always |
-| GitHub | `@modelcontextprotocol/server-github@2025.4.8` | When `GITHUB_TOKEN` is set |
+| MCP Server | Package                                        | Condition                  |
+| ---------- | ---------------------------------------------- | -------------------------- |
+| Playwright | `@playwright/mcp@0.0.68`                       | Always                     |
+| GitHub     | `@modelcontextprotocol/server-github@2025.4.8` | When `GITHUB_TOKEN` is set |
 
 MCP servers are downloaded on first use via `npx` (no additional install needed).
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `ARINOVA_SERVER_URL` | Override WebSocket server URL |
-| `ARINOVA_BOT_TOKEN` | Override bot token (single-agent mode) |
-| `ARINOVA_AGENT_NAME` | Override agent name (single-agent mode) |
-| `DEFAULT_PROVIDER` | Override default provider ID |
-| `DEFAULT_CWD` | Override default working directory |
-| `MAX_SESSIONS` | Override max concurrent sessions per provider |
-| `MCP_CONFIG_PATH` | Override MCP config file path |
-| `DB_PATH` | Override SQLite database path |
-| `GITHUB_TOKEN` | Enable GitHub MCP server |
+| Variable             | Description                                   |
+| -------------------- | --------------------------------------------- |
+| `ARINOVA_SERVER_URL` | Override WebSocket server URL                 |
+| `ARINOVA_BOT_TOKEN`  | Override bot token (single-agent mode)        |
+| `ARINOVA_AGENT_NAME` | Override agent name (single-agent mode)       |
+| `DEFAULT_PROVIDER`   | Override default provider ID                  |
+| `DEFAULT_CWD`        | Override default working directory            |
+| `MAX_SESSIONS`       | Override max concurrent sessions per provider |
+| `MCP_CONFIG_PATH`    | Override MCP config file path                 |
+| `DB_PATH`            | Override SQLite database path                 |
+| `GITHUB_TOKEN`       | Enable GitHub MCP server                      |
 
 ## Development
 

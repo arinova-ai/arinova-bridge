@@ -157,10 +157,14 @@ describe("BridgeSessionStore.compact()", () => {
     }
 
     const calls: Array<{ count: number; existing?: string }> = [];
-    await store.compact(convId, async (messages, existing) => {
-      calls.push({ count: messages.length, existing });
-      return `summary-${calls.length}`;
-    }, { compactInputChunkChars: 160 });
+    await store.compact(
+      convId,
+      async (messages, existing) => {
+        calls.push({ count: messages.length, existing });
+        return `summary-${calls.length}`;
+      },
+      { compactInputChunkChars: 160 },
+    );
 
     expect(calls).toEqual([
       { count: 2, existing: undefined },

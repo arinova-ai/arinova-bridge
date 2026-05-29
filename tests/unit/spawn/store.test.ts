@@ -99,8 +99,7 @@ describe("SpawnStore", () => {
       store.add("lucy", "pan", `task ${i}`);
     }
 
-    expect(() => store.add("lucy", "pan", "one too many"))
-      .toThrow(/limit reached/);
+    expect(() => store.add("lucy", "pan", "one too many")).toThrow(/limit reached/);
 
     // Different agent should work
     expect(() => store.add("pan", "lucy", "ok")).not.toThrow();
@@ -118,8 +117,7 @@ describe("SpawnStore", () => {
 
   it("rejects context exceeding max length", () => {
     const longContext = "x".repeat(MAX_CONTEXT_CHARS + 1);
-    expect(() => store.add("lucy", "pan", longContext))
-      .toThrow(/character limit/);
+    expect(() => store.add("lucy", "pan", longContext)).toThrow(/character limit/);
   });
 
   it("truncates result exceeding max length", () => {

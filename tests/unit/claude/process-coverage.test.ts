@@ -28,7 +28,11 @@ function createFakeChild(): ChildProcess & {
   const child = new EventEmitter() as any;
   child._stdout = new EventEmitter();
   child._stderr = new EventEmitter();
-  child._stdin = { write: vi.fn((_data: string, cb?: (err?: Error) => void) => { cb?.(); }) };
+  child._stdin = {
+    write: vi.fn((_data: string, cb?: (err?: Error) => void) => {
+      cb?.();
+    }),
+  };
   child.stdout = child._stdout;
   child.stderr = child._stderr;
   child.stdin = child._stdin;
@@ -243,9 +247,11 @@ describe("ClaudeProcess stdio handlers", () => {
     child.emit("error", new Error("spawn ENOENT"));
 
     expect(proc.isAlive()).toBe(false);
-    expect(rejectFn).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("spawn ENOENT"),
-    }));
+    expect(rejectFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("spawn ENOENT"),
+      }),
+    );
   });
 
   it("handles close event — rejects pending turn with exit code and stderr", () => {
@@ -263,12 +269,16 @@ describe("ClaudeProcess stdio handlers", () => {
     child.emit("close", 1);
 
     expect(proc.isAlive()).toBe(false);
-    expect(rejectFn).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("exited unexpectedly (code 1)"),
-    }));
-    expect(rejectFn).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("some error detail"),
-    }));
+    expect(rejectFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("exited unexpectedly (code 1)"),
+      }),
+    );
+    expect(rejectFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("some error detail"),
+      }),
+    );
   });
 
   it("close while draining stale results triggers restart instead of reject", () => {
@@ -440,9 +450,7 @@ describe("ClaudeProcess.processLine event dispatch", () => {
     feedLine(child, { type: "system", subtype: "progress" });
 
     // No crash, no warning for known type
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      expect.stringContaining("unhandled event"),
-    );
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("unhandled event"));
   });
 
   it("warns on unhandled event types", () => {
@@ -453,9 +461,7 @@ describe("ClaudeProcess.processLine event dispatch", () => {
 
     feedLine(child, { type: "unknown_type", subtype: "foo" });
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('unhandled event type="unknown_type"'),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('unhandled event type="unknown_type"'));
   });
 
   it("warns on unparseable JSON lines", () => {
@@ -466,9 +472,7 @@ describe("ClaudeProcess.processLine event dispatch", () => {
 
     feedRaw(child, "not valid json\n");
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("unparseable line"),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("unparseable line"));
   });
 
   it("skips empty lines", () => {
@@ -480,9 +484,7 @@ describe("ClaudeProcess.processLine event dispatch", () => {
     feedRaw(child, "\n\n  \n");
 
     // No warnings for empty lines
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      expect.stringContaining("unparseable"),
-    );
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("unparseable"));
   });
 });
 
@@ -510,9 +512,7 @@ describe("ClaudeProcess.handleRateLimitEvent", () => {
       },
     });
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("rate limit five_hour status=rate_limited"),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rate limit five_hour status=rate_limited"));
   });
 
   it("does not warn when status is allowed", () => {
@@ -530,9 +530,7 @@ describe("ClaudeProcess.handleRateLimitEvent", () => {
       },
     });
 
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      expect.stringContaining("rate limit"),
-    );
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("rate limit"));
   });
 
   it("ignores rate_limit_event with no rate_limit_info", () => {
@@ -544,9 +542,7 @@ describe("ClaudeProcess.handleRateLimitEvent", () => {
     feedLine(child, { type: "rate_limit_event" });
 
     // No crash
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      expect.stringContaining("rate limit"),
-    );
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("rate limit"));
   });
 });
 
@@ -760,11 +756,13 @@ describe("ClaudeProcess.handleStaleResult", () => {
     const proc = new ClaudeProcess({ logger });
     (proc as any).staleResults = 2;
 
-    (proc as any).processLine(JSON.stringify({
-      type: "result",
-      session_id: "stale-sid",
-      total_cost_usd: 0.03,
-    }));
+    (proc as any).processLine(
+      JSON.stringify({
+        type: "result",
+        session_id: "stale-sid",
+        total_cost_usd: 0.03,
+      }),
+    );
 
     expect((proc as any).staleResults).toBe(1);
     expect(proc.getTotalCost()).toBeCloseTo(0.03);
@@ -777,10 +775,12 @@ describe("ClaudeProcess.handleStaleResult", () => {
     (proc as any).staleResults = 1;
     (proc as any).ensureStaleDrainTimer();
 
-    (proc as any).processLine(JSON.stringify({
-      type: "result",
-      session_id: "sid-last",
-    }));
+    (proc as any).processLine(
+      JSON.stringify({
+        type: "result",
+        session_id: "sid-last",
+      }),
+    );
 
     expect((proc as any).staleResults).toBe(0);
     expect((proc as any).staleDrainTimer).toBeNull();
@@ -792,10 +792,12 @@ describe("ClaudeProcess.handleStaleResult", () => {
     (proc as any).staleResults = 1;
     primeTurn(proc);
 
-    (proc as any).processLine(JSON.stringify({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "skipped" } },
-    }));
+    (proc as any).processLine(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "skipped" } },
+      }),
+    );
     (proc as any).processLine(JSON.stringify({ type: "assistant", message: {} }));
     (proc as any).processLine(JSON.stringify({ type: "user", message: {} }));
 
@@ -850,9 +852,11 @@ describe("ClaudeProcess.stop()", () => {
     await vi.runAllTimersAsync();
     await stopPromise;
 
-    expect(rejectFn).toHaveBeenCalledWith(expect.objectContaining({
-      message: "Claude process stopped",
-    }));
+    expect(rejectFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Claude process stopped",
+      }),
+    );
   });
 
   it("sends SIGKILL after 5s if process hasn't exited", async () => {
@@ -928,7 +932,10 @@ describe("UsageTracker via ClaudeProcess", () => {
     });
     feedLine(child, {
       type: "stream_event",
-      event: { type: "message_start", message: { usage: { input_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+      event: {
+        type: "message_start",
+        message: { usage: { input_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+      },
     });
     feedLine(child, {
       type: "stream_event",
@@ -966,7 +973,10 @@ describe("UsageTracker via ClaudeProcess", () => {
     });
     feedLine(child, {
       type: "stream_event",
-      event: { type: "message_start", message: { usage: { input_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+      event: {
+        type: "message_start",
+        message: { usage: { input_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+      },
     });
     feedLine(child, { type: "result", session_id: "s", total_cost_usd: 0.05, num_turns: 1, duration_ms: 10 });
     await p1;
@@ -979,7 +989,10 @@ describe("UsageTracker via ClaudeProcess", () => {
     });
     feedLine(child, {
       type: "stream_event",
-      event: { type: "message_start", message: { usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+      event: {
+        type: "message_start",
+        message: { usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+      },
     });
     feedLine(child, { type: "result", session_id: "s", total_cost_usd: 0.001, num_turns: 1, duration_ms: 5 });
     await p2;
@@ -1059,15 +1072,18 @@ describe("UsageTracker via ClaudeProcess", () => {
     const usage = (proc as any).usage;
     usage.resetTurn();
 
-    usage.recordResult({
-      total_cost_usd: 0.1,
-      num_turns: 2,
-      duration_ms: 1000,
-      modelUsage: {
-        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 5, maxOutputTokens: 8192 },
-        "claude-opus-4": { contextWindow: 1_000_000, outputTokens: 500, maxOutputTokens: 32000 },
+    usage.recordResult(
+      {
+        total_cost_usd: 0.1,
+        num_turns: 2,
+        duration_ms: 1000,
+        modelUsage: {
+          "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 5, maxOutputTokens: 8192 },
+          "claude-opus-4": { contextWindow: 1_000_000, outputTokens: 500, maxOutputTokens: 32000 },
+        },
       },
-    }, undefined);
+      undefined,
+    );
 
     expect(usage.resolvedModel).toBe("claude-opus-4");
     expect(usage.turnMaxOutputTokens).toBe(32000);
@@ -1208,7 +1224,10 @@ describe("toolResultContentToString edge cases via tool call reporting", () => {
     });
     feedLine(child, {
       type: "user",
-      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "e1", content: "plain error string", is_error: true }] },
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "e1", content: "plain error string", is_error: true }],
+      },
     });
 
     await Promise.resolve();
@@ -1230,7 +1249,10 @@ describe("toolResultContentToString edge cases via tool call reporting", () => {
     });
     feedLine(child, {
       type: "user",
-      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "e2", content: ["str_block"], is_error: true }] },
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "e2", content: ["str_block"], is_error: true }],
+      },
     });
 
     await Promise.resolve();
@@ -1252,7 +1274,12 @@ describe("toolResultContentToString edge cases via tool call reporting", () => {
     });
     feedLine(child, {
       type: "user",
-      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "e3", content: [{ type: "image", data: "..." }], is_error: true }] },
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "e3", content: [{ type: "image", data: "..." }], is_error: true },
+        ],
+      },
     });
 
     await Promise.resolve();
@@ -1272,10 +1299,15 @@ describe("ClaudeProcess reporter error handling", () => {
   it("catches and logs reporter errors without breaking the turn", async () => {
     const child = createFakeChild();
     const spawner = createMockSpawner(child);
-    const proc = new ClaudeProcess({
-      logger,
-      reportToolCall: () => { throw new Error("reporter boom"); },
-    }, spawner);
+    const proc = new ClaudeProcess(
+      {
+        logger,
+        reportToolCall: () => {
+          throw new Error("reporter boom");
+        },
+      },
+      spawner,
+    );
     proc.start();
     primeTurn(proc);
 
@@ -1291,9 +1323,7 @@ describe("ClaudeProcess reporter error handling", () => {
     // Wait for the microtask queue to process the error
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("reportToolCall failed"),
-    );
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("reportToolCall failed"));
   });
 });
 
@@ -1358,9 +1388,7 @@ describe("ClaudeProcess.scheduleRestart()", () => {
       // Expected
     }
 
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("restart failed"),
-    );
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("restart failed"));
   });
 });
 
@@ -1375,10 +1403,13 @@ describe("ClaudeProcess messageId propagation", () => {
     const reports: any[] = [];
     const child = createFakeChild();
     const spawner = createMockSpawner(child);
-    const proc = new ClaudeProcess({
-      logger,
-      reportToolCall: (r) => reports.push(r),
-    }, spawner);
+    const proc = new ClaudeProcess(
+      {
+        logger,
+        reportToolCall: (r) => reports.push(r),
+      },
+      spawner,
+    );
     proc.start();
 
     const promise = proc.sendMessage("hi", undefined, undefined, "msg-42");
@@ -1414,9 +1445,7 @@ describe("ClaudeProcess logTag", () => {
     const proc = new ClaudeProcess({ logger, agentName: "alice" }, spawner);
     proc.start();
 
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("claude-process[alice]"),
-    );
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("claude-process[alice]"));
   });
 
   it("uses plain logTag when agentName is unset", () => {
@@ -1425,8 +1454,6 @@ describe("ClaudeProcess logTag", () => {
     const proc = new ClaudeProcess({ logger }, spawner);
     proc.start();
 
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringMatching(/^claude-process: spawning/),
-    );
+    expect(logger.info).toHaveBeenCalledWith(expect.stringMatching(/^claude-process: spawning/));
   });
 });

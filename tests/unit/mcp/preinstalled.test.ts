@@ -139,7 +139,9 @@ describe("mcp/preinstalled", () => {
     });
 
     it("returns undefined on error", () => {
-      mockMkdirSync.mockImplementation(() => { throw new Error("perm denied"); });
+      mockMkdirSync.mockImplementation(() => {
+        throw new Error("perm denied");
+      });
       const result = ensureCliMcpConfig(undefined, mockLogger as never);
       expect(result).toBeUndefined();
       expect(mockLogger.error).toHaveBeenCalled();
@@ -164,9 +166,7 @@ describe("mcp/preinstalled", () => {
         serverUrl: "wss://chat.example.com",
       });
 
-      const arinovaCall = mockExecFileSync.mock.calls.find(
-        (call) => (call[1] as string[])[2] === "arinova",
-      );
+      const arinovaCall = mockExecFileSync.mock.calls.find((call) => (call[1] as string[])[2] === "arinova");
       expect(arinovaCall).toBeDefined();
       expect(arinovaCall![1] as string[]).toContain("--strict-startup");
     });
@@ -183,9 +183,7 @@ describe("mcp/preinstalled", () => {
         { arinovaAuth: "inherited" },
       );
 
-      const arinovaCall = mockExecFileSync.mock.calls.find(
-        (call) => (call[1] as string[])[2] === "arinova",
-      );
+      const arinovaCall = mockExecFileSync.mock.calls.find((call) => (call[1] as string[])[2] === "arinova");
       expect(arinovaCall).toBeDefined();
       const args = arinovaCall![1] as string[];
       expect(args).not.toContain("ARINOVA_BOT_TOKEN=ari_global");
@@ -200,9 +198,7 @@ describe("mcp/preinstalled", () => {
       ensureCodexMcpServers("codex", mockLogger as never);
       expect(mockExecFileSync).toHaveBeenCalledTimes(2); // playwright + github
 
-      const githubCall = mockExecFileSync.mock.calls.find(
-        (call) => (call[1] as string[])[2] === "github",
-      );
+      const githubCall = mockExecFileSync.mock.calls.find((call) => (call[1] as string[])[2] === "github");
       expect(githubCall).toBeDefined();
       const args = githubCall![1] as string[];
       expect(args).toContain("--env");
@@ -210,7 +206,9 @@ describe("mcp/preinstalled", () => {
     });
 
     it("logs error but continues on failure", () => {
-      mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+      mockExecFileSync.mockImplementation(() => {
+        throw new Error("not found");
+      });
       ensureCodexMcpServers("codex", mockLogger as never);
       expect(mockLogger.error).toHaveBeenCalled();
     });
@@ -230,7 +228,9 @@ describe("mcp/preinstalled", () => {
         stdout: Buffer.from("some stdout"),
         stderr: Buffer.from("some stderr"),
       });
-      mockExecFileSync.mockImplementation(() => { throw richError; });
+      mockExecFileSync.mockImplementation(() => {
+        throw richError;
+      });
       ensureCodexMcpServers("codex", mockLogger as never);
       const errorMsg = mockLogger.error.mock.calls[0][0] as string;
       expect(errorMsg).toContain("status=1");
@@ -240,7 +240,9 @@ describe("mcp/preinstalled", () => {
     });
 
     it("formats non-Error thrown value as string", () => {
-      mockExecFileSync.mockImplementation(() => { throw "string-error"; });
+      mockExecFileSync.mockImplementation(() => {
+        throw "string-error";
+      });
       ensureCodexMcpServers("codex", mockLogger as never);
       const errorMsg = mockLogger.error.mock.calls[0][0] as string;
       expect(errorMsg).toContain("string-error");
@@ -332,9 +334,7 @@ describe("mcp/preinstalled", () => {
         fs,
       );
       expect(result).toBeUndefined();
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("agent-fail"),
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining("agent-fail"));
     });
 
     it("includes user servers in the generated config", () => {
@@ -358,7 +358,8 @@ describe("mcp/preinstalled", () => {
   describe("ensureAgentCodexHome", () => {
     it("creates auth symlink and registers MCP servers", () => {
       // existsSync: first call for auth source -> true, second for target -> true
-      mockExistsSync.mockReturnValueOnce(true) // sourceAuth exists
+      mockExistsSync
+        .mockReturnValueOnce(true) // sourceAuth exists
         .mockReturnValueOnce(true); // targetAuth exists
       mockLstatSync.mockReturnValue({} as never); // target exists (truthy)
 
@@ -391,9 +392,7 @@ describe("mcp/preinstalled", () => {
         "/nonexistent/.codex",
       );
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("auth source not found"),
-      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("auth source not found"));
       expect(mockSymlinkSync).not.toHaveBeenCalled();
     });
 
@@ -403,7 +402,9 @@ describe("mcp/preinstalled", () => {
         .mockReturnValueOnce(false); // targetAuth does not exist
       mockLstatSync.mockReturnValue(undefined as never); // falsy
 
-      mockSymlinkSync.mockImplementation(() => { throw new Error("symlink not supported"); });
+      mockSymlinkSync.mockImplementation(() => {
+        throw new Error("symlink not supported");
+      });
 
       ensureAgentCodexHome(
         "/usr/local/bin/codex",
@@ -414,21 +415,17 @@ describe("mcp/preinstalled", () => {
         "/home/user/.codex",
       );
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("copying instead"),
-      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("copying instead"));
       expect(mockCpSync).toHaveBeenCalled();
     });
 
     it("passes codexHome to ensureCodexMcpServers via CODEX_HOME env", () => {
       mockExistsSync.mockReturnValue(false); // sourceAuth doesn't exist → early return from auth link
 
-      ensureAgentCodexHome(
-        "/usr/local/bin/codex",
-        mockLogger as never,
-        "/tmp/codex-agent-4",
-        { botToken: "ari_tok", serverUrl: "wss://chat.example.com" },
-      );
+      ensureAgentCodexHome("/usr/local/bin/codex", mockLogger as never, "/tmp/codex-agent-4", {
+        botToken: "ari_tok",
+        serverUrl: "wss://chat.example.com",
+      });
 
       // Check that execFileSync was called with CODEX_HOME in env
       const call = mockExecFileSync.mock.calls[0];
@@ -455,5 +452,4 @@ describe("mcp/preinstalled", () => {
       expect(mockSymlinkSync).toHaveBeenCalled();
     });
   });
-
 });

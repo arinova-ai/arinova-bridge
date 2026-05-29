@@ -31,10 +31,7 @@ export interface DeviceCodeResponse {
 
 export function generatePKCE(): { verifier: string; challenge: string } {
   const verifier = crypto.randomBytes(32).toString("base64url");
-  const challenge = crypto
-    .createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
   return { verifier, challenge };
 }
 
@@ -156,13 +153,15 @@ export async function pollForToken(
 
     const text = await response.text();
     console.error(`[minimax-oauth] poll response: ${text.slice(0, 200)}`);
-    let data: {
-      status?: string;
-      access_token?: string;
-      refresh_token?: string;
-      expired_in?: number;
-      base_resp?: { status_code?: number; status_msg?: string };
-    } | undefined;
+    let data:
+      | {
+          status?: string;
+          access_token?: string;
+          refresh_token?: string;
+          expired_in?: number;
+          base_resp?: { status_code?: number; status_msg?: string };
+        }
+      | undefined;
 
     try {
       data = JSON.parse(text);
@@ -205,10 +204,7 @@ export async function pollForToken(
 
 // --- Refresh Token ---
 
-export async function refreshAccessToken(
-  refreshToken: string,
-  region: MiniMaxRegion = "global",
-): Promise<OAuthToken> {
+export async function refreshAccessToken(refreshToken: string, region: MiniMaxRegion = "global"): Promise<OAuthToken> {
   const endpoint = ENDPOINTS[region].token;
 
   const body = new URLSearchParams({
@@ -246,9 +242,7 @@ export async function refreshAccessToken(
 
 // --- Combined Flow ---
 
-export async function performMiniMaxOAuth(
-  region: MiniMaxRegion = "global",
-): Promise<OAuthToken> {
+export async function performMiniMaxOAuth(region: MiniMaxRegion = "global"): Promise<OAuthToken> {
   const { deviceCode, verifier } = await requestDeviceCode(region);
 
   console.log("\n──────────────────────────────────────");
@@ -263,11 +257,5 @@ export async function performMiniMaxOAuth(
   console.log("\n請在瀏覽器中開啟上述網址，輸入授權碼完成登入。");
   console.log("等待授權中...\n");
 
-  return pollForToken(
-    deviceCode.userCode,
-    verifier,
-    deviceCode.expiresAt,
-    deviceCode.interval,
-    region,
-  );
+  return pollForToken(deviceCode.userCode, verifier, deviceCode.expiresAt, deviceCode.interval, region);
 }

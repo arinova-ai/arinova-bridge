@@ -127,10 +127,7 @@ describe("AnthropicCliProvider", () => {
     });
 
     it("returns models array when configured", () => {
-      const p = new AnthropicCliProvider(
-        makeConfig({ models: ["opus", "sonnet"] }),
-        logger,
-      );
+      const p = new AnthropicCliProvider(makeConfig({ models: ["opus", "sonnet"] }), logger);
       expect(p.supportedModels()).toEqual(["opus", "sonnet"]);
     });
   });
@@ -214,9 +211,7 @@ describe("AnthropicCliProvider", () => {
     it("creates a session when none exists and sends the message", async () => {
       const store = (provider as any).store;
       const onChunk = vi.fn();
-      const result = await provider.sendMessage(
-        makeOpts({ conversationId: "conv-1", content: "hi", onChunk }),
-      );
+      const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1", content: "hi", onChunk }));
 
       expect(store.createSession).toHaveBeenCalled();
       expect(result.text).toBe("reply");
@@ -263,9 +258,7 @@ describe("AnthropicCliProvider", () => {
       const entry = store.getSession("conv-1");
       const reporter = vi.fn();
 
-      await provider.sendMessage(
-        makeOpts({ conversationId: "conv-1", reportToolCall: reporter }),
-      );
+      await provider.sendMessage(makeOpts({ conversationId: "conv-1", reportToolCall: reporter }));
       expect(entry.process.setReportToolCall).toHaveBeenCalledWith(reporter);
     });
 
@@ -281,9 +274,7 @@ describe("AnthropicCliProvider", () => {
       const entry = store.getSession("conv-1");
       const ac = new AbortController();
 
-      await provider.sendMessage(
-        makeOpts({ conversationId: "conv-1", signal: ac.signal, messageId: "msg-42" }),
-      );
+      await provider.sendMessage(makeOpts({ conversationId: "conv-1", signal: ac.signal, messageId: "msg-42" }));
 
       const call = entry.process.sendMessage.mock.calls[0];
       expect(call[2]).toBe(ac.signal); // signal
@@ -297,9 +288,7 @@ describe("AnthropicCliProvider", () => {
       const entry = store.getSession("conv-1");
 
       // First call fails with process-dead error
-      entry.process.sendMessage.mockRejectedValueOnce(
-        new Error("Claude process is not running"),
-      );
+      entry.process.sendMessage.mockRejectedValueOnce(new Error("Claude process is not running"));
 
       const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
       // createSession called: 1 for warmup + 1 for respawn
@@ -313,9 +302,7 @@ describe("AnthropicCliProvider", () => {
       provider.warmup("conv-1");
       const entry = store.getSession("conv-1");
 
-      entry.process.sendMessage.mockRejectedValueOnce(
-        new Error("Claude process exited unexpectedly"),
-      );
+      entry.process.sendMessage.mockRejectedValueOnce(new Error("Claude process exited unexpectedly"));
 
       const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
       expect(result.text).toBe("reply");
@@ -326,9 +313,7 @@ describe("AnthropicCliProvider", () => {
       provider.warmup("conv-1");
       const entry = store.getSession("conv-1");
 
-      entry.process.sendMessage.mockRejectedValueOnce(
-        new Error("Claude process error"),
-      );
+      entry.process.sendMessage.mockRejectedValueOnce(new Error("Claude process error"));
 
       const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
       expect(result.text).toBe("reply");
@@ -342,13 +327,11 @@ describe("AnthropicCliProvider", () => {
       const ac = new AbortController();
       ac.abort();
 
-      entry.process.sendMessage.mockRejectedValueOnce(
-        new Error("Claude process is not running"),
-      );
+      entry.process.sendMessage.mockRejectedValueOnce(new Error("Claude process is not running"));
 
-      await expect(
-        provider.sendMessage(makeOpts({ conversationId: "conv-1", signal: ac.signal })),
-      ).rejects.toThrow("Claude process is not running");
+      await expect(provider.sendMessage(makeOpts({ conversationId: "conv-1", signal: ac.signal }))).rejects.toThrow(
+        "Claude process is not running",
+      );
     });
 
     it("does NOT retry for non-process-dead errors", async () => {
@@ -358,9 +341,7 @@ describe("AnthropicCliProvider", () => {
 
       entry.process.sendMessage.mockRejectedValueOnce(new Error("Rate limit exceeded"));
 
-      await expect(
-        provider.sendMessage(makeOpts({ conversationId: "conv-1" })),
-      ).rejects.toThrow("Rate limit exceeded");
+      await expect(provider.sendMessage(makeOpts({ conversationId: "conv-1" }))).rejects.toThrow("Rate limit exceeded");
     });
   });
 
@@ -421,13 +402,9 @@ describe("AnthropicCliProvider", () => {
         .mockRejectedValueOnce(new Error("boom"))
         .mockResolvedValueOnce({ text: "ok", sessionId: "sid-2", durationMs: 10, numTurns: 1 });
 
-      const p1 = provider.sendMessage(
-        makeOpts({ conversationId: "conv-q", queue: true }),
-      ).catch(() => "failed");
+      const p1 = provider.sendMessage(makeOpts({ conversationId: "conv-q", queue: true })).catch(() => "failed");
 
-      const p2 = provider.sendMessage(
-        makeOpts({ conversationId: "conv-q", queue: true }),
-      );
+      const p2 = provider.sendMessage(makeOpts({ conversationId: "conv-q", queue: true }));
 
       const [r1, r2] = await Promise.all([p1, p2]);
       expect(r1).toBe("failed");
@@ -437,13 +414,8 @@ describe("AnthropicCliProvider", () => {
     it("creates a session when process is dead during idleSend", async () => {
       const store = (provider as any).store;
       // No session exists; idleSend will create one
-      const result = await provider.sendMessage(
-        makeOpts({ conversationId: "conv-new", queue: true }),
-      );
-      expect(store.createSession).toHaveBeenCalledWith(
-        "conv-new",
-        expect.objectContaining({}),
-      );
+      const result = await provider.sendMessage(makeOpts({ conversationId: "conv-new", queue: true }));
+      expect(store.createSession).toHaveBeenCalledWith("conv-new", expect.objectContaining({}));
       expect(result.text).toBe("reply");
     });
 
@@ -459,9 +431,7 @@ describe("AnthropicCliProvider", () => {
         return busyCount <= 1;
       });
 
-      const result = await provider.sendMessage(
-        makeOpts({ conversationId: "conv-q", queue: true }),
-      );
+      const result = await provider.sendMessage(makeOpts({ conversationId: "conv-q", queue: true }));
       expect(result.text).toBe("reply");
       expect(busyCount).toBeGreaterThanOrEqual(2);
     });
@@ -496,9 +466,7 @@ describe("AnthropicCliProvider", () => {
         return origGetSession.call(store, convId);
       });
 
-      const result = await provider.sendMessage(
-        makeOpts({ conversationId: "conv-q", queue: true }),
-      );
+      const result = await provider.sendMessage(makeOpts({ conversationId: "conv-q", queue: true }));
       expect(result.text).toBe("reply");
       // Should have created a new session for the dead one
       expect(store.createSession.mock.calls.length).toBeGreaterThan(initialCreateCount);
@@ -510,9 +478,7 @@ describe("AnthropicCliProvider", () => {
       const entry = store.getSession("conv-q");
       const reporter = vi.fn();
 
-      await provider.sendMessage(
-        makeOpts({ conversationId: "conv-q", queue: true, reportToolCall: reporter }),
-      );
+      await provider.sendMessage(makeOpts({ conversationId: "conv-q", queue: true, reportToolCall: reporter }));
       expect(entry.process.setReportToolCall).toHaveBeenCalledWith(reporter);
     });
   });
@@ -860,9 +826,7 @@ describe("AnthropicCliProvider", () => {
 
       entry.process.sendMessage.mockRejectedValueOnce("string error");
 
-      await expect(
-        provider.sendMessage(makeOpts({ conversationId: "conv-1" })),
-      ).rejects.toBe("string error");
+      await expect(provider.sendMessage(makeOpts({ conversationId: "conv-1" }))).rejects.toBe("string error");
     });
   });
 
@@ -891,9 +855,7 @@ describe("AnthropicCliProvider", () => {
       const store = (provider as any).store;
       const entry = store.getSession("conv-1");
 
-      await provider.sendMessage(
-        makeOpts({ conversationId: "conv-1", content: "plain msg" }),
-      );
+      await provider.sendMessage(makeOpts({ conversationId: "conv-1", content: "plain msg" }));
 
       const sentContent = entry.process.sendMessage.mock.calls[0][0];
       expect(sentContent).toBe("plain msg");

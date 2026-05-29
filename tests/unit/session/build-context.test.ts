@@ -153,14 +153,18 @@ describe("BridgeSessionStore.buildContext()", () => {
   it("falls back to content when historical user_message is null", () => {
     const db = new Database(path.join(tmpDir, "sessions.db"));
     const now = Date.now();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO sessions (conversation_id, compacted_summary, model, user_id, username, message_count, total_tokens, created_at, updated_at)
       VALUES (?, NULL, NULL, NULL, NULL, 1, 0, ?, ?)
-    `).run(convId, now, now);
-    db.prepare(`
+    `,
+    ).run(convId, now, now);
+    db.prepare(
+      `
       INSERT INTO messages (conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason)
       VALUES (?, 'user', ?, NULL, 'legacy-user', ?, 0, NULL)
-    `).run(convId, "<legacy>full content</legacy>", now);
+    `,
+    ).run(convId, "<legacy>full content</legacy>", now);
     db.close();
 
     const ctx = store.buildContext(convId);

@@ -32,10 +32,7 @@ export interface ProcessTurnResult {
   usage: TokenUsage | null;
 }
 
-export async function processTurn(
-  events: AsyncIterable<ThreadEvent>,
-  sink: TurnSink,
-): Promise<ProcessTurnResult> {
+export async function processTurn(events: AsyncIterable<ThreadEvent>, sink: TurnSink): Promise<ProcessTurnResult> {
   let threadId: string | null = null;
   let usage: TokenUsage | null = null;
   let finalResponse = "";
@@ -54,21 +51,12 @@ export async function processTurn(
     }
 
     if (event.type === "error") {
-      sink.onError?.(
-        typeof event.message === "string" ? event.message : "Unknown error",
-      );
+      sink.onError?.(typeof event.message === "string" ? event.message : "Unknown error");
       continue;
     }
 
-    if (
-      event.type === "item.started" ||
-      event.type === "item.updated" ||
-      event.type === "item.completed"
-    ) {
-      const item =
-        event.item && typeof event.item === "object"
-          ? (event.item as Record<string, unknown>)
-          : null;
+    if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
+      const item = event.item && typeof event.item === "object" ? (event.item as Record<string, unknown>) : null;
       if (item?.type !== "agent_message") continue;
 
       const id = typeof item.id === "string" ? item.id : "__default_agent_message__";
@@ -98,14 +86,9 @@ function normalizeUsage(value: unknown): TokenUsage | null {
   if (!value || typeof value !== "object") return null;
   const usage = value as Record<string, unknown>;
   return {
-    input_tokens:
-      typeof usage.input_tokens === "number" ? usage.input_tokens : 0,
-    cached_input_tokens:
-      typeof usage.cached_input_tokens === "number"
-        ? usage.cached_input_tokens
-        : 0,
-    output_tokens:
-      typeof usage.output_tokens === "number" ? usage.output_tokens : 0,
+    input_tokens: typeof usage.input_tokens === "number" ? usage.input_tokens : 0,
+    cached_input_tokens: typeof usage.cached_input_tokens === "number" ? usage.cached_input_tokens : 0,
+    output_tokens: typeof usage.output_tokens === "number" ? usage.output_tokens : 0,
   };
 }
 

@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  formatResetIn,
-  getStatusIcon,
-  formatDuration,
-  formatDateTime,
-  truncate,
-} from "../formatting.js";
+import { formatResetIn, getStatusIcon, formatDuration, formatDateTime, truncate } from "../formatting.js";
 
 // ---------------------------------------------------------------------------
 // formatResetIn

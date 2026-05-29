@@ -4,13 +4,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { getStatusIcon, formatDuration, formatDateTime } from "./util/formatting.js";
-const VERSION = JSON.parse(
-  fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
-).version as string;
+const VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8")).version as string;
 const PID_FILE = path.join(homedir(), ".arinova-bridge", "bridge.pid");
 
 function showHelp(): void {
-  console.log(`
+  console.log(
+    `
 arinova-bridge v${VERSION}
 Multi-provider bridge between Arinova Chat and AI coding assistants.
 
@@ -159,7 +158,8 @@ MULTI-OAUTH ACCOUNTS
 
   openai-cli maps configDir to CODEX_HOME.
   anthropic-cli maps configDir to CLAUDE_CONFIG_DIR.
-`.trim());
+`.trim(),
+  );
 }
 
 function writePidFile(): void {
@@ -173,7 +173,9 @@ function writePidFile(): void {
 function removePidFile(): void {
   try {
     fs.unlinkSync(PID_FILE);
-  } catch { /* already gone */ }
+  } catch {
+    /* already gone */
+  }
 }
 
 async function cmdStart(): Promise<void> {
@@ -292,11 +294,12 @@ async function cmdAgents(args: string[]): Promise<void> {
   if (deliver) {
     // --- Deliver ---
     if (!content) {
-      console.error("Missing --content flag.\nUsage: arinova-bridge agents --deliver <name> --content \"message\"");
+      console.error('Missing --content flag.\nUsage: arinova-bridge agents --deliver <name> --content "message"');
       process.exit(1);
     }
     const params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean } = {
-      target: deliver, content,
+      target: deliver,
+      content,
     };
     if (source) params.source = source;
     if (cwd) params.cwd = cwd;
@@ -317,8 +320,12 @@ async function cmdAgents(args: string[]): Promise<void> {
     const resp = await sendIpcRequest({ id: 1, method: "agent-status", params: { target: status } });
     if ("error" in resp) ipcError(resp);
     const s = resp.result as {
-      name: string; provider: string; providerDisplayName: string;
-      cwd: string; model: string; activeSessions: number;
+      name: string;
+      provider: string;
+      providerDisplayName: string;
+      cwd: string;
+      model: string;
+      activeSessions: number;
       sessions: Array<{ sessionId: string; status: string; cwd: string; model: string }>;
     };
     console.log(`Agent: ${s.name}`);
@@ -336,8 +343,16 @@ async function cmdAgents(args: string[]): Promise<void> {
     // --- Ping ---
     const resp = await sendIpcRequest({ id: 1, method: "ping", params: { target: ping } });
     if ("error" in resp) ipcError(resp);
-    const r = resp.result as { agent: string; alive: boolean; provider: string; activeSessions: number; hasActiveSession: boolean };
-    console.log(`${r.agent}: ${r.alive ? "alive" : "dead"}  provider=${r.provider}  sessions=${r.activeSessions}  active=${r.hasActiveSession}`);
+    const r = resp.result as {
+      agent: string;
+      alive: boolean;
+      provider: string;
+      activeSessions: number;
+      hasActiveSession: boolean;
+    };
+    console.log(
+      `${r.agent}: ${r.alive ? "alive" : "dead"}  provider=${r.provider}  sessions=${r.activeSessions}  active=${r.hasActiveSession}`,
+    );
   } else if (stop) {
     // --- Stop ---
     const resp = await sendIpcRequest({ id: 1, method: "agent-stop", params: { target: stop } });
@@ -369,7 +384,15 @@ async function cmdAgents(args: string[]): Promise<void> {
     console.log("Watching agent activity... (Ctrl+C to stop)\n");
     streamWatch((line) => {
       try {
-        const r = JSON.parse(line) as { agent: string; content: string; responsePreview: string; durationMs: number; costUsd?: number; model?: string; timestamp: number };
+        const r = JSON.parse(line) as {
+          agent: string;
+          content: string;
+          responsePreview: string;
+          durationMs: number;
+          costUsd?: number;
+          model?: string;
+          timestamp: number;
+        };
         const time = new Date(r.timestamp).toLocaleTimeString();
         const cost = r.costUsd !== undefined ? ` $${r.costUsd.toFixed(4)}` : "";
         console.log(`[${time}] ${r.agent} (${r.durationMs}ms${cost}) ${r.model ?? ""}`);
@@ -386,7 +409,15 @@ async function cmdAgents(args: string[]): Promise<void> {
     const target = history ?? undefined;
     const resp = await sendIpcRequest({ id: 1, method: "history", params: { target, limit: 20 } });
     if ("error" in resp) ipcError(resp);
-    const records = resp.result as Array<{ agent: string; content: string; responsePreview: string; durationMs: number; costUsd?: number; model?: string; timestamp: number }>;
+    const records = resp.result as Array<{
+      agent: string;
+      content: string;
+      responsePreview: string;
+      durationMs: number;
+      costUsd?: number;
+      model?: string;
+      timestamp: number;
+    }>;
     if (records.length === 0) {
       console.log("No task history yet.");
       return;
@@ -403,18 +434,37 @@ async function cmdAgents(args: string[]): Promise<void> {
     const resp = await sendIpcRequest({ id: 1, method: "agent-cost", params: cost ? { target: cost } : {} });
     if ("error" in resp) ipcError(resp);
     if (cost) {
-      const c = resp.result as { agent: string; provider: string; totalCostUsd: number; inputTokens: number; outputTokens: number; sessions: number };
+      const c = resp.result as {
+        agent: string;
+        provider: string;
+        totalCostUsd: number;
+        inputTokens: number;
+        outputTokens: number;
+        sessions: number;
+      };
       console.log(`Agent: ${c.agent}`);
       console.log(`Cost: $${c.totalCostUsd.toFixed(4)}`);
       console.log(`Tokens: in=${c.inputTokens} out=${c.outputTokens}`);
       console.log(`Sessions: ${c.sessions}`);
     } else {
-      const costs = resp.result as Array<{ agent: string; provider: string; totalCostUsd: number; inputTokens: number; outputTokens: number; sessions: number }>;
-      if (costs.length === 0) { console.log("No cost data."); return; }
+      const costs = resp.result as Array<{
+        agent: string;
+        provider: string;
+        totalCostUsd: number;
+        inputTokens: number;
+        outputTokens: number;
+        sessions: number;
+      }>;
+      if (costs.length === 0) {
+        console.log("No cost data.");
+        return;
+      }
       let totalAll = 0;
       for (const c of costs) {
         totalAll += c.totalCostUsd;
-        console.log(`  ${c.agent}  $${c.totalCostUsd.toFixed(4)}  in=${c.inputTokens} out=${c.outputTokens}  (${c.sessions} sessions)`);
+        console.log(
+          `  ${c.agent}  $${c.totalCostUsd.toFixed(4)}  in=${c.inputTokens} out=${c.outputTokens}  (${c.sessions} sessions)`,
+        );
       }
       console.log(`\n  Total: $${totalAll.toFixed(4)}`);
     }
@@ -422,7 +472,13 @@ async function cmdAgents(args: string[]): Promise<void> {
     // --- List all agents ---
     const resp = await sendIpcRequest({ id: 1, method: "list-agents" });
     if ("error" in resp) ipcError(resp);
-    const agents = resp.result as Array<{ name: string; provider: string; providerDisplayName: string; cwd: string; model: string }>;
+    const agents = resp.result as Array<{
+      name: string;
+      provider: string;
+      providerDisplayName: string;
+      cwd: string;
+      model: string;
+    }>;
     if (agents.length === 0) {
       console.log("No agents running.");
       return;
@@ -448,7 +504,8 @@ async function cmdSpawn(args: string[]): Promise<void> {
     if ("error" in resp) ipcError(resp);
 
     const data = resp.result as {
-      id: string; status: string;
+      id: string;
+      status: string;
       logs: Array<{ content: string; createdAt: number }>;
     };
 
@@ -483,10 +540,17 @@ async function cmdSpawn(args: string[]): Promise<void> {
     if ("error" in resp) ipcError(resp);
 
     const job = resp.result as {
-      id: string; parentAgent: string; targetAgent: string; status: string;
-      context: string; result: string | null;
-      createdAt: number; completedAt: number | null;
-      durationMs: number | null; model: string | null; costUsd: number | null;
+      id: string;
+      parentAgent: string;
+      targetAgent: string;
+      status: string;
+      context: string;
+      result: string | null;
+      createdAt: number;
+      completedAt: number | null;
+      durationMs: number | null;
+      model: string | null;
+      costUsd: number | null;
     };
 
     const statusIcon = getStatusIcon(job.status);
@@ -516,10 +580,17 @@ async function cmdSpawn(args: string[]): Promise<void> {
     if ("error" in resp) ipcError(resp);
 
     const jobs = resp.result as Array<{
-      id: string; parentAgent: string; targetAgent: string; status: string;
-      durationMs: number | null; model: string | null; costUsd: number | null;
-      createdAt: number; completedAt: number | null;
-      contextPreview: string; resultPreview: string | null;
+      id: string;
+      parentAgent: string;
+      targetAgent: string;
+      status: string;
+      durationMs: number | null;
+      model: string | null;
+      costUsd: number | null;
+      createdAt: number;
+      completedAt: number | null;
+      contextPreview: string;
+      resultPreview: string | null;
     }>;
 
     if (jobs.length === 0) {
@@ -532,7 +603,9 @@ async function cmdSpawn(args: string[]): Promise<void> {
       const statusIcon = getStatusIcon(job.status);
       const duration = formatDuration(job.durationMs);
       const cost = job.costUsd != null ? ` $${job.costUsd.toFixed(4)}` : "";
-      console.log(`  ${statusIcon} ${job.id}  ${job.parentAgent} → ${job.targetAgent}  ${job.status}  ${duration}${cost}`);
+      console.log(
+        `  ${statusIcon} ${job.id}  ${job.parentAgent} → ${job.targetAgent}  ${job.status}  ${duration}${cost}`,
+      );
       console.log(`     Context: ${job.contextPreview}`);
       if (job.resultPreview) {
         console.log(`     Result: ${job.resultPreview}`);
@@ -549,7 +622,9 @@ async function cmdSpawn(args: string[]): Promise<void> {
     const cwd = parseFlag(args, "--cwd");
 
     if (!agent || !target || !context) {
-      console.error("Usage: arinova-bridge spawn --agent <parent> --target <target> --context 'task description' [--model <model>] [--cwd <path>]");
+      console.error(
+        "Usage: arinova-bridge spawn --agent <parent> --target <target> --context 'task description' [--model <model>] [--cwd <path>]",
+      );
       process.exit(1);
     }
 
@@ -593,10 +668,15 @@ async function cmdFork(args: string[]): Promise<void> {
     if ("error" in resp) ipcError(resp);
 
     const jobs = resp.result as Array<{
-      id: string; parentAgent: string; status: string;
-      durationMs: number | null; model: string | null;
-      createdAt: number; completedAt: number | null;
-      taskPreview: string; resultPreview: string | null;
+      id: string;
+      parentAgent: string;
+      status: string;
+      durationMs: number | null;
+      model: string | null;
+      createdAt: number;
+      completedAt: number | null;
+      taskPreview: string;
+      resultPreview: string | null;
     }>;
 
     if (jobs.length === 0) {
@@ -622,7 +702,9 @@ async function cmdFork(args: string[]): Promise<void> {
     const cwd = parseFlag(args, "--cwd");
 
     if (!agent || !task) {
-      console.error("Usage: arinova-bridge fork --agent <name> --task 'task description' [--model <model>] [--cwd <path>]");
+      console.error(
+        "Usage: arinova-bridge fork --agent <name> --task 'task description' [--model <model>] [--cwd <path>]",
+      );
       process.exit(1);
     }
 

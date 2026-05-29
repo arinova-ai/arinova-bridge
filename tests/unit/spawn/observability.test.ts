@@ -24,7 +24,9 @@ function noopLogger() {
 
 function createMockProvider(id: string, type: string, displayName: string) {
   return {
-    id, type, displayName,
+    id,
+    type,
+    displayName,
     sendMessage: vi.fn(async () => ({ text: "ok" })),
     interrupt: vi.fn(),
     resetSession: vi.fn(async () => {}),
@@ -41,9 +43,7 @@ function createMockConfig(): BridgeConfig {
   return {
     arinova: { serverUrl: "ws://test", botToken: "tok" },
     defaultProvider: "anthropic-oauth",
-    providers: [
-      { id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic", enabled: true },
-    ],
+    providers: [{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Anthropic", enabled: true }],
     defaults: { cwd: "/tmp", maxSessions: 5, idleTimeoutMs: 600000, dbPath: "/tmp/test.db" },
     agents: [],
   };
@@ -57,11 +57,27 @@ function createCtx(conversationId = "conv-1") {
     chunks: [] as string[],
     completed: null as string | null,
     errored: null as string | null,
-    sendChunk: vi.fn((text: string) => { ctx.chunks.push(text); }),
-    sendComplete: vi.fn((text: string) => { ctx.completed = text; }),
-    sendError: vi.fn((text: string) => { ctx.errored = text; }),
+    sendChunk: vi.fn((text: string) => {
+      ctx.chunks.push(text);
+    }),
+    sendComplete: vi.fn((text: string) => {
+      ctx.completed = text;
+    }),
+    sendError: vi.fn((text: string) => {
+      ctx.errored = text;
+    }),
     listNotes: vi.fn(async () => ({ notes: [], hasMore: false })),
-    createNote: vi.fn(async () => ({ id: "n1", conversationId, creatorId: "a", creatorType: "agent" as const, creatorName: "b", title: "", content: "", createdAt: "", updatedAt: "" })),
+    createNote: vi.fn(async () => ({
+      id: "n1",
+      conversationId,
+      creatorId: "a",
+      creatorType: "agent" as const,
+      creatorName: "b",
+      title: "",
+      content: "",
+      createdAt: "",
+      updatedAt: "",
+    })),
     updateNote: vi.fn(async () => ({})),
     deleteNote: vi.fn(async () => ({})),
     searchNotes: vi.fn(async () => ({ notes: [], hasMore: false })),
@@ -69,11 +85,19 @@ function createCtx(conversationId = "conv-1") {
   return ctx;
 }
 
-function makeJob(overrides: Partial<{
-  id: string; parentAgent: string; targetAgent: string; status: string;
-  result: string | null; context: string; createdAt: number;
-  completedAt: number | null; durationMs: number | null;
-}> = {}) {
+function makeJob(
+  overrides: Partial<{
+    id: string;
+    parentAgent: string;
+    targetAgent: string;
+    status: string;
+    result: string | null;
+    context: string;
+    createdAt: number;
+    completedAt: number | null;
+    durationMs: number | null;
+  }> = {},
+) {
   return {
     id: overrides.id ?? "abc12345",
     parentAgent: overrides.parentAgent ?? "agent-a",
@@ -89,7 +113,11 @@ function makeJob(overrides: Partial<{
   };
 }
 
-function setupHandler(agentName: string, jobs: ReturnType<typeof makeJob>[], logs: Array<{ content: string; createdAt: number }> = []) {
+function setupHandler(
+  agentName: string,
+  jobs: ReturnType<typeof makeJob>[],
+  logs: Array<{ content: string; createdAt: number }> = [],
+) {
   const h = new CommandHandler(providers as any, createMockConfig());
   h.agentName = agentName;
   h.spawnManager = {
@@ -392,7 +420,7 @@ describe("SpawnStore — logs isolation & edge cases", () => {
 
   it("appendLog preserves content with special characters", () => {
     const job = store.add("lucy", "pan", "task");
-    const specialContent = "Error: can't parse JSON\n{\"key\": \"value\"}\n--- END ---";
+    const specialContent = 'Error: can\'t parse JSON\n{"key": "value"}\n--- END ---';
     store.appendLog(job.id, specialContent);
 
     const logs = store.getLogs(job.id);
@@ -425,7 +453,11 @@ describe("SpawnManager — lifecycle", () => {
   });
 
   afterEach(() => {
-    try { manager.stopAll(); } catch { /* already closed */ }
+    try {
+      manager.stopAll();
+    } catch {
+      /* already closed */
+    }
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -457,7 +489,10 @@ describe("SpawnManager — lifecycle", () => {
   it("stopAll cancels running jobs", () => {
     const job = store.add("lucy", "pan", "task");
     // Simulate active timeout
-    (manager as any).timeouts.set(job.id, setTimeout(() => {}, 99999));
+    (manager as any).timeouts.set(
+      job.id,
+      setTimeout(() => {}, 99999),
+    );
 
     manager.stopAll();
 

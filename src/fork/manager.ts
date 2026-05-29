@@ -1,5 +1,5 @@
-import { ForkStore, FORK_TIMEOUT_MS } from "./store.js";
-import type { ForkJob } from "./store.js";
+import { FORK_TIMEOUT_MS } from "./store.js";
+import type { ForkJob, ForkStore } from "./store.js";
 import type { ActiveAgent } from "../ipc/types.js";
 import { deliverToAgent } from "../ipc/router.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
@@ -35,12 +35,7 @@ export class ForkManager {
    * deliver the task, wait for result, then report back.
    * Non-blocking — fires in background.
    */
-  fork(opts: {
-    parentAgent: string;
-    task: string;
-    model?: string;
-    cwd?: string;
-  }): ForkJob {
+  fork(opts: { parentAgent: string; task: string; model?: string; cwd?: string }): ForkJob {
     const job = this.store.add(opts.parentAgent, opts.task, opts.model);
 
     log.info(`fork[${job.id}] ${opts.parentAgent} → self: "${opts.task.slice(0, 80)}..."`);
@@ -117,9 +112,7 @@ export class ForkManager {
 
   private async executeFork(job: ForkJob, cwd?: string): Promise<void> {
     // Fork targets the SAME agent as parent
-    const agent = this.agents.find(
-      (a) => a.name.toLowerCase() === job.parentAgent.toLowerCase(),
-    );
+    const agent = this.agents.find((a) => a.name.toLowerCase() === job.parentAgent.toLowerCase());
 
     if (!agent) {
       this.store.complete(job.id, "failed", `Agent "${job.parentAgent}" not found`);
@@ -201,9 +194,7 @@ export class ForkManager {
   }
 
   private reportToParent(job: ForkJob, status: "completed" | "failed", result: string): void {
-    const parent = this.agents.find(
-      (a) => a.name.toLowerCase() === job.parentAgent.toLowerCase(),
-    );
+    const parent = this.agents.find((a) => a.name.toLowerCase() === job.parentAgent.toLowerCase());
 
     if (!parent) {
       log.warn(`fork[${job.id}] parent agent "${job.parentAgent}" not found, cannot report`);

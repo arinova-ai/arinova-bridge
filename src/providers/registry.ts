@@ -7,14 +7,15 @@ import { AnthropicSdkProvider } from "./anthropic-sdk.js";
 import { OpenAICliProvider } from "./openai-cli.js";
 import { readOAuthToken, writeOAuthToken, isTokenExpired } from "../oauth/token-store.js";
 import { refreshAccessToken } from "../oauth/minimax.js";
-import { ensureCliMcpConfig, getPreinstalledMcpServers, ensureCodexMcpServers, type ArinovaMcpEnv } from "../mcp/preinstalled.js";
+import {
+  ensureCliMcpConfig,
+  getPreinstalledMcpServers,
+  ensureCodexMcpServers,
+  type ArinovaMcpEnv,
+} from "../mcp/preinstalled.js";
 
 /** Default model list for native Anthropic providers (no baseUrl = direct Anthropic). */
-const DEFAULT_ANTHROPIC_MODELS = [
-  "claude-sonnet-4-6",
-  "claude-opus-4-6",
-  "claude-haiku-4-5",
-];
+const DEFAULT_ANTHROPIC_MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"];
 
 /**
  * Map baseUrl/apiKey to the correct env var names based on provider type.
@@ -92,10 +93,7 @@ async function resolveOAuthToken(providerId: string, logger: Logger): Promise<st
  * Create all enabled providers from config.
  * Iterates the providers array and instantiates based on `type`.
  */
-export async function createProviders(
-  config: BridgeConfig,
-  logger: Logger,
-): Promise<Map<string, Provider>> {
+export async function createProviders(config: BridgeConfig, logger: Logger): Promise<Map<string, Provider>> {
   const providers = new Map<string, Provider>();
 
   for (const entry of config.providers) {
@@ -121,11 +119,7 @@ export async function createProviders(
   return providers;
 }
 
-async function createProvider(
-  entry: ProviderEntry,
-  config: BridgeConfig,
-  logger: Logger,
-): Promise<Provider | null> {
+async function createProvider(entry: ProviderEntry, config: BridgeConfig, logger: Logger): Promise<Provider | null> {
   const env = await buildEnv(entry, logger);
   const configDir = resolveProviderConfigDir(entry.configDir);
   const arinovaMcp: ArinovaMcpEnv = {

@@ -117,19 +117,19 @@ export class CodexAppServer {
     const env = this.opts.env ? { ...process.env, ...this.opts.env } : undefined;
     log.info(
       `codex-app-server: env summary inherited=${Boolean(env)} ` +
-      `hasArinovaBotToken=${Boolean(env?.ARINOVA_BOT_TOKEN)} ` +
-      `hasArinovaServerUrl=${Boolean(env?.ARINOVA_SERVER_URL)} ` +
-      `agentName=${env?.ARINOVA_AGENT_NAME ?? "(unset)"}`,
+        `hasArinovaBotToken=${Boolean(env?.ARINOVA_BOT_TOKEN)} ` +
+        `hasArinovaServerUrl=${Boolean(env?.ARINOVA_SERVER_URL)} ` +
+        `agentName=${env?.ARINOVA_AGENT_NAME ?? "(unset)"}`,
     );
 
-    const child = spawn(this.codexPath, [
-      "app-server",
-      "--listen", "stdio://",
-      "-c", 'sandbox_mode="danger-full-access"',
-    ], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-    });
+    const child = spawn(
+      this.codexPath,
+      ["app-server", "--listen", "stdio://", "-c", 'sandbox_mode="danger-full-access"'],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env,
+      },
+    );
 
     this.child = child;
 
@@ -426,9 +426,7 @@ export class CodexAppServer {
     if (!usage) return null;
 
     const contextWindow =
-      state.modelContextWindow ??
-      (state.model ? MODEL_CONTEXT_WINDOWS[state.model] : undefined) ??
-      undefined;
+      state.modelContextWindow ?? (state.model ? MODEL_CONTEXT_WINDOWS[state.model] : undefined) ?? undefined;
 
     return {
       contextTokens: usage.inputTokens + usage.cachedInputTokens,
@@ -474,7 +472,7 @@ export class CodexAppServer {
     state.turnOnChunk = null;
 
     if (params.turn.status !== "completed" && params.turn.error) {
-      const errMsg = typeof params.turn.error === 'string' ? params.turn.error : JSON.stringify(params.turn.error);
+      const errMsg = typeof params.turn.error === "string" ? params.turn.error : JSON.stringify(params.turn.error);
       reject?.(new Error(`Turn failed: ${errMsg}`));
     } else {
       resolve?.(state.turnText || "Done.");
@@ -498,8 +496,8 @@ export class CodexAppServer {
     const s = params.rateLimits.secondary;
     this.opts.logger.info(
       `codex-app-server: rate limits updated — ` +
-      `primary=${p?.usedPercent ?? "?"}% resetsAt=${p?.resetsAt ?? "null"} ` +
-      `secondary=${s?.usedPercent ?? "?"}% resetsAt=${s?.resetsAt ?? "null"}`,
+        `primary=${p?.usedPercent ?? "?"}% resetsAt=${p?.resetsAt ?? "null"} ` +
+        `secondary=${s?.usedPercent ?? "?"}% resetsAt=${s?.resetsAt ?? "null"}`,
     );
   }
 

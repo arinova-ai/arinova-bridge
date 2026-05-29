@@ -107,7 +107,9 @@ function loginCli(entry: ProviderEntry, options?: LoginOptions): void {
 
   console.log(`\nRunning: ${login.cmd} ${login.args.join(" ")}`);
   if (Object.keys(configEnv).length > 0) {
-    const envSummary = Object.entries(configEnv).map(([key, value]) => `${key}=${value}`).join(" ");
+    const envSummary = Object.entries(configEnv)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(" ");
     console.log(`Using: ${envSummary}`);
   }
   console.log("──────────────────────────────────────\n");
@@ -153,12 +155,17 @@ function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail:
             return { loggedIn: true, detail: data.email ?? "logged in" };
           }
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return { loggedIn: false, detail: "not logged in" };
     }
     case "openai-cli": {
       // Codex stores auth in CODEX_HOME/auth.json, defaulting to ~/.codex/auth.json
-      const authPath = path.join(resolveProviderConfigDir(entry.configDir) ?? path.join(homedir(), ".codex"), "auth.json");
+      const authPath = path.join(
+        resolveProviderConfigDir(entry.configDir) ?? path.join(homedir(), ".codex"),
+        "auth.json",
+      );
       try {
         if (fs.existsSync(authPath)) {
           const raw = JSON.parse(fs.readFileSync(authPath, "utf-8"));
@@ -168,13 +175,17 @@ function checkCliLoginStatus(entry: ProviderEntry): { loggedIn: boolean; detail:
                   try {
                     const payload = JSON.parse(Buffer.from(raw.tokens.id_token.split(".")[1], "base64url").toString());
                     return payload.email as string | undefined;
-                  } catch { return undefined; }
+                  } catch {
+                    return undefined;
+                  }
                 })()
               : undefined;
             return { loggedIn: true, detail: email ?? "logged in" };
           }
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return { loggedIn: false, detail: "not logged in" };
     }
     default:
@@ -191,7 +202,9 @@ function getProviderStatus(entry: ProviderEntry): string {
     // MiniMax uses our own token store
     const token = readOAuthToken(entry.id);
     if (token) {
-      return isTokenExpired(token) ? " (expired)" : ` (valid until ${new Date(token.expiresAt * 1000).toLocaleDateString()})`;
+      return isTokenExpired(token)
+        ? " (expired)"
+        : ` (valid until ${new Date(token.expiresAt * 1000).toLocaleDateString()})`;
     }
     return " (not logged in)";
   }

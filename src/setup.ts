@@ -37,7 +37,15 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     type: "openai-cli",
     displayName: "OpenAI OAuth (Codex CLI)",
     needsApiKey: false,
-    models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"],
+    models: [
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex",
+      "gpt-5.2-codex",
+      "gpt-5.2",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
+    ],
   },
   {
     id: "openai-api",
@@ -45,7 +53,15 @@ const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     displayName: "OpenAI API (Codex CLI)",
     needsApiKey: true,
     apiKeyPrompt: "OpenAI API Key (sk-...)",
-    models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"],
+    models: [
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex",
+      "gpt-5.2-codex",
+      "gpt-5.2",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
+    ],
   },
   {
     id: "minimax-oauth",
@@ -169,16 +185,15 @@ async function runSetup(): Promise<boolean> {
 
   // Step 1: Bot Token
   const existingToken = existing?.arinova?.botToken;
-  const botToken = await password({
-    message: existingToken
-      ? `Bot Token (current: ${maskToken(existingToken)})`
-      : "Bot Token",
-    mask: "*",
-    validate: (val) => {
-      if (!val && !existingToken) return "Bot token is required";
-      return true;
-    },
-  }) || existingToken!;
+  const botToken =
+    (await password({
+      message: existingToken ? `Bot Token (current: ${maskToken(existingToken)})` : "Bot Token",
+      mask: "*",
+      validate: (val) => {
+        if (!val && !existingToken) return "Bot token is required";
+        return true;
+      },
+    })) || existingToken!;
 
   // Step 2: Provider Selection (enter = toggle, select Submit to confirm)
   const enabledIds = await selectProviders(existing);
@@ -206,12 +221,13 @@ async function runSetup(): Promise<boolean> {
 
     if (builtin.needsApiKey) {
       const existingKey = existingEntry?.apiKey;
-      const apiKey = await password({
-        message: existingKey
-          ? `${builtin.apiKeyPrompt} (current: ${maskToken(existingKey)})`
-          : (builtin.apiKeyPrompt ?? `${builtin.displayName} API Key`),
-        mask: "*",
-      }) || existingKey;
+      const apiKey =
+        (await password({
+          message: existingKey
+            ? `${builtin.apiKeyPrompt} (current: ${maskToken(existingKey)})`
+            : (builtin.apiKeyPrompt ?? `${builtin.displayName} API Key`),
+          mask: "*",
+        })) || existingKey;
       if (apiKey) {
         entry.apiKey = apiKey;
       }
@@ -233,9 +249,10 @@ async function runSetup(): Promise<boolean> {
         name: p.displayName,
         value: p.id,
       })),
-      default: existing?.defaultProvider && enabledIds.includes(existing.defaultProvider)
-        ? existing.defaultProvider
-        : enabledIds[0],
+      default:
+        existing?.defaultProvider && enabledIds.includes(existing.defaultProvider)
+          ? existing.defaultProvider
+          : enabledIds[0],
     });
   }
 
@@ -297,50 +314,50 @@ const STATUSLINE_CONFIG = {
   command: "~/.arinova-bridge/statusline.sh",
 };
 
-/* eslint-disable no-useless-escape */
-const STATUSLINE_SCRIPT = [
-  "#!/bin/bash",
-  "INPUT=$(cat)",
-  'echo "$INPUT" | /usr/bin/python3 -c "',
-  "import sys, json, time",
-  "d = json.load(sys.stdin)",
-  "def fmt_reset(epoch):",
-  "  if not epoch: return None",
-  "  diff = int(epoch - time.time())",
-  "  if diff <= 0: return 'reset'",
-  "  days = diff // 86400; hours = (diff % 86400) // 3600; mins = (diff % 3600) // 60",
-  "  parts = []",
-  "  if days: parts.append(f'{days}d')",
-  "  if hours: parts.append(f'{hours}h')",
-  "  parts.append(f'{mins}m')",
-  "  return ' '.join(parts)",
-  "cw = d.get('context_window', {})",
-  "ctx_pct = cw.get('used_percentage')",
-  "rl = d.get('rate_limits', {})",
-  "fh = rl.get('five_hour', {})",
-  "sd = rl.get('seven_day', {})",
-  "model = d.get('model', {})",
-  "cost = d.get('cost', {})",
-  "out = {",
-  "  'context': {'used': ctx_pct if ctx_pct is not None else 0, 'total': cw.get('context_window_size', 0), 'percent': ctx_pct if ctx_pct is not None else 0},",
-  "  'limit5h': {'percent': round(fh.get('used_percentage', 0)), 'resetIn': fmt_reset(fh.get('resets_at'))},",
-  "  'limit7d': {'percent': round(sd.get('used_percentage', 0)), 'resetIn': fmt_reset(sd.get('resets_at'))},",
-  "  'model': model.get('display_name', ''),",
-  "  'cost': round(cost.get('total_cost_usd', 0), 4),",
-  "}",
-  "for k in ('limit5h', 'limit7d'):",
-  "  if out[k]['resetIn'] is None: del out[k]['resetIn']",
-  "json.dump(out, sys.stdout)",
-  '" > /tmp/claude-status.json 2>/dev/null',
-  'cat /tmp/claude-status.json | /usr/bin/python3 -c "',
-  "import sys, json",
-  "d = json.load(sys.stdin)",
-  "ctx = d.get('context',{}).get('percent','?')",
-  "r5 = d.get('limit5h',{}).get('percent','?')",
-  "cost = d.get('cost',0)",
-  "print(f'ctx:{ctx}% | 5h:{r5}% | \\${cost:.3f}')",
-  '" 2>/dev/null',
-].join("\n") + "\n";
+const STATUSLINE_SCRIPT =
+  [
+    "#!/bin/bash",
+    "INPUT=$(cat)",
+    'echo "$INPUT" | /usr/bin/python3 -c "',
+    "import sys, json, time",
+    "d = json.load(sys.stdin)",
+    "def fmt_reset(epoch):",
+    "  if not epoch: return None",
+    "  diff = int(epoch - time.time())",
+    "  if diff <= 0: return 'reset'",
+    "  days = diff // 86400; hours = (diff % 86400) // 3600; mins = (diff % 3600) // 60",
+    "  parts = []",
+    "  if days: parts.append(f'{days}d')",
+    "  if hours: parts.append(f'{hours}h')",
+    "  parts.append(f'{mins}m')",
+    "  return ' '.join(parts)",
+    "cw = d.get('context_window', {})",
+    "ctx_pct = cw.get('used_percentage')",
+    "rl = d.get('rate_limits', {})",
+    "fh = rl.get('five_hour', {})",
+    "sd = rl.get('seven_day', {})",
+    "model = d.get('model', {})",
+    "cost = d.get('cost', {})",
+    "out = {",
+    "  'context': {'used': ctx_pct if ctx_pct is not None else 0, 'total': cw.get('context_window_size', 0), 'percent': ctx_pct if ctx_pct is not None else 0},",
+    "  'limit5h': {'percent': round(fh.get('used_percentage', 0)), 'resetIn': fmt_reset(fh.get('resets_at'))},",
+    "  'limit7d': {'percent': round(sd.get('used_percentage', 0)), 'resetIn': fmt_reset(sd.get('resets_at'))},",
+    "  'model': model.get('display_name', ''),",
+    "  'cost': round(cost.get('total_cost_usd', 0), 4),",
+    "}",
+    "for k in ('limit5h', 'limit7d'):",
+    "  if out[k]['resetIn'] is None: del out[k]['resetIn']",
+    "json.dump(out, sys.stdout)",
+    '" > /tmp/claude-status.json 2>/dev/null',
+    'cat /tmp/claude-status.json | /usr/bin/python3 -c "',
+    "import sys, json",
+    "d = json.load(sys.stdin)",
+    "ctx = d.get('context',{}).get('percent','?')",
+    "r5 = d.get('limit5h',{}).get('percent','?')",
+    "cost = d.get('cost',0)",
+    "print(f'ctx:{ctx}% | 5h:{r5}% | \\${cost:.3f}')",
+    '" 2>/dev/null',
+  ].join("\n") + "\n";
 
 async function setupClaudeStatusLine(): Promise<void> {
   console.log("\n── Rate Limit Monitoring ──────────────");

@@ -51,7 +51,9 @@ export class HudMonitor {
     if (!claudePath.includes("/")) {
       try {
         claudePath = execSync(`which ${claudePath}`, { encoding: "utf-8" }).trim();
-      } catch { /* keep as-is */ }
+      } catch {
+        /* keep as-is */
+      }
     }
     const log = this.opts.logger;
     log.info(`hud-monitor: resolved claudePath=${claudePath}`);
@@ -186,7 +188,9 @@ export class HudMonitor {
     if (this.ptyProcess) {
       try {
         this.ptyProcess.kill();
-      } catch { /* already dead */ }
+      } catch {
+        /* already dead */
+      }
       this.ptyProcess = null;
     }
     this.flushWaiters();

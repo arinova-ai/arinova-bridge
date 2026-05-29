@@ -25,10 +25,7 @@ export interface TokenUsage {
 
 export interface BridgeDb {
   getConversation(convId: string): Conversation | null;
-  upsertConversation(
-    convId: string,
-    data: Partial<Pick<Conversation, "threadId" | "cwd" | "model" | "status">>,
-  ): void;
+  upsertConversation(convId: string, data: Partial<Pick<Conversation, "threadId" | "cwd" | "model" | "status">>): void;
   updateStatus(convId: string, status: ConversationStatus): void;
   addTokenUsage(convId: string, usage: TokenUsage): void;
   getRunningConversations(): Conversation[];
@@ -83,9 +80,7 @@ export function initDb(dbPath: string): BridgeDb {
         status = COALESCE(@status, status),
         updated_at = @now
     `),
-    updateStatus: db.prepare(
-      "UPDATE conversations SET status = ?, updated_at = ? WHERE conv_id = ?",
-    ),
+    updateStatus: db.prepare("UPDATE conversations SET status = ?, updated_at = ? WHERE conv_id = ?"),
     addTokens: db.prepare(`
       UPDATE conversations SET
         input_tokens = input_tokens + @inputTokens,
@@ -94,12 +89,8 @@ export function initDb(dbPath: string): BridgeDb {
         updated_at = @now
       WHERE conv_id = @convId
     `),
-    getRunning: db.prepare(
-      "SELECT * FROM conversations WHERE status = 'busy'",
-    ),
-    getAll: db.prepare(
-      "SELECT * FROM conversations WHERE thread_id IS NOT NULL",
-    ),
+    getRunning: db.prepare("SELECT * FROM conversations WHERE status = 'busy'"),
+    getAll: db.prepare("SELECT * FROM conversations WHERE thread_id IS NOT NULL"),
     saveRateLimit: db.prepare(`
       INSERT INTO rate_limit_cache (id, data, updated_at) VALUES (1, @data, @now)
       ON CONFLICT(id) DO UPDATE SET data = @data, updated_at = @now

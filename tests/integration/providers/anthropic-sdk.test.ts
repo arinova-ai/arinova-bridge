@@ -215,15 +215,18 @@ describe("AnthropicSdkProvider", () => {
 
     it("loads per-agent MCP servers from JSON file", () => {
       const configPath = path.join(tmpDir, "gina.json");
-      writeFileSync(configPath, JSON.stringify({
-        mcpServers: {
-          arinova: {
-            command: "node",
-            args: ["/path/to/cli.js"],
-            env: { ARINOVA_BOT_TOKEN: "ari_gina_token" },
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            arinova: {
+              command: "node",
+              args: ["/path/to/cli.js"],
+              env: { ARINOVA_BOT_TOKEN: "ari_gina_token" },
+            },
           },
-        },
-      }));
+        }),
+      );
 
       provider.setAgentMcpConfig!("gina", configPath);
 
@@ -235,9 +238,7 @@ describe("AnthropicSdkProvider", () => {
 
     it("logs error for missing config file", () => {
       provider.setAgentMcpConfig!("missing", "/nonexistent/path.json");
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("failed to load per-agent MCP config"),
-      );
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("failed to load per-agent MCP config"));
     });
 
     it("uses per-agent servers over provider-level default", async () => {
@@ -262,15 +263,18 @@ describe("AnthropicSdkProvider", () => {
       );
 
       const configPath = path.join(tmpDir, "vera.json");
-      writeFileSync(configPath, JSON.stringify({
-        mcpServers: {
-          arinova: {
-            command: "node",
-            args: ["/cli.js"],
-            env: { ARINOVA_BOT_TOKEN: "ari_vera_token" },
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            arinova: {
+              command: "node",
+              args: ["/cli.js"],
+              env: { ARINOVA_BOT_TOKEN: "ari_vera_token" },
+            },
           },
-        },
-      }));
+        }),
+      );
       providerWithMcp.setAgentMcpConfig!("vera", configPath);
 
       const { query } = await import("@anthropic-ai/claude-agent-sdk");

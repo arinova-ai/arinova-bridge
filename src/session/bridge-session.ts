@@ -109,10 +109,12 @@ export function getSummaryMaxTokens(model?: string): number {
 /** Heuristics: task-oriented if messages contain commit hashes, card IDs, code blocks, etc. */
 function isTaskOriented(text: string): boolean {
   // Commit hash: 7-40 hex chars that contain at least one letter (excludes pure digits like dates)
-  return /\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/.test(text)
-    || /\b[0-9a-f]{8}-/.test(text)            // UUID-style card ID
-    || /```/.test(text)                        // code blocks
-    || /\b(commit|merge|deploy|PR|review|bug|fix|feat)\b/i.test(text);
+  return (
+    /\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/.test(text) ||
+    /\b[0-9a-f]{8}-/.test(text) || // UUID-style card ID
+    /```/.test(text) || // code blocks
+    /\b(commit|merge|deploy|PR|review|bug|fix|feat)\b/i.test(text)
+  );
 }
 
 export function buildCompactPrompt(conversationText: string, tokenBudget: number, existingSummary?: string): string {
@@ -201,9 +203,7 @@ function extractUserCurrentMessage(content: string): string {
 }
 
 function compactMessageContent(message: SessionMessage): string {
-  return message.role === "user"
-    ? (message.userMessage?.trim() || message.content)
-    : message.content;
+  return message.role === "user" ? message.userMessage?.trim() || message.content : message.content;
 }
 
 function compactMessageLength(message: SessionMessage): number {
@@ -227,10 +227,7 @@ function splitLargeCompactMessage(message: SessionMessage, maxChars: number): Se
   return chunks;
 }
 
-function chunkMessagesForCompact(
-  messages: SessionMessage[],
-  maxChars = COMPACT_INPUT_CHUNK_CHARS,
-): SessionMessage[][] {
+function chunkMessagesForCompact(messages: SessionMessage[], maxChars = COMPACT_INPUT_CHUNK_CHARS): SessionMessage[][] {
   const chunks: SessionMessage[][] = [];
   let current: SessionMessage[] = [];
   let currentChars = 0;
@@ -244,9 +241,7 @@ function chunkMessagesForCompact(
   };
 
   for (const message of messages) {
-    const pieces = compactMessageLength(message) > maxChars
-      ? splitLargeCompactMessage(message, maxChars)
-      : [message];
+    const pieces = compactMessageLength(message) > maxChars ? splitLargeCompactMessage(message, maxChars) : [message];
 
     for (const piece of pieces) {
       const pieceChars = compactMessageLength(piece);
@@ -361,7 +356,11 @@ export class BridgeSessionStore {
       "ALTER TABLE sessions ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0",
     ];
     for (const sql of migrations) {
-      try { this.db.exec(sql); } catch { /* column already exists */ }
+      try {
+        this.db.exec(sql);
+      } catch {
+        /* column already exists */
+      }
     }
 
     this.stmts = BridgeSessionStore.prepareStatements(this.db);
@@ -407,33 +406,17 @@ export class BridgeSessionStore {
       getRecentMessages: db.prepare(
         "SELECT * FROM (SELECT id, conversation_id, role, content, user_message, sender, timestamp, token_count, finish_reason FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 5) ORDER BY id ASC",
       ),
-      getMessageCount: db.prepare(
-        "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?",
-      ),
+      getMessageCount: db.prepare("SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?"),
       getTotalTokens: db.prepare(
         "SELECT COALESCE(SUM(token_count), 0) as total FROM messages WHERE conversation_id = ?",
       ),
-      getSummary: db.prepare(
-        "SELECT compacted_summary FROM sessions WHERE conversation_id = ?",
-      ),
-      setSummary: db.prepare(
-        "UPDATE sessions SET compacted_summary = ?, updated_at = ? WHERE conversation_id = ?",
-      ),
-      deleteMessagesByIds: db.prepare(
-        "DELETE FROM messages WHERE id IN (SELECT value FROM json_each(@ids))",
-      ),
-      deleteMessages: db.prepare(
-        "DELETE FROM messages WHERE conversation_id = ?",
-      ),
-      deleteSession: db.prepare(
-        "DELETE FROM sessions WHERE conversation_id = ?",
-      ),
-      listSessions: db.prepare(
-        "SELECT conversation_id FROM sessions ORDER BY updated_at DESC",
-      ),
-      hasSession: db.prepare(
-        "SELECT 1 FROM sessions WHERE conversation_id = ?",
-      ),
+      getSummary: db.prepare("SELECT compacted_summary FROM sessions WHERE conversation_id = ?"),
+      setSummary: db.prepare("UPDATE sessions SET compacted_summary = ?, updated_at = ? WHERE conversation_id = ?"),
+      deleteMessagesByIds: db.prepare("DELETE FROM messages WHERE id IN (SELECT value FROM json_each(@ids))"),
+      deleteMessages: db.prepare("DELETE FROM messages WHERE conversation_id = ?"),
+      deleteSession: db.prepare("DELETE FROM sessions WHERE conversation_id = ?"),
+      listSessions: db.prepare("SELECT conversation_id FROM sessions ORDER BY updated_at DESC"),
+      hasSession: db.prepare("SELECT 1 FROM sessions WHERE conversation_id = ?"),
       // FTS5 search
       ftsSearch: db.prepare(`
         SELECT m.id, m.conversation_id, m.role, m.content, m.user_message, m.sender, m.timestamp,
@@ -471,10 +454,7 @@ export class BridgeSessionStore {
     };
   }
 
-  private ensureSession(
-    conversationId: string,
-    meta?: { model?: string; userId?: string; username?: string },
-  ): void {
+  private ensureSession(conversationId: string, meta?: { model?: string; userId?: string; username?: string }): void {
     this.stmts.upsertSession.run({
       convId: conversationId,
       model: meta?.model ?? null,
@@ -543,9 +523,7 @@ export class BridgeSessionStore {
   buildContext(conversationId: string): string {
     const parts: string[] = [];
 
-    const summaryRow = this.stmts.getSummary.get(conversationId) as
-      | { compacted_summary: string | null }
-      | undefined;
+    const summaryRow = this.stmts.getSummary.get(conversationId) as { compacted_summary: string | null } | undefined;
     if (summaryRow?.compacted_summary) {
       parts.push(`[Conversation summary]\n${summaryRow.compacted_summary}\n[/Conversation summary]`);
     }
@@ -558,9 +536,7 @@ export class BridgeSessionStore {
       // input) over content (which may carry [Recent history] / [Fork context]
       // wrappers). Re-injecting a wrapped row into the next buildContext call
       // is what causes the recursive bloat that blew gina past the 200K limit.
-      const messageContent = row.role === "user"
-        ? (row.user_message?.trim() || row.content)
-        : row.content;
+      const messageContent = row.role === "user" ? row.user_message?.trim() || row.content : row.content;
       parts.push(`${sender}: ${messageContent}`);
     }
 
@@ -576,12 +552,8 @@ export class BridgeSessionStore {
     const totalRow = this.stmts.getTotalTokens.get(conversationId) as { total: number };
     if (totalRow.total > 0) {
       // Add summary tokens if present
-      const summaryRow = this.stmts.getSummary.get(conversationId) as
-        | { compacted_summary: string | null }
-        | undefined;
-      const summaryTokens = summaryRow?.compacted_summary
-        ? countTokens(summaryRow.compacted_summary, model)
-        : 0;
+      const summaryRow = this.stmts.getSummary.get(conversationId) as { compacted_summary: string | null } | undefined;
+      const summaryTokens = summaryRow?.compacted_summary ? countTokens(summaryRow.compacted_summary, model) : 0;
       return totalRow.total + summaryTokens;
     }
 
@@ -598,9 +570,8 @@ export class BridgeSessionStore {
    */
   needsCompact(conversationId: string, model?: string, reportedContextWindow?: number): boolean {
     const tokens = this.estimateTokens(conversationId, model);
-    const window = reportedContextWindow && reportedContextWindow > 0
-      ? reportedContextWindow
-      : this.getContextWindow(model);
+    const window =
+      reportedContextWindow && reportedContextWindow > 0 ? reportedContextWindow : this.getContextWindow(model);
     return tokens >= window * COMPACT_THRESHOLD;
   }
 
@@ -628,9 +599,7 @@ export class BridgeSessionStore {
 
     const middleMessages = middleRows.map((r) => this.toSessionMessage(r));
 
-    const summaryRow = this.stmts.getSummary.get(conversationId) as
-      | { compacted_summary: string | null }
-      | undefined;
+    const summaryRow = this.stmts.getSummary.get(conversationId) as { compacted_summary: string | null } | undefined;
 
     const chunks = chunkMessagesForCompact(middleMessages, opts?.compactInputChunkChars);
     let summary = summaryRow?.compacted_summary ?? undefined;
@@ -638,7 +607,7 @@ export class BridgeSessionStore {
     if (chunks.length > 1) {
       this.logger.info(
         `bridge-session: compacting ${conversationId} in ${chunks.length} chunks ` +
-        `(${middleMessages.length} messages)`,
+          `(${middleMessages.length} messages)`,
       );
     }
 
@@ -655,9 +624,7 @@ export class BridgeSessionStore {
       const enc = getEncoder();
       const tokenIds = enc.encode(summary);
       summary = enc.decode(tokenIds.slice(0, maxTokens)) + "\n[...truncated]";
-      this.logger.warn(
-        `bridge-session: summary exceeded budget (${summaryTokens} > ${maxTokens}), truncated`,
-      );
+      this.logger.warn(`bridge-session: summary exceeded budget (${summaryTokens} > ${maxTokens}), truncated`);
     }
 
     // Delete only the middle messages, keep first N and last N
@@ -670,8 +637,8 @@ export class BridgeSessionStore {
 
     this.logger.info(
       `bridge-session: compacted ${conversationId} — ` +
-      `protected first ${protectedFirst.length} + last ${protectedLast.length}, ` +
-      `compressed ${middleRows.length} middle messages → summary (${summary.length} chars)`,
+        `protected first ${protectedFirst.length} + last ${protectedLast.length}, ` +
+        `compressed ${middleRows.length} middle messages → summary (${summary.length} chars)`,
     );
   }
 

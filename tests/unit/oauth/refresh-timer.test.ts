@@ -49,7 +49,14 @@ describe("oauth/refresh-timer", () => {
 
   it("returns noop when providers have apiKey (not OAuth)", () => {
     const providers: ProviderEntry[] = [
-      { id: "mm", type: "anthropic-cli", displayName: "MiniMax", enabled: true, apiKey: "key", baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm",
+        type: "anthropic-cli",
+        displayName: "MiniMax",
+        enabled: true,
+        apiKey: "key",
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     const stop = startOAuthRefreshTimer(providers, mockLogger as never);
@@ -59,7 +66,13 @@ describe("oauth/refresh-timer", () => {
 
   it("identifies OAuth providers (anthropic-cli + no apiKey + baseUrl)", () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     const stop = startOAuthRefreshTimer(providers, mockLogger as never);
@@ -69,7 +82,13 @@ describe("oauth/refresh-timer", () => {
 
   it("refreshes expired token on timer tick", async () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     const oldToken = {
@@ -102,7 +121,13 @@ describe("oauth/refresh-timer", () => {
 
   it("skips refresh when token is not expired", async () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     mockReadOAuthToken.mockReturnValue({ accessToken: "valid", refreshToken: "rt", expiresAt: 0 } as never);
@@ -117,7 +142,13 @@ describe("oauth/refresh-timer", () => {
 
   it("skips when no token exists", async () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     mockReadOAuthToken.mockReturnValue(null);
@@ -131,7 +162,13 @@ describe("oauth/refresh-timer", () => {
 
   it("logs error when refresh fails", async () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     mockReadOAuthToken.mockReturnValue({ accessToken: "old", refreshToken: "rt", expiresAt: 0 } as never);
@@ -147,7 +184,13 @@ describe("oauth/refresh-timer", () => {
 
   it("stop function clears the interval", async () => {
     const providers: ProviderEntry[] = [
-      { id: "mm-oauth", type: "anthropic-cli", displayName: "MiniMax OAuth", enabled: true, baseUrl: "https://api.minimax.io" },
+      {
+        id: "mm-oauth",
+        type: "anthropic-cli",
+        displayName: "MiniMax OAuth",
+        enabled: true,
+        baseUrl: "https://api.minimax.io",
+      },
     ];
 
     mockReadOAuthToken.mockReturnValue({ accessToken: "old", refreshToken: "rt", expiresAt: 0 } as never);

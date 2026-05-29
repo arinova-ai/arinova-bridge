@@ -7,7 +7,7 @@ import { runMessagePipeline, clearContextInjected } from "../pipeline/message-pi
 import { createLogger } from "../util/logger.js";
 import { truncate } from "../util/formatting.js";
 import { getErrorMessage } from "../util/errors.js";
-import { A2A_PREFIX, isAgentSession, parseA2aDepth } from "../util/session-id.js";
+import { isAgentSession, parseA2aDepth } from "../util/session-id.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
@@ -43,13 +43,13 @@ const MAX_HISTORY = 50;
  */
 const agentSendChains = new Map<string, Promise<unknown>>();
 
-export function runExclusiveOnAgent<T>(
-  agentName: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export function runExclusiveOnAgent<T>(agentName: string, fn: () => Promise<T>): Promise<T> {
   const prev = agentSendChains.get(agentName) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  agentSendChains.set(agentName, next.catch(() => undefined));
+  agentSendChains.set(
+    agentName,
+    next.catch(() => undefined),
+  );
   return next;
 }
 
@@ -57,25 +57,27 @@ export function runExclusiveOnAgent<T>(
  * Query the sender agent's long-term memories via Arinova CLI.
  * Returns formatted memory context string, or undefined if no results / error.
  */
-async function querySenderMemories(source: string, content: string, executor: CommandExecutor): Promise<string | undefined> {
+async function querySenderMemories(
+  source: string,
+  content: string,
+  executor: CommandExecutor,
+): Promise<string | undefined> {
   // Skip non-agent sources (spawn, fork, cli)
   if (!source || source === "cli" || source.includes(":")) return undefined;
 
   try {
     const queryText = content.length > 200 ? content.slice(0, 200) : content;
-    const { stdout } = await executor.execFile("arinova", [
-      "--profile", source,
-      "--json",
-      "memory", "query",
-      "--query", queryText,
-      "--limit", "10",
-    ], { timeout: 10_000 });
+    const { stdout } = await executor.execFile(
+      "arinova",
+      ["--profile", source, "--json", "memory", "query", "--query", queryText, "--limit", "10"],
+      { timeout: 10_000 },
+    );
 
     const memories = JSON.parse(stdout);
     if (!Array.isArray(memories) || memories.length === 0) return undefined;
 
     const lines = memories.map((m: { content?: string; title?: string }) =>
-      m.title ? `- ${m.title}: ${m.content ?? ""}` : `- ${m.content ?? ""}`
+      m.title ? `- ${m.title}: ${m.content ?? ""}` : `- ${m.content ?? ""}`,
     );
     return `[Sender memories — from ${source}]\n${lines.join("\n")}`;
   } catch (err) {
@@ -96,11 +98,18 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void; executor?: CommandExecutor },
+  opts?: {
+    source?: string;
+    sourceConversationId?: string;
+    timeoutMs?: number;
+    cwd?: string;
+    model?: string;
+    bridgeSessionStore?: BridgeSessionStore;
+    onLog?: (text: string) => void;
+    executor?: CommandExecutor;
+  },
 ): Promise<DeliverResult> {
-  const currentDepth = opts?.sourceConversationId
-    ? parseA2aDepth(opts.sourceConversationId)
-    : 0;
+  const currentDepth = opts?.sourceConversationId ? parseA2aDepth(opts.sourceConversationId) : 0;
   if (currentDepth >= MAX_DEPTH) {
     throw new Error("A2A recursion limit reached");
   }
@@ -113,20 +122,23 @@ export async function deliverToAgent(
   const syntheticId = `${target.name}:default`;
   const start = Date.now();
 
-  let handled = false;
   let responseText = "";
 
   const cmdResult = await target.commandHandler.handle(content, {
     conversationId: syntheticId,
-    sendChunk: (text) => { responseText += text; },
-    sendComplete: (text) => { responseText = text; },
-    sendError: (text) => { responseText = `Error: ${text}`; },
+    sendChunk: (text) => {
+      responseText += text;
+    },
+    sendComplete: (text) => {
+      responseText = text;
+    },
+    sendError: (text) => {
+      responseText = `Error: ${text}`;
+    },
     uploadFile: async () => ({ url: "", fileName: "", fileType: "", fileSize: 0 }),
   });
 
-  handled = cmdResult.handled;
-
-  if (!handled) {
+  if (!cmdResult.handled) {
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
 
@@ -157,7 +169,10 @@ export async function deliverToAgent(
             model,
             systemPrompt: target.agentConfig.systemPrompt,
             compactModel: target.agentConfig.compactModel,
-            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            onChunk: (text) => {
+              responseText += text;
+              opts?.onLog?.(text);
+            },
             signal: controller.signal,
             queue: true,
             extraContext,
@@ -174,7 +189,10 @@ export async function deliverToAgent(
             cwd,
             model,
             systemPrompt: target.agentConfig.systemPrompt,
-            onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
+            onChunk: (text) => {
+              responseText += text;
+              opts?.onLog?.(text);
+            },
             signal: controller.signal,
             queue: true,
             bridgeSessionContext: extraContext,
@@ -200,7 +218,11 @@ const watchSubscribers = new Set<WatchWriter>();
 export function notifyWatch(record: TaskRecord): void {
   const line = JSON.stringify(record);
   for (const writer of watchSubscribers) {
-    try { writer(line); } catch { /* subscriber gone */ }
+    try {
+      writer(line);
+    } catch {
+      /* subscriber gone */
+    }
   }
 }
 
@@ -301,15 +323,14 @@ export function createIpcRouter(
 
 export function subscribeWatch(writer: WatchWriter): () => void {
   watchSubscribers.add(writer);
-  return () => { watchSubscribers.delete(writer); };
+  return () => {
+    watchSubscribers.delete(writer);
+  };
 }
 
 // --- Handlers ---
 
-function handleListAgents(
-  id: number,
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleListAgents(id: number, ctx: IpcHandlerContext): IpcResponse {
   const list = ctx.agents.map((a) => ({
     name: a.name,
     provider: a.provider.id,
@@ -328,7 +349,13 @@ async function handleDeliver(
   const target = findAgent(ctx.agents, params.target);
   if (!target) return agentNotFound(id, params.target, ctx.agents);
 
-  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore: ctx.bridgeSessionStore, executor: ctx.executor };
+  const deliverOpts = {
+    source: params.source,
+    cwd: params.cwd,
+    model: params.model,
+    bridgeSessionStore: ctx.bridgeSessionStore,
+    executor: ctx.executor,
+  };
 
   // Fire-and-forget mode
   if (params.wait === false) {
@@ -346,11 +373,7 @@ async function handleDeliver(
   }
 }
 
-function handleAgentStatus(
-  id: number,
-  params: { target: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleAgentStatus(id: number, params: { target: string }, ctx: IpcHandlerContext): IpcResponse {
   const target = findAgent(ctx.agents, params.target);
   if (!target) return agentNotFound(id, params.target, ctx.agents);
 
@@ -377,11 +400,7 @@ function handleAgentStatus(
   };
 }
 
-function handlePing(
-  id: number,
-  params: { target: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handlePing(id: number, params: { target: string }, ctx: IpcHandlerContext): IpcResponse {
   const target = findAgent(ctx.agents, params.target);
   if (!target) return agentNotFound(id, params.target, ctx.agents);
 
@@ -401,20 +420,18 @@ function handlePing(
   };
 }
 
-function handleAgentCost(
-  id: number,
-  params: { target?: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleAgentCost(id: number, params: { target?: string }, ctx: IpcHandlerContext): IpcResponse {
   const targets = params.target
-    ? (() => { const a = findAgent(ctx.agents, params.target); return a ? [a] : null; })()
+    ? (() => {
+        const a = findAgent(ctx.agents, params.target);
+        return a ? [a] : null;
+      })()
     : ctx.agents;
 
   if (!targets) return agentNotFound(id, params.target!, ctx.agents);
 
   const costs = targets.map((a) => {
-    const sessions = a.provider.listSessions()
-      .filter((s) => isAgentSession(s.conversationId, a.name));
+    const sessions = a.provider.listSessions().filter((s) => isAgentSession(s.conversationId, a.name));
 
     let totalCostUsd = 0;
     let totalInput = 0;
@@ -442,38 +459,30 @@ function handleAgentCost(
   return { id, result: params.target ? costs[0] : costs };
 }
 
-function handleAgentStop(
-  id: number,
-  params: { target: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleAgentStop(id: number, params: { target: string }, ctx: IpcHandlerContext): IpcResponse {
   const target = findAgent(ctx.agents, params.target);
   if (!target) return agentNotFound(id, params.target, ctx.agents);
 
-  const sessions = target.provider.listSessions()
-    .filter((s) => isAgentSession(s.conversationId, target.name));
+  const sessions = target.provider.listSessions().filter((s) => isAgentSession(s.conversationId, target.name));
 
   let interrupted = 0;
   for (const s of sessions) {
     try {
       target.provider.interrupt(s.conversationId);
       interrupted++;
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
 
   return { id, result: { agent: target.name, interrupted, totalSessions: sessions.length } };
 }
 
-async function handleAgentReset(
-  id: number,
-  params: { target: string },
-  ctx: IpcHandlerContext,
-): Promise<IpcResponse> {
+async function handleAgentReset(id: number, params: { target: string }, ctx: IpcHandlerContext): Promise<IpcResponse> {
   const target = findAgent(ctx.agents, params.target);
   if (!target) return agentNotFound(id, params.target, ctx.agents);
 
-  const sessions = target.provider.listSessions()
-    .filter((s) => isAgentSession(s.conversationId, target.name));
+  const sessions = target.provider.listSessions().filter((s) => isAgentSession(s.conversationId, target.name));
 
   let reset = 0;
   for (const s of sessions) {
@@ -481,17 +490,15 @@ async function handleAgentReset(
       await target.provider.resetSession(s.conversationId, { restartProcess: true });
       clearContextInjected(s.conversationId);
       reset++;
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
 
   return { id, result: { agent: target.name, reset, totalSessions: sessions.length } };
 }
 
-function handleHandoff(
-  id: number,
-  params: { from: string; to: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleHandoff(id: number, params: { from: string; to: string }, ctx: IpcHandlerContext): IpcResponse {
   const fromAgent = findAgent(ctx.agents, params.from);
   if (!fromAgent) return agentNotFound(id, params.from, ctx.agents);
 
@@ -502,7 +509,8 @@ function handleHandoff(
     return { id, error: { code: 3, message: "Cannot handoff to the same agent" } };
   }
 
-  const fromSessions = fromAgent.provider.listSessions()
+  const fromSessions = fromAgent.provider
+    .listSessions()
     .filter((s) => isAgentSession(s.conversationId, fromAgent.name));
 
   if (fromSessions.length === 0) {
@@ -527,11 +535,7 @@ function handleHandoff(
   return { id, result: handoffInfo };
 }
 
-function handleHistory(
-  id: number,
-  params: { target?: string; limit?: number },
-  _ctx: IpcHandlerContext,
-): IpcResponse {
+function handleHistory(id: number, params: { target?: string; limit?: number }, _ctx: IpcHandlerContext): IpcResponse {
   const limit = params.limit ?? 10;
   let filtered = taskHistory;
 
@@ -582,17 +586,11 @@ function handleSpawnAdd(
   }
 }
 
-function handleSpawnList(
-  id: number,
-  params: { agent?: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleSpawnList(id: number, params: { agent?: string }, ctx: IpcHandlerContext): IpcResponse {
   const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
-  const jobs = params.agent
-    ? spawnManager.listByParent(params.agent)
-    : spawnManager.listAll();
+  const jobs = params.agent ? spawnManager.listByParent(params.agent) : spawnManager.listAll();
 
   return {
     id,
@@ -619,11 +617,7 @@ function handleSpawnList(
   };
 }
 
-function handleSpawnCancel(
-  id: number,
-  params: { id: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleSpawnCancel(id: number, params: { id: string }, ctx: IpcHandlerContext): IpcResponse {
   const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
@@ -634,11 +628,7 @@ function handleSpawnCancel(
   return { id, result: { cancelled: true, id: params.id } };
 }
 
-function handleSpawnResult(
-  id: number,
-  params: { id: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleSpawnResult(id: number, params: { id: string }, ctx: IpcHandlerContext): IpcResponse {
   const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
@@ -665,11 +655,7 @@ function handleSpawnResult(
   };
 }
 
-function handleSpawnLogs(
-  id: number,
-  params: { id: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleSpawnLogs(id: number, params: { id: string }, ctx: IpcHandlerContext): IpcResponse {
   const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
@@ -723,11 +709,7 @@ function handleForkAdd(
   }
 }
 
-function handleForkList(
-  id: number,
-  params: { agent?: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleForkList(id: number, params: { agent?: string }, ctx: IpcHandlerContext): IpcResponse {
   const { forkManager } = ctx;
   if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
 
@@ -756,11 +738,7 @@ function handleForkList(
   };
 }
 
-function handleForkCancel(
-  id: number,
-  params: { id: string },
-  ctx: IpcHandlerContext,
-): IpcResponse {
+function handleForkCancel(id: number, params: { id: string }, ctx: IpcHandlerContext): IpcResponse {
   const { forkManager } = ctx;
   if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
 

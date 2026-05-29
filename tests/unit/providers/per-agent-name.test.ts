@@ -18,7 +18,7 @@ describe("OpenAI per-thread agentName", () => {
     const cases: [string, string | undefined][] = [
       ["lucy:default", "lucy"],
       ["pan:default", "pan"],
-      [":default", undefined],     // empty agent part → undefined
+      [":default", undefined], // empty agent part → undefined
       ["adele:compact", "adele"],
     ];
 

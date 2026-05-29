@@ -34,10 +34,10 @@ export interface IpcDeliverRequest {
   params: {
     target: string;
     content: string;
-    source?: string;  // sender agent/user name for logging
+    source?: string; // sender agent/user name for logging
     cwd?: string;
     model?: string;
-    wait?: boolean;  // default true; false = fire-and-forget
+    wait?: boolean; // default true; false = fire-and-forget
   };
 }
 
@@ -56,7 +56,7 @@ export interface IpcPingRequest {
 export interface IpcAgentCostRequest {
   id: number;
   method: "agent-cost";
-  params: { target?: string };  // omit = all agents
+  params: { target?: string }; // omit = all agents
 }
 
 export interface IpcAgentStopRequest {

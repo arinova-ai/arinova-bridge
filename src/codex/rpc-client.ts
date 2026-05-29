@@ -1,11 +1,6 @@
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  JsonRpcNotification,
-  ApprovalResponse,
-} from "./types.js";
+import type { JsonRpcRequest, JsonRpcNotification, ApprovalResponse } from "./types.js";
 import type { Logger } from "../util/logger.js";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -34,12 +29,7 @@ export class CodexRpcClient {
   private timeoutMs: number;
   private closed = false;
 
-  constructor(
-    stdin: Writable,
-    stdout: Readable,
-    logger: Logger,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-  ) {
+  constructor(stdin: Writable, stdout: Readable, logger: Logger, timeoutMs = DEFAULT_TIMEOUT_MS) {
     this.stdin = stdin;
     this.logger = logger;
     this.timeoutMs = timeoutMs;
@@ -102,7 +92,7 @@ export class CodexRpcClient {
 
   /** Reject all pending requests (used on shutdown/crash). */
   rejectAll(reason: string): void {
-    for (const [id, pending] of this.pending) {
+    for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error(reason));
     }

@@ -1,5 +1,5 @@
-import { SpawnStore, SPAWN_TIMEOUT_MS } from "./store.js";
-import type { SpawnJob } from "./store.js";
+import { SPAWN_TIMEOUT_MS } from "./store.js";
+import type { SpawnJob, SpawnStore } from "./store.js";
 import type { ActiveAgent } from "../ipc/types.js";
 import { deliverToAgent } from "../ipc/router.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
@@ -34,13 +34,7 @@ export class SpawnManager {
    * Spawn a sub-session: deliver context to target agent, wait for result,
    * then report back to parent agent. Non-blocking — fires in background.
    */
-  spawn(opts: {
-    parentAgent: string;
-    targetAgent: string;
-    context: string;
-    model?: string;
-    cwd?: string;
-  }): SpawnJob {
+  spawn(opts: { parentAgent: string; targetAgent: string; context: string; model?: string; cwd?: string }): SpawnJob {
     const job = this.store.add(opts.parentAgent, opts.targetAgent, opts.context, opts.model);
 
     log.info(`spawn[${job.id}] ${opts.parentAgent} → ${opts.targetAgent}: "${opts.context.slice(0, 80)}..."`);
@@ -132,9 +126,7 @@ export class SpawnManager {
   // -------------------------------------------------------------------------
 
   private async executeSpawn(job: SpawnJob, cwd?: string): Promise<void> {
-    const target = this.agents.find(
-      (a) => a.name.toLowerCase() === job.targetAgent.toLowerCase(),
-    );
+    const target = this.agents.find((a) => a.name.toLowerCase() === job.targetAgent.toLowerCase());
 
     if (!target) {
       this.store.complete(job.id, "failed", `Target agent "${job.targetAgent}" not found`);
@@ -162,7 +154,9 @@ export class SpawnManager {
       try {
         this.store.appendLog(job.id, logBuffer);
         logBuffer = "";
-      } catch { /* DB may be closed during shutdown */ }
+      } catch {
+        /* DB may be closed during shutdown */
+      }
     };
 
     const flushTimer = setInterval(flushLog, 2000);
@@ -176,7 +170,9 @@ export class SpawnManager {
         model: job.model ?? undefined,
         bridgeSessionStore: this.bridgeSessionStore,
         timeoutMs: SPAWN_TIMEOUT_MS,
-        onLog: (text) => { logBuffer += text; },
+        onLog: (text) => {
+          logBuffer += text;
+        },
       });
 
       // Clear timers and flush remaining log
@@ -221,9 +217,7 @@ export class SpawnManager {
   }
 
   private reportToParent(job: SpawnJob, status: "completed" | "failed", result: string): void {
-    const parent = this.agents.find(
-      (a) => a.name.toLowerCase() === job.parentAgent.toLowerCase(),
-    );
+    const parent = this.agents.find((a) => a.name.toLowerCase() === job.parentAgent.toLowerCase());
 
     if (!parent) {
       log.warn(`spawn[${job.id}] parent agent "${job.parentAgent}" not found, cannot report`);

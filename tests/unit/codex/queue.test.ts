@@ -80,9 +80,11 @@ describe("ConversationQueue", () => {
     const fn = vi.fn(async () => {});
 
     // First task fails
-    const p1 = queue.enqueue("conv-1", async () => {
-      throw new Error("fail");
-    }).catch(() => {});
+    const p1 = queue
+      .enqueue("conv-1", async () => {
+        throw new Error("fail");
+      })
+      .catch(() => {});
 
     // Second task should still run
     const p2 = queue.enqueue("conv-1", fn);

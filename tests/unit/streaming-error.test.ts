@@ -167,12 +167,22 @@ describe("IPC router — fire-and-forget deliver", () => {
         displayName: "Mock",
         sendMessage: vi.fn().mockRejectedValue(new Error("network timeout")),
         async resetSession() {},
-        async resumeSession() { return true; },
-        getSessionInfo() { return null; },
-        listSessions() { return []; },
+        async resumeSession() {
+          return true;
+        },
+        getSessionInfo() {
+          return null;
+        },
+        listSessions() {
+          return [];
+        },
         interrupt() {},
-        getCostInfo() { return null; },
-        supportedModels() { return []; },
+        getCostInfo() {
+          return null;
+        },
+        supportedModels() {
+          return [];
+        },
         async shutdown() {},
       } as any,
       agentConfig: { name: "fail-agent", cwd: "/tmp", provider: "mock" } as any,
@@ -210,12 +220,22 @@ describe("IPC router — fire-and-forget deliver", () => {
         displayName: "Mock",
         sendMessage: vi.fn().mockRejectedValue(new Error("provider crashed")),
         async resetSession() {},
-        async resumeSession() { return true; },
-        getSessionInfo() { return null; },
-        listSessions() { return []; },
+        async resumeSession() {
+          return true;
+        },
+        getSessionInfo() {
+          return null;
+        },
+        listSessions() {
+          return [];
+        },
         interrupt() {},
-        getCostInfo() { return null; },
-        supportedModels() { return []; },
+        getCostInfo() {
+          return null;
+        },
+        supportedModels() {
+          return [];
+        },
         async shutdown() {},
       } as any,
       agentConfig: { name: "fail-agent2", cwd: "/tmp", provider: "mock" } as any,
@@ -252,20 +272,28 @@ describe("deliverToAgent — error propagation", () => {
         displayName: "Mock",
         sendMessage: vi.fn().mockRejectedValue(new Error("provider exploded")),
         async resetSession() {},
-        async resumeSession() { return true; },
-        getSessionInfo() { return null; },
-        listSessions() { return []; },
+        async resumeSession() {
+          return true;
+        },
+        getSessionInfo() {
+          return null;
+        },
+        listSessions() {
+          return [];
+        },
         interrupt() {},
-        getCostInfo() { return null; },
-        supportedModels() { return []; },
+        getCostInfo() {
+          return null;
+        },
+        supportedModels() {
+          return [];
+        },
         async shutdown() {},
       } as any,
       agentConfig: { name: "crash-agent", cwd: "/tmp", provider: "mock" } as any,
     };
 
-    await expect(
-      deliverToAgent(agent, "test message"),
-    ).rejects.toThrow("provider exploded");
+    await expect(deliverToAgent(agent, "test message")).rejects.toThrow("provider exploded");
   });
 
   it("sendError is called in deliverToAgent when command errors", async () => {
@@ -284,12 +312,22 @@ describe("deliverToAgent — error propagation", () => {
         displayName: "Mock",
         sendMessage: vi.fn(),
         async resetSession() {},
-        async resumeSession() { return true; },
-        getSessionInfo() { return null; },
-        listSessions() { return []; },
+        async resumeSession() {
+          return true;
+        },
+        getSessionInfo() {
+          return null;
+        },
+        listSessions() {
+          return [];
+        },
         interrupt() {},
-        getCostInfo() { return null; },
-        supportedModels() { return []; },
+        getCostInfo() {
+          return null;
+        },
+        supportedModels() {
+          return [];
+        },
         async shutdown() {},
       } as any,
       agentConfig: { name: "err-agent", cwd: "/tmp", provider: "mock" } as any,

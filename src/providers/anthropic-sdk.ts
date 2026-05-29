@@ -61,7 +61,9 @@ export class AnthropicSdkProvider implements Provider {
   setAgentMcpConfig(agentName: string, mcpConfigPath: string): void {
     try {
       const raw = readFileSync(mcpConfigPath, "utf-8");
-      const parsed = JSON.parse(raw) as { mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }> };
+      const parsed = JSON.parse(raw) as {
+        mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+      };
       if (!parsed.mcpServers) return;
       const servers: McpSdkServers = {};
       for (const [name, server] of Object.entries(parsed.mcpServers)) {
@@ -73,7 +75,9 @@ export class AnthropicSdkProvider implements Provider {
     }
   }
 
-  warmup(): void { /* no-op for anthropic-sdk */ }
+  warmup(): void {
+    /* no-op for anthropic-sdk */
+  }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
     const { conversationId, cwd, model, onChunk, signal } = opts;
@@ -182,11 +186,7 @@ export class AnthropicSdkProvider implements Provider {
     }
   }
 
-  async resumeSession(
-    conversationId: string,
-    sessionId: string,
-    opts?: SessionOpts,
-  ): Promise<boolean> {
+  async resumeSession(conversationId: string, sessionId: string, opts?: SessionOpts): Promise<boolean> {
     // Create a new session that will resume from the given session ID
     this.sessions.delete(conversationId);
     const session = this.getOrCreateSession(conversationId, opts?.cwd, opts?.model);
@@ -265,11 +265,7 @@ export class AnthropicSdkProvider implements Provider {
     return undefined;
   }
 
-  private getOrCreateSession(
-    conversationId: string,
-    cwd?: string,
-    model?: string,
-  ): SdkSession {
+  private getOrCreateSession(conversationId: string, cwd?: string, model?: string): SdkSession {
     let session = this.sessions.get(conversationId);
     if (session) return session;
 
@@ -290,10 +286,7 @@ export class AnthropicSdkProvider implements Provider {
     this.idleTimer = setInterval(() => {
       const now = Date.now();
       for (const [key, session] of this.sessions) {
-        if (
-          !session.abortController &&
-          now - session.lastActivity > this.config.idleTimeoutMs
-        ) {
+        if (!session.abortController && now - session.lastActivity > this.config.idleTimeoutMs) {
           this.logger.info(`anthropic-sdk: idle timeout for ${key}`);
           this.sessions.delete(key);
         }

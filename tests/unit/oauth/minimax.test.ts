@@ -31,10 +31,7 @@ describe("generatePKCE", () => {
 
   it("challenge is SHA256 of verifier", () => {
     const { verifier, challenge } = generatePKCE();
-    const expected = crypto
-      .createHash("sha256")
-      .update(verifier)
-      .digest("base64url");
+    const expected = crypto.createHash("sha256").update(verifier).digest("base64url");
     expect(challenge).toBe(expected);
   });
 
@@ -94,10 +91,7 @@ describe("requestDeviceCode", () => {
 
     const result = await requestDeviceCode("cn");
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.minimaxi.com/oauth/code",
-      expect.anything(),
-    );
+    expect(mockFetch).toHaveBeenCalledWith("https://api.minimaxi.com/oauth/code", expect.anything());
     expect(result.deviceCode.userCode).toBe("XYZ-5678");
   });
 
@@ -155,9 +149,7 @@ describe("requestDeviceCode", () => {
       };
     });
 
-    await expect(requestDeviceCode()).rejects.toThrow(
-      "MiniMax OAuth returned incomplete response",
-    );
+    await expect(requestDeviceCode()).rejects.toThrow("MiniMax OAuth returned incomplete response");
   });
 
   it("normalizes expired_in from Unix seconds timestamp", async () => {
@@ -201,12 +193,8 @@ describe("requestDeviceCode", () => {
     const result = await requestDeviceCode();
     const nowAfter = Date.now();
     // Relative seconds: expiresAt should be Date.now() + seconds*1000
-    expect(result.deviceCode.expiresAt).toBeGreaterThanOrEqual(
-      nowBefore + relativeSeconds * 1000,
-    );
-    expect(result.deviceCode.expiresAt).toBeLessThanOrEqual(
-      nowAfter + relativeSeconds * 1000,
-    );
+    expect(result.deviceCode.expiresAt).toBeGreaterThanOrEqual(nowBefore + relativeSeconds * 1000);
+    expect(result.deviceCode.expiresAt).toBeLessThanOrEqual(nowAfter + relativeSeconds * 1000);
   });
 
   it("defaults interval to 2 when not provided", async () => {
@@ -233,12 +221,13 @@ describe("pollForToken", () => {
   it("returns token on success", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      text: async () => JSON.stringify({
-        status: "success",
-        access_token: "at-123",
-        refresh_token: "rt-456",
-        expired_in: 3600,
-      }),
+      text: async () =>
+        JSON.stringify({
+          status: "success",
+          access_token: "at-123",
+          refresh_token: "rt-456",
+          expired_in: 3600,
+        }),
     });
 
     const token = await pollForToken(
@@ -265,21 +254,17 @@ describe("pollForToken", () => {
       }
       return {
         ok: true,
-        text: async () => JSON.stringify({
-          status: "success",
-          access_token: "at-final",
-          refresh_token: "rt-final",
-          expired_in: 3600,
-        }),
+        text: async () =>
+          JSON.stringify({
+            status: "success",
+            access_token: "at-final",
+            refresh_token: "rt-final",
+            expired_in: 3600,
+          }),
       };
     });
 
-    const token = await pollForToken(
-      "ABC",
-      "verifier",
-      Date.now() + 60_000,
-      0.01,
-    );
+    const token = await pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01);
 
     expect(callCount).toBe(3);
     expect(token.accessToken).toBe("at-final");
@@ -291,9 +276,7 @@ describe("pollForToken", () => {
       text: async () => JSON.stringify({ status: "pending" }),
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() - 1000, 0.01),
-    ).rejects.toThrow("timed out");
+    await expect(pollForToken("ABC", "verifier", Date.now() - 1000, 0.01)).rejects.toThrow("timed out");
   });
 
   it("throws on error status", async () => {
@@ -302,22 +285,19 @@ describe("pollForToken", () => {
       text: async () => JSON.stringify({ status: "error" }),
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
-    ).rejects.toThrow("MiniMax OAuth error");
+    await expect(pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01)).rejects.toThrow("MiniMax OAuth error");
   });
 
   it("throws on HTTP error", async () => {
     mockFetch.mockResolvedValue({
       ok: false,
-      text: async () => JSON.stringify({
-        base_resp: { status_msg: "invalid code" },
-      }),
+      text: async () =>
+        JSON.stringify({
+          base_resp: { status_msg: "invalid code" },
+        }),
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
-    ).rejects.toThrow("invalid code");
+    await expect(pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01)).rejects.toThrow("invalid code");
   });
 
   it("throws when response is OK but body is not valid JSON", async () => {
@@ -326,24 +306,25 @@ describe("pollForToken", () => {
       text: async () => "this is not json",
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
-    ).rejects.toThrow("MiniMax OAuth: failed to parse response");
+    await expect(pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01)).rejects.toThrow(
+      "MiniMax OAuth: failed to parse response",
+    );
   });
 
   it("throws when status is success but token fields are missing", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      text: async () => JSON.stringify({
-        status: "success",
-        access_token: "at-123",
-        // missing refresh_token and expired_in
-      }),
+      text: async () =>
+        JSON.stringify({
+          status: "success",
+          access_token: "at-123",
+          // missing refresh_token and expired_in
+        }),
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
-    ).rejects.toThrow("MiniMax OAuth returned incomplete token");
+    await expect(pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01)).rejects.toThrow(
+      "MiniMax OAuth returned incomplete token",
+    );
   });
 
   it("throws on HTTP error with fallback text when no base_resp", async () => {
@@ -352,9 +333,7 @@ describe("pollForToken", () => {
       text: async () => "plain error text",
     });
 
-    await expect(
-      pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01),
-    ).rejects.toThrow("plain error text");
+    await expect(pollForToken("ABC", "verifier", Date.now() + 60_000, 0.01)).rejects.toThrow("plain error text");
   });
 });
 
@@ -403,10 +382,7 @@ describe("refreshAccessToken", () => {
 
     await refreshAccessToken("rt", "cn");
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.minimaxi.com/oauth/token",
-      expect.anything(),
-    );
+    expect(mockFetch).toHaveBeenCalledWith("https://api.minimaxi.com/oauth/token", expect.anything());
   });
 
   it("throws on HTTP error", async () => {
@@ -445,12 +421,13 @@ describe("performMiniMaxOAuth", () => {
       // Token poll request
       return {
         ok: true,
-        text: async () => JSON.stringify({
-          status: "success",
-          access_token: "flow-at",
-          refresh_token: "flow-rt",
-          expired_in: 3600,
-        }),
+        text: async () =>
+          JSON.stringify({
+            status: "success",
+            access_token: "flow-at",
+            refresh_token: "flow-rt",
+            expired_in: 3600,
+          }),
       };
     });
 
@@ -474,9 +451,7 @@ describe("performMiniMaxOAuth", () => {
       text: async () => "internal error",
     });
 
-    await expect(performMiniMaxOAuth()).rejects.toThrow(
-      "MiniMax OAuth code request failed",
-    );
+    await expect(performMiniMaxOAuth()).rejects.toThrow("MiniMax OAuth code request failed");
 
     logSpy.mockRestore();
   });

@@ -46,7 +46,12 @@ export interface McpServerMapOptions {
 
 function formatExecError(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const detail = err as Error & { stdout?: Buffer | string; stderr?: Buffer | string; status?: number; signal?: string };
+  const detail = err as Error & {
+    stdout?: Buffer | string;
+    stderr?: Buffer | string;
+    status?: number;
+    signal?: string;
+  };
   const stdout = detail.stdout ? String(detail.stdout).trim() : "";
   const stderr = detail.stderr ? String(detail.stderr).trim() : "";
   const parts = [
@@ -69,7 +74,10 @@ export interface McpCliConfig {
 /**
  * MCP config format compatible with Claude SDK's query() mcpServers option.
  */
-export type McpSdkServers = Record<string, { type: "stdio"; command: string; args: string[]; env?: Record<string, string> }>;
+export type McpSdkServers = Record<
+  string,
+  { type: "stdio"; command: string; args: string[]; env?: Record<string, string> }
+>;
 
 /** Default pre-installed MCP servers with pinned versions. */
 const PREINSTALLED_SERVERS: Record<string, McpStdioServer> = {
@@ -136,7 +144,10 @@ function buildServerMap(
  * Get the pre-installed MCP servers as SDK-compatible config.
  * Used by anthropic-sdk provider to pass mcpServers to query().
  */
-export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): McpSdkServers {
+export function getPreinstalledMcpServers(
+  arinova?: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+): McpSdkServers {
   const servers = buildServerMap(arinova, userServers);
   const result: McpSdkServers = {};
   for (const [name, server] of Object.entries(servers)) {
@@ -155,7 +166,13 @@ export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv, userServers?:
  * Used by anthropic-cli provider for --mcp-config flag.
  * If a user-provided mcpConfigPath is set, returns that instead.
  */
-export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>, fs: FileSystem = defaultFs): string | undefined {
+export function ensureCliMcpConfig(
+  userMcpConfigPath: string | undefined,
+  logger: Logger,
+  arinova?: ArinovaMcpEnv,
+  userServers?: Record<string, McpStdioServer>,
+  fs: FileSystem = defaultFs,
+): string | undefined {
   // User-provided config takes priority
   if (userMcpConfigPath) {
     return userMcpConfigPath;
@@ -169,9 +186,7 @@ export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger
     };
 
     const desired = JSON.stringify(config, null, 2);
-    const existing = fs.existsSync(MCP_CLI_CONFIG_PATH)
-      ? fs.readFileSync(MCP_CLI_CONFIG_PATH, "utf-8")
-      : "";
+    const existing = fs.existsSync(MCP_CLI_CONFIG_PATH) ? fs.readFileSync(MCP_CLI_CONFIG_PATH, "utf-8") : "";
 
     if (desired !== existing) {
       fs.writeFileSync(MCP_CLI_CONFIG_PATH, desired, "utf-8");
@@ -205,9 +220,7 @@ export function ensureAgentCliMcpConfig(
     };
 
     const desired = JSON.stringify(config, null, 2);
-    const existing = fs.existsSync(configPath)
-      ? fs.readFileSync(configPath, "utf-8")
-      : "";
+    const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf-8") : "";
 
     if (desired !== existing) {
       fs.writeFileSync(configPath, desired, "utf-8");

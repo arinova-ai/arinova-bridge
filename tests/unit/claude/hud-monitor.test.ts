@@ -35,13 +35,21 @@ function createMockPty() {
   let dataCb: DataCb | null = null;
   return {
     pid: 123,
-    onExit: vi.fn((cb: ExitCb) => { exitCb = cb; }),
-    onData: vi.fn((cb: DataCb) => { dataCb = cb; }),
+    onExit: vi.fn((cb: ExitCb) => {
+      exitCb = cb;
+    }),
+    onData: vi.fn((cb: DataCb) => {
+      dataCb = cb;
+    }),
     write: vi.fn(),
     kill: vi.fn(),
     // test helpers
-    _triggerExit(code: number) { exitCb?.({ exitCode: code }); },
-    _triggerData(data: string) { dataCb?.(data); },
+    _triggerExit(code: number) {
+      exitCb?.({ exitCode: code });
+    },
+    _triggerData(data: string) {
+      dataCb?.(data);
+    },
   };
 }
 
@@ -442,9 +450,7 @@ describe("HudMonitor", () => {
       vi.advanceTimersByTime(15_500);
 
       await expect(p).resolves.toBeUndefined();
-      expect(logger.warn).toHaveBeenCalledWith(
-        "hud-monitor: status file not updated after ping, giving up",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("hud-monitor: status file not updated after ping, giving up");
     });
 
     it("resolves immediately and logs warning if write throws", async () => {
@@ -518,9 +524,7 @@ describe("HudMonitor", () => {
       const p = monitor.notify();
       vi.advanceTimersByTime(15_500);
       await expect(p).resolves.toBeUndefined();
-      expect(logger.warn).toHaveBeenCalledWith(
-        "hud-monitor: status file not updated after ping, giving up",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("hud-monitor: status file not updated after ping, giving up");
     });
 
     it("detects mtime change when file appears after ping", async () => {

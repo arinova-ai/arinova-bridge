@@ -9,12 +9,13 @@ import { getErrorMessage } from "../util/errors.js";
 
 const SOCKET_PATH = path.join(homedir(), ".arinova-bridge", "bridge.sock");
 
-export function startIpcServer(
-  handler: (req: IpcRequest) => Promise<IpcResponse>,
-  logger: Logger,
-): () => void {
+export function startIpcServer(handler: (req: IpcRequest) => Promise<IpcResponse>, logger: Logger): () => void {
   // Remove stale socket from a previous crash
-  try { fs.unlinkSync(SOCKET_PATH); } catch { /* not found */ }
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {
+    /* not found */
+  }
 
   const server = net.createServer((conn) => {
     let buf = "";
@@ -69,7 +70,11 @@ export function startIpcServer(
   });
 
   server.listen(SOCKET_PATH, () => {
-    try { fs.chmodSync(SOCKET_PATH, 0o600); } catch { /* best effort */ }
+    try {
+      fs.chmodSync(SOCKET_PATH, 0o600);
+    } catch {
+      /* best effort */
+    }
     logger.info(`ipc: listening on ${SOCKET_PATH}`);
   });
 
@@ -79,6 +84,10 @@ export function startIpcServer(
 
   return () => {
     server.close();
-    try { fs.unlinkSync(SOCKET_PATH); } catch { /* already gone */ }
+    try {
+      fs.unlinkSync(SOCKET_PATH);
+    } catch {
+      /* already gone */
+    }
   };
 }

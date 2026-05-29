@@ -111,7 +111,7 @@ describe("ClaudeProcess stale drain", () => {
 
     (process as any).staleResults = 1;
     (process as any).ensureStaleDrainTimer();
-    (process as any).processLine("{\"type\":\"result\",\"session_id\":\"sid\"}");
+    (process as any).processLine('{"type":"result","session_id":"sid"}');
     await vi.advanceTimersByTimeAsync(300_000);
 
     expect(restart).not.toHaveBeenCalled();
@@ -134,10 +134,12 @@ describe("ClaudeProcess resolvedModel", () => {
     const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 999_999, maxOutputTokens: 8_192 },
-      "claude-opus-4":    { contextWindow: 200_000, outputTokens: 120,     maxOutputTokens: 32_000 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 999_999, maxOutputTokens: 8_192 },
+        "claude-opus-4": { contextWindow: 200_000, outputTokens: 120, maxOutputTokens: 32_000 },
+      }),
+    );
 
     expect(process.getModel()).toBe("claude-opus-4");
     expect(process.getContext()?.maxOutputTokens).toBe(32_000);
@@ -147,10 +149,12 @@ describe("ClaudeProcess resolvedModel", () => {
     const process = new ClaudeProcess({ logger, model: "opus" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5":         { contextWindow: 200_000, outputTokens: 500, maxOutputTokens: 8_192 },
-      "claude-opus-4-5-20251022": { contextWindow: 200_000, outputTokens: 100, maxOutputTokens: 32_000 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 500, maxOutputTokens: 8_192 },
+        "claude-opus-4-5-20251022": { contextWindow: 200_000, outputTokens: 100, maxOutputTokens: 32_000 },
+      }),
+    );
 
     expect(process.getModel()).toBe("opus");
     expect(process.getContext()?.maxOutputTokens).toBe(32_000);
@@ -160,10 +164,12 @@ describe("ClaudeProcess resolvedModel", () => {
     const process = new ClaudeProcess({ logger, model: "claude-sonnet-4" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5":  { contextWindow: 200_000, outputTokens: 5_000, maxOutputTokens: 8_192 },
-      "claude-sonnet-4":   { contextWindow: 200_000, outputTokens: 50,    maxOutputTokens: 64_000 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 5_000, maxOutputTokens: 8_192 },
+        "claude-sonnet-4": { contextWindow: 200_000, outputTokens: 50, maxOutputTokens: 64_000 },
+      }),
+    );
 
     expect(process.getModel()).toBe("claude-sonnet-4");
     expect(process.getContext()?.maxOutputTokens).toBe(64_000);
@@ -173,10 +179,12 @@ describe("ClaudeProcess resolvedModel", () => {
     const process = new ClaudeProcess({ logger });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 50,    maxOutputTokens: 8_192 },
-      "claude-opus-4":    { contextWindow: 200_000, outputTokens: 4_300, maxOutputTokens: 32_000 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 50, maxOutputTokens: 8_192 },
+        "claude-opus-4": { contextWindow: 200_000, outputTokens: 4_300, maxOutputTokens: 32_000 },
+      }),
+    );
 
     expect(process.getModel()).toBe("claude-opus-4");
     expect(process.getContext()?.maxOutputTokens).toBe(32_000);
@@ -185,9 +193,11 @@ describe("ClaudeProcess resolvedModel", () => {
   it("keeps opts.model as resolvedModel when modelUsage has no matching key", () => {
     const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
     (process as any).turnResolve = () => {};
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
+      }),
+    );
 
     expect(process.getModel()).toBe("claude-opus-4");
   });
@@ -196,10 +206,12 @@ describe("ClaudeProcess resolvedModel", () => {
     const process = new ClaudeProcess({ logger, model: "claude-opus-4" });
     (process as any).turnResolve = () => {};
     (process as any).turnContextTokens = 10_000;
-    (process as any).processLine(makeResultLine({
-      "claude-haiku-4-5": { contextWindow: 200_000,   outputTokens: 10 },
-      "claude-opus-4":    { contextWindow: 1_000_000, outputTokens: 500 },
-    }));
+    (process as any).processLine(
+      makeResultLine({
+        "claude-haiku-4-5": { contextWindow: 200_000, outputTokens: 10 },
+        "claude-opus-4": { contextWindow: 1_000_000, outputTokens: 500 },
+      }),
+    );
 
     expect(process.getContext()?.contextWindow).toBe(1_000_000);
     expect(process.getModel()).toBe("claude-opus-4");
@@ -274,16 +286,14 @@ describe("ClaudeProcess tool call capture", () => {
     const reports: any[] = [];
     const process = new ClaudeProcess({
       logger,
-      reportToolCall: (r) => { reports.push(r); },
+      reportToolCall: (r) => {
+        reports.push(r);
+      },
     });
     primeTurn(process);
 
     (process as any).processLine(toolUseLine("toolu_err", "Edit", { file: "x" }));
-    (process as any).processLine(toolResultLine(
-      "toolu_err",
-      [{ type: "text", text: "file not found" }],
-      true,
-    ));
+    (process as any).processLine(toolResultLine("toolu_err", [{ type: "text", text: "file not found" }], true));
 
     await Promise.resolve();
     await Promise.resolve();
@@ -298,7 +308,9 @@ describe("ClaudeProcess tool call capture", () => {
     const reports: any[] = [];
     const process = new ClaudeProcess({
       logger,
-      reportToolCall: (r) => { reports.push(r); },
+      reportToolCall: (r) => {
+        reports.push(r);
+      },
     });
     primeTurn(process);
 
@@ -321,7 +333,9 @@ describe("ClaudeProcess tool call capture", () => {
     const reports: any[] = [];
     const process = new ClaudeProcess({
       logger,
-      reportToolCall: (r) => { reports.push(r); },
+      reportToolCall: (r) => {
+        reports.push(r);
+      },
     });
     primeTurn(process, "turn-shared");
 
@@ -340,7 +354,9 @@ describe("ClaudeProcess tool call capture", () => {
     const reports: any[] = [];
     const process = new ClaudeProcess({
       logger,
-      reportToolCall: (r) => { reports.push(r); },
+      reportToolCall: (r) => {
+        reports.push(r);
+      },
     });
     primeTurn(process);
 
@@ -366,7 +382,9 @@ describe("ClaudeProcess tool call capture", () => {
     const reports: any[] = [];
     const process = new ClaudeProcess({
       logger,
-      reportToolCall: (r) => { reports.push(r); },
+      reportToolCall: (r) => {
+        reports.push(r);
+      },
     });
     primeTurn(process);
     (process as any).staleResults = 1;

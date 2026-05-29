@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { readConfigFile, type ProviderEntry, type AgentEntry, type McpServerEntry } from "./config-file.js";
+import { readConfigFile, type ProviderEntry, type McpServerEntry } from "./config-file.js";
 import { loadAgentPrompts, buildAgentSystemPrompt } from "./agents/loader.js";
 
 export interface ResolvedAgent {
@@ -51,54 +51,25 @@ function readPositiveInteger(value: unknown, fallback: number, name: string): nu
 export function loadConfig(): BridgeConfig {
   const file = readConfigFile();
 
-  const serverUrl =
-    process.env.ARINOVA_SERVER_URL ??
-    file?.arinova?.serverUrl ??
-    "wss://api.chat.arinova.ai";
-  const botToken =
-    process.env.ARINOVA_BOT_TOKEN ??
-    file?.arinova?.botToken ??
-    "";
+  const serverUrl = process.env.ARINOVA_SERVER_URL ?? file?.arinova?.serverUrl ?? "wss://api.chat.arinova.ai";
+  const botToken = process.env.ARINOVA_BOT_TOKEN ?? file?.arinova?.botToken ?? "";
 
   if (!botToken) throw new Error("ARINOVA_BOT_TOKEN is required (env or config file)");
 
-  const agentName =
-    process.env.ARINOVA_AGENT_NAME ??
-    file?.arinova?.agentName ??
-    "default";
+  const agentName = process.env.ARINOVA_AGENT_NAME ?? file?.arinova?.agentName ?? "default";
 
-  const defaultProvider =
-    process.env.DEFAULT_PROVIDER ??
-    file?.defaultProvider ??
-    "anthropic-oauth";
+  const defaultProvider = process.env.DEFAULT_PROVIDER ?? file?.defaultProvider ?? "anthropic-oauth";
 
-  const rawCwd =
-    process.env.DEFAULT_CWD ??
-    file?.defaults?.cwd ??
-    path.join(homedir(), "projects");
+  const rawCwd = process.env.DEFAULT_CWD ?? file?.defaults?.cwd ?? path.join(homedir(), "projects");
   const defaultCwd = rawCwd.replace(/^~/, homedir());
 
-  const maxSessions = readPositiveInteger(
-    process.env.MAX_SESSIONS ?? file?.defaults?.maxSessions,
-    5,
-    "MAX_SESSIONS",
-  );
+  const maxSessions = readPositiveInteger(process.env.MAX_SESSIONS ?? file?.defaults?.maxSessions, 5, "MAX_SESSIONS");
 
-  const idleTimeoutMs = readPositiveInteger(
-    file?.defaults?.idleTimeoutMs,
-    3_600_000,
-    "defaults.idleTimeoutMs",
-  );
+  const idleTimeoutMs = readPositiveInteger(file?.defaults?.idleTimeoutMs, 3_600_000, "defaults.idleTimeoutMs");
 
-  const dbPath =
-    process.env.DB_PATH ??
-    file?.defaults?.dbPath ??
-    path.join(homedir(), ".arinova-bridge", "bridge.db");
+  const dbPath = process.env.DB_PATH ?? file?.defaults?.dbPath ?? path.join(homedir(), ".arinova-bridge", "bridge.db");
 
-  const mcpConfigPath =
-    process.env.MCP_CONFIG_PATH ??
-    file?.defaults?.mcpConfigPath ??
-    undefined;
+  const mcpConfigPath = process.env.MCP_CONFIG_PATH ?? file?.defaults?.mcpConfigPath ?? undefined;
 
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];
@@ -123,14 +94,16 @@ export function loadConfig(): BridgeConfig {
     }));
   } else {
     // Backward compatible: single agent from arinova.botToken
-    agents = [{
-      name: agentName,
-      botToken,
-      provider: defaultProvider,
-      cwd: defaultCwd,
-      compactModel: defaultCompactModel(defaultProvider),
-      systemPrompt: buildAgentSystemPrompt(agentName, agentPrompts) || undefined,
-    }];
+    agents = [
+      {
+        name: agentName,
+        botToken,
+        provider: defaultProvider,
+        cwd: defaultCwd,
+        compactModel: defaultCompactModel(defaultProvider),
+        systemPrompt: buildAgentSystemPrompt(agentName, agentPrompts) || undefined,
+      },
+    ];
   }
 
   return {

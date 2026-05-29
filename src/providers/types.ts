@@ -199,11 +199,7 @@ export interface Provider {
   sendMessage(opts: SendMessageOpts): Promise<SendResult>;
   interrupt(conversationId: string): void;
   resetSession(conversationId: string, opts?: SessionOpts): Promise<void>;
-  resumeSession(
-    conversationId: string,
-    sessionId: string,
-    opts?: SessionOpts,
-  ): Promise<boolean>;
+  resumeSession(conversationId: string, sessionId: string, opts?: SessionOpts): Promise<boolean>;
   getSessionInfo(conversationId: string): SessionInfo | null;
   getCostInfo(conversationId: string): CostInfo | null;
   getUsageInfo(conversationId: string): UsageInfo | null;

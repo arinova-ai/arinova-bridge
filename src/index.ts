@@ -26,26 +26,19 @@ import path from "node:path";
 const logger = createLogger("bridge");
 const config = loadConfig();
 
-logger.info(`Loaded config: defaultProvider=${config.defaultProvider} mcpConfigPath=${config.defaults.mcpConfigPath ?? "(none, will auto-generate)"} agents=${config.agents.length}`);
+logger.info(
+  `Loaded config: defaultProvider=${config.defaultProvider} mcpConfigPath=${config.defaults.mcpConfigPath ?? "(none, will auto-generate)"} agents=${config.agents.length}`,
+);
 
 // Bridge session store — maintains conversation history across provider restarts
-const bridgeSessionStore = new BridgeSessionStore(
-  path.join(homedir(), ".arinova-bridge", "sessions"),
-  logger,
-);
+const bridgeSessionStore = new BridgeSessionStore(path.join(homedir(), ".arinova-bridge", "sessions"), logger);
 
 // Spawn manager
-const spawnStore = new SpawnStore(
-  path.join(homedir(), ".arinova-bridge", "spawn"),
-  logger,
-);
+const spawnStore = new SpawnStore(path.join(homedir(), ".arinova-bridge", "spawn"), logger);
 const spawnManager = new SpawnManager(spawnStore);
 
 // Fork manager
-const forkStore = new ForkStore(
-  path.join(homedir(), ".arinova-bridge", "fork"),
-  logger,
-);
+const forkStore = new ForkStore(path.join(homedir(), ".arinova-bridge", "fork"), logger);
 const forkManager = new ForkManager(forkStore);
 
 // Shared resources
@@ -80,9 +73,7 @@ for (const entry of config.providers) {
 const activeAgents: ActiveAgent[] = [];
 
 // Start all agents in parallel
-const startResults = await Promise.allSettled(
-  config.agents.map((agentConfig) => startAgent(agentConfig)),
-);
+const startResults = await Promise.allSettled(config.agents.map((agentConfig) => startAgent(agentConfig)));
 for (let i = 0; i < startResults.length; i++) {
   const result = startResults[i];
   if (result.status === "rejected") {
@@ -125,7 +116,6 @@ spawnManager.cleanupOldLogs();
 // Initialize fork manager and recover stale jobs
 forkManager.setAgents(activeAgents, bridgeSessionStore);
 forkManager.recoverStale();
-
 
 async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   const agentName = agentCfg.name;
@@ -243,32 +233,34 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       // agentWideLock already serializes WS task vs WS task; this adds the
       // missing WS task vs A2A exclusion so a fresh WS task never aborts a
       // queued A2A turn in the shared Claude process.
-      const sendResult = await runExclusiveOnAgent(agentName, () => runMessagePipeline({
-        provider: msgProvider,
-        bridgeSessionStore,
-        sessionId,
-        content,
-        agentName,
-        cwd,
-        model,
-        systemPrompt: agentCfg.systemPrompt,
-        compactModel: agentCfg.compactModel,
-        onChunk: (text) => ctx.sendChunk(text),
-        signal: ctx.signal,
-        uploadFile: ctx.uploadFile,
-        attachments: ctx.attachments,
-        conversationType: ctx.conversationType,
-        senderUserId: ctx.senderUserId,
-        senderUsername: ctx.senderUsername,
-        members: ctx.members,
-        replyTo: ctx.replyTo,
-        fetchHistory: ctx.fetchHistory,
-        history: ctx.history,
-        senderName: ctx.senderUsername,
-        userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
-        reportToolCall: (report) => agent.reportToolCall(report),
-        messageId: ctx.userMessageId,
-      }));
+      const sendResult = await runExclusiveOnAgent(agentName, () =>
+        runMessagePipeline({
+          provider: msgProvider,
+          bridgeSessionStore,
+          sessionId,
+          content,
+          agentName,
+          cwd,
+          model,
+          systemPrompt: agentCfg.systemPrompt,
+          compactModel: agentCfg.compactModel,
+          onChunk: (text) => ctx.sendChunk(text),
+          signal: ctx.signal,
+          uploadFile: ctx.uploadFile,
+          attachments: ctx.attachments,
+          conversationType: ctx.conversationType,
+          senderUserId: ctx.senderUserId,
+          senderUsername: ctx.senderUsername,
+          members: ctx.members,
+          replyTo: ctx.replyTo,
+          fetchHistory: ctx.fetchHistory,
+          history: ctx.history,
+          senderName: ctx.senderUsername,
+          userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
+          reportToolCall: (report) => agent.reportToolCall(report),
+          messageId: ctx.userMessageId,
+        }),
+      );
 
       if (sendResult.compacted) clearContextInjected(sessionId);
 
@@ -316,7 +308,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
             const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
             if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
             if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
-          } catch { /* status file unavailable */ }
+          } catch {
+            /* status file unavailable */
+          }
         } else if (hudUsage?.rateLimits) {
           for (const rl of hudUsage.rateLimits) {
             const percent = Math.round((rl.utilization ?? 0) * 100);
@@ -359,7 +353,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   await agent.connect();
   activeAgents.push({ agent, name: agentName, commandHandler, provider, agentConfig: agentCfg });
-  logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
+  logger.info(
+    `[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`,
+  );
 }
 
 // Graceful shutdown
@@ -376,13 +372,18 @@ async function shutdown(signal: string) {
   let processSnapshot = "";
   try {
     const { execSync } = await import("child_process");
-    processSnapshot = execSync(
-      `ps -eo pid,ppid,command | grep -E "arinova-bridge|kill|stop" | grep -v grep`,
-      { timeout: 2000 },
-    ).toString().trim();
-  } catch { /* empty is fine */ }
+    processSnapshot = execSync(`ps -eo pid,ppid,command | grep -E "arinova-bridge|kill|stop" | grep -v grep`, {
+      timeout: 2000,
+    })
+      .toString()
+      .trim();
+  } catch {
+    /* empty is fine */
+  }
 
-  logger.info(`Shutting down... (signal=${signal}, pid=${process.pid}, ${parentInfo}, uptime=${Math.round(process.uptime())}s)`);
+  logger.info(
+    `Shutting down... (signal=${signal}, pid=${process.pid}, ${parentInfo}, uptime=${Math.round(process.uptime())}s)`,
+  );
   if (processSnapshot) {
     logger.info(`Process snapshot at shutdown:\n${processSnapshot}`);
   }
@@ -409,7 +410,7 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGHUP", () => shutdown("SIGHUP"));
 
 process.on("unhandledRejection", (reason) => {
-  logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+  logger.error(`Unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`);
 });
 
 process.on("uncaughtException", (err) => {

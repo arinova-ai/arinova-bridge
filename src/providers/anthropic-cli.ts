@@ -109,7 +109,10 @@ export class AnthropicCliProvider implements Provider {
     const resultPromise = prev.then(() => this.idleSend(opts));
 
     // Store the chain; swallow errors so a failed send doesn't block the queue
-    this.sendChains.set(conversationId, resultPromise.catch(() => {}));
+    this.sendChains.set(
+      conversationId,
+      resultPromise.catch(() => {}),
+    );
 
     return resultPromise;
   }
@@ -133,7 +136,12 @@ export class AnthropicCliProvider implements Provider {
       // Re-check: session may have been destroyed while waiting
       const refreshed = this.store.getSession(conversationId);
       if (!refreshed || !refreshed.process.isAlive()) {
-        entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
+        entry = this.store.createSession(conversationId, {
+          cwd,
+          model,
+          systemPrompt: opts.systemPrompt,
+          reportToolCall,
+        });
         break;
       }
       entry = refreshed;
@@ -143,9 +151,14 @@ export class AnthropicCliProvider implements Provider {
     if (reportToolCall) entry.process.setReportToolCall(reportToolCall);
     entry.lastActivity = Date.now();
 
-    const result = await entry.process.sendMessage(content, (text) => {
-      onChunk(text);
-    }, signal, messageId);
+    const result = await entry.process.sendMessage(
+      content,
+      (text) => {
+        onChunk(text);
+      },
+      signal,
+      messageId,
+    );
 
     return {
       text: result.text,
@@ -171,9 +184,14 @@ export class AnthropicCliProvider implements Provider {
       // Signal is managed inside ClaudeProcess — it clears the old listener
       // before attaching the new one, preventing stale signals from aborting
       // the wrong turn.
-      return entry.process.sendMessage(content, (text) => {
-        onChunk(text);
-      }, signal, messageId);
+      return entry.process.sendMessage(
+        content,
+        (text) => {
+          onChunk(text);
+        },
+        signal,
+        messageId,
+      );
     };
 
     let entry = this.store.getSession(conversationId);
@@ -238,11 +256,7 @@ export class AnthropicCliProvider implements Provider {
     }
   }
 
-  async resumeSession(
-    conversationId: string,
-    sessionId: string,
-    opts?: SessionOpts,
-  ): Promise<boolean> {
+  async resumeSession(conversationId: string, sessionId: string, _opts?: SessionOpts): Promise<boolean> {
     const entry = await this.store.resumeSession(conversationId, sessionId);
     return entry !== null;
   }
