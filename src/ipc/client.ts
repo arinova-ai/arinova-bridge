@@ -69,12 +69,17 @@ export function sendIpcRequest(req: IpcRequest): Promise<IpcResponse> {
   });
 }
 
+export interface StreamWatchOptions {
+  onError?: (err: Error) => void;
+  onClose?: () => void;
+}
+
 /**
  * Connect to bridge IPC and stream watch events.
  * Calls onEvent for each newline-delimited JSON event.
  * Returns a cleanup function to disconnect.
  */
-export function streamWatch(onEvent: (line: string) => void): () => void {
+export function streamWatch(onEvent: (line: string) => void, opts: StreamWatchOptions = {}): () => void {
   ensureSocket();
 
   const conn = net.createConnection(SOCKET_PATH);
@@ -95,12 +100,20 @@ export function streamWatch(onEvent: (line: string) => void): () => void {
     }
   });
 
-  conn.on("error", () => {
-    process.exit(1);
+  conn.on("error", (err) => {
+    if (opts.onError) {
+      opts.onError(err);
+    } else {
+      process.exit(1);
+    }
   });
 
   conn.on("close", () => {
-    process.exit(0);
+    if (opts.onClose) {
+      opts.onClose();
+    } else {
+      process.exit(0);
+    }
   });
 
   return () => conn.destroy();
