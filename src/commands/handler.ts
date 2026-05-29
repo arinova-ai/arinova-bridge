@@ -36,11 +36,36 @@ export class CommandHandler {
   /** Path to the Claude status JSON file (rate limits, context, cost). */
   private statusFilePath: string;
 
+  /** Command registry: maps command name to handler function. */
+  private commandMap: Map<string, (arg: string, ctx: CommandContext) => Promise<void> | void>;
+
   constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore, statusFilePath?: string) {
     this.providers = providers;
     this.config = config;
     this.sessionStore = sessionStore;
     this.statusFilePath = statusFilePath ?? "/tmp/claude-status.json";
+
+    this.commandMap = new Map<string, (arg: string, ctx: CommandContext) => Promise<void> | void>([
+      ["new", (arg, ctx) => this.handleNew(arg, ctx)],
+      ["reset", (_arg, ctx) => this.handleReset(ctx)],
+      ["sessions", (_arg, ctx) => this.handleSessions(ctx)],
+      ["status", (_arg, ctx) => this.handleStatus(ctx)],
+      ["help", (_arg, ctx) => this.handleHelp(ctx)],
+      ["stop", (_arg, ctx) => this.handleStop(ctx)],
+      ["resume", (arg, ctx) => this.handleResume(arg, ctx)],
+      ["model", (arg, ctx) => this.handleModel(arg, ctx)],
+      ["compact", (_arg, ctx) => this.handleCompact(ctx)],
+      ["cost", (_arg, ctx) => this.handleCost(ctx)],
+      ["hud-for-usage", (_arg, ctx) => this.handleUsage(ctx)],
+      ["search", (arg, ctx) => this.handleSearch(arg, ctx)],
+      ["provider", (arg, ctx) => this.handleProvider(arg, ctx)],
+      ["notes", (arg, ctx) => this.handleNotes(arg, ctx)],
+      ["note-add", (arg, ctx) => this.handleNoteAdd(arg, ctx)],
+      ["note-edit", (arg, ctx) => this.handleNoteEdit(arg, ctx)],
+      ["note-del", (arg, ctx) => this.handleNoteDel(arg, ctx)],
+      ["spawn", (arg, ctx) => this.handleSpawn(arg, ctx)],
+      ["fork", (arg, ctx) => this.handleFork(arg, ctx)],
+    ]);
   }
 
   /** Get the effective provider for a conversation. */
@@ -74,67 +99,11 @@ export class CommandHandler {
     const cmd = (spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx)).toLowerCase();
     const arg = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
 
-    switch (cmd) {
-      case "new":
-        await this.handleNew(arg, ctx);
-        return { handled: true };
-      case "reset":
-        await this.handleReset(ctx);
-        return { handled: true };
-      case "sessions":
-        this.handleSessions(ctx);
-        return { handled: true };
-      case "status":
-        this.handleStatus(ctx);
-        return { handled: true };
-      case "help":
-        this.handleHelp(ctx);
-        return { handled: true };
-      case "stop":
-        this.handleStop(ctx);
-        return { handled: true };
-      case "resume":
-        await this.handleResume(arg, ctx);
-        return { handled: true };
-      case "model":
-        await this.handleModel(arg, ctx);
-        return { handled: true };
-      case "compact":
-        await this.handleCompact(ctx);
-        return { handled: true };
-      case "cost":
-        this.handleCost(ctx);
-        return { handled: true };
-      case "hud-for-usage":
-        this.handleUsage(ctx);
-        return { handled: true };
-      case "search":
-        this.handleSearch(arg, ctx);
-        return { handled: true };
-      case "provider":
-        await this.handleProvider(arg, ctx);
-        return { handled: true };
-      case "notes":
-        await this.handleNotes(arg, ctx);
-        return { handled: true };
-      case "note-add":
-        await this.handleNoteAdd(arg, ctx);
-        return { handled: true };
-      case "note-edit":
-        await this.handleNoteEdit(arg, ctx);
-        return { handled: true };
-      case "note-del":
-        await this.handleNoteDel(arg, ctx);
-        return { handled: true };
-      case "spawn":
-        this.handleSpawn(arg, ctx);
-        return { handled: true };
-      case "fork":
-        this.handleFork(arg, ctx);
-        return { handled: true };
-      default:
-        return { handled: false };
-    }
+    const handler = this.commandMap.get(cmd);
+    if (!handler) return { handled: false };
+
+    await handler(arg, ctx);
+    return { handled: true };
   }
 
   /** Get all configured (enabled) provider IDs from config, not just successfully created ones. */

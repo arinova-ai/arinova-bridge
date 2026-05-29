@@ -215,6 +215,16 @@ export function recordTask(record: TaskRecord): void {
 
 // --- Router ---
 
+/** Bundled dependencies for IPC handlers, enabling standalone testability. */
+export interface IpcHandlerContext {
+  agents: ActiveAgent[];
+  providers: Map<string, Provider>;
+  bridgeSessionStore?: BridgeSessionStore;
+  spawnManager?: SpawnManager;
+  forkManager?: ForkManager;
+  executor?: CommandExecutor;
+}
+
 function findAgent(agents: ActiveAgent[], name: string): ActiveAgent | undefined {
   return agents.find((a) => a.name.toLowerCase() === name.toLowerCase());
 }
@@ -233,42 +243,50 @@ export function createIpcRouter(
   executor?: CommandExecutor,
 ): (req: IpcRequest) => Promise<IpcResponse> {
   const exec = executor ?? defaultExecutor;
+  const ctx: IpcHandlerContext = {
+    agents,
+    providers,
+    bridgeSessionStore,
+    spawnManager,
+    forkManager,
+    executor: exec,
+  };
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
       case "list-agents":
-        return handleListAgents(req.id, agents);
+        return handleListAgents(req.id, ctx);
       case "deliver":
-        return handleDeliver(req.id, agents, req.params, bridgeSessionStore, exec);
+        return handleDeliver(req.id, req.params, ctx);
       case "agent-status":
-        return handleAgentStatus(req.id, agents, req.params);
+        return handleAgentStatus(req.id, req.params, ctx);
       case "ping":
-        return handlePing(req.id, agents, req.params);
+        return handlePing(req.id, req.params, ctx);
       case "agent-cost":
-        return handleAgentCost(req.id, agents, req.params);
+        return handleAgentCost(req.id, req.params, ctx);
       case "agent-stop":
-        return handleAgentStop(req.id, agents, req.params);
+        return handleAgentStop(req.id, req.params, ctx);
       case "agent-reset":
-        return await handleAgentReset(req.id, agents, req.params);
+        return await handleAgentReset(req.id, req.params, ctx);
       case "handoff":
-        return handleHandoff(req.id, agents, req.params);
+        return handleHandoff(req.id, req.params, ctx);
       case "history":
-        return handleHistory(req.id, req.params);
+        return handleHistory(req.id, req.params, ctx);
       case "spawn-add":
-        return handleSpawnAdd(req.id, agents, req.params, spawnManager);
+        return handleSpawnAdd(req.id, req.params, ctx);
       case "spawn-list":
-        return handleSpawnList(req.id, agents, req.params, spawnManager);
+        return handleSpawnList(req.id, req.params, ctx);
       case "spawn-cancel":
-        return handleSpawnCancel(req.id, req.params, spawnManager);
+        return handleSpawnCancel(req.id, req.params, ctx);
       case "spawn-result":
-        return handleSpawnResult(req.id, req.params, spawnManager);
+        return handleSpawnResult(req.id, req.params, ctx);
       case "spawn-logs":
-        return handleSpawnLogs(req.id, req.params, spawnManager);
+        return handleSpawnLogs(req.id, req.params, ctx);
       case "fork-add":
-        return handleForkAdd(req.id, agents, req.params, forkManager);
+        return handleForkAdd(req.id, req.params, ctx);
       case "fork-list":
-        return handleForkList(req.id, agents, req.params, forkManager);
+        return handleForkList(req.id, req.params, ctx);
       case "fork-cancel":
-        return handleForkCancel(req.id, req.params, forkManager);
+        return handleForkCancel(req.id, req.params, ctx);
       case "watch":
         // Watch is handled specially by the server (streaming), not here.
         // Return immediate ack.
@@ -288,8 +306,11 @@ export function subscribeWatch(writer: WatchWriter): () => void {
 
 // --- Handlers ---
 
-function handleListAgents(id: number, agents: ActiveAgent[]): IpcResponse {
-  const list = agents.map((a) => ({
+function handleListAgents(
+  id: number,
+  ctx: IpcHandlerContext,
+): IpcResponse {
+  const list = ctx.agents.map((a) => ({
     name: a.name,
     provider: a.provider.id,
     providerDisplayName: a.provider.displayName,
@@ -301,15 +322,13 @@ function handleListAgents(id: number, agents: ActiveAgent[]): IpcResponse {
 
 async function handleDeliver(
   id: number,
-  agents: ActiveAgent[],
   params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean },
-  bridgeSessionStore?: BridgeSessionStore,
-  executor?: CommandExecutor,
+  ctx: IpcHandlerContext,
 ): Promise<IpcResponse> {
-  const target = findAgent(agents, params.target);
-  if (!target) return agentNotFound(id, params.target, agents);
+  const target = findAgent(ctx.agents, params.target);
+  if (!target) return agentNotFound(id, params.target, ctx.agents);
 
-  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore, executor };
+  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore: ctx.bridgeSessionStore, executor: ctx.executor };
 
   // Fire-and-forget mode
   if (params.wait === false) {
@@ -329,11 +348,11 @@ async function handleDeliver(
 
 function handleAgentStatus(
   id: number,
-  agents: ActiveAgent[],
   params: { target: string },
+  ctx: IpcHandlerContext,
 ): IpcResponse {
-  const target = findAgent(agents, params.target);
-  if (!target) return agentNotFound(id, params.target, agents);
+  const target = findAgent(ctx.agents, params.target);
+  if (!target) return agentNotFound(id, params.target, ctx.agents);
 
   const provider = target.provider;
   const allSessions = provider.listSessions();
@@ -360,11 +379,11 @@ function handleAgentStatus(
 
 function handlePing(
   id: number,
-  agents: ActiveAgent[],
   params: { target: string },
+  ctx: IpcHandlerContext,
 ): IpcResponse {
-  const target = findAgent(agents, params.target);
-  if (!target) return agentNotFound(id, params.target, agents);
+  const target = findAgent(ctx.agents, params.target);
+  if (!target) return agentNotFound(id, params.target, ctx.agents);
 
   const sessions = target.provider.listSessions();
   const agentSessions = sessions.filter((s) => isAgentSession(s.conversationId, target.name));
@@ -384,14 +403,14 @@ function handlePing(
 
 function handleAgentCost(
   id: number,
-  agents: ActiveAgent[],
   params: { target?: string },
+  ctx: IpcHandlerContext,
 ): IpcResponse {
   const targets = params.target
-    ? (() => { const a = findAgent(agents, params.target); return a ? [a] : null; })()
-    : agents;
+    ? (() => { const a = findAgent(ctx.agents, params.target); return a ? [a] : null; })()
+    : ctx.agents;
 
-  if (!targets) return agentNotFound(id, params.target!, agents);
+  if (!targets) return agentNotFound(id, params.target!, ctx.agents);
 
   const costs = targets.map((a) => {
     const sessions = a.provider.listSessions()
@@ -425,11 +444,11 @@ function handleAgentCost(
 
 function handleAgentStop(
   id: number,
-  agents: ActiveAgent[],
   params: { target: string },
+  ctx: IpcHandlerContext,
 ): IpcResponse {
-  const target = findAgent(agents, params.target);
-  if (!target) return agentNotFound(id, params.target, agents);
+  const target = findAgent(ctx.agents, params.target);
+  if (!target) return agentNotFound(id, params.target, ctx.agents);
 
   const sessions = target.provider.listSessions()
     .filter((s) => isAgentSession(s.conversationId, target.name));
@@ -447,11 +466,11 @@ function handleAgentStop(
 
 async function handleAgentReset(
   id: number,
-  agents: ActiveAgent[],
   params: { target: string },
+  ctx: IpcHandlerContext,
 ): Promise<IpcResponse> {
-  const target = findAgent(agents, params.target);
-  if (!target) return agentNotFound(id, params.target, agents);
+  const target = findAgent(ctx.agents, params.target);
+  if (!target) return agentNotFound(id, params.target, ctx.agents);
 
   const sessions = target.provider.listSessions()
     .filter((s) => isAgentSession(s.conversationId, target.name));
@@ -470,14 +489,14 @@ async function handleAgentReset(
 
 function handleHandoff(
   id: number,
-  agents: ActiveAgent[],
   params: { from: string; to: string },
+  ctx: IpcHandlerContext,
 ): IpcResponse {
-  const fromAgent = findAgent(agents, params.from);
-  if (!fromAgent) return agentNotFound(id, params.from, agents);
+  const fromAgent = findAgent(ctx.agents, params.from);
+  if (!fromAgent) return agentNotFound(id, params.from, ctx.agents);
 
-  const toAgent = findAgent(agents, params.to);
-  if (!toAgent) return agentNotFound(id, params.to, agents);
+  const toAgent = findAgent(ctx.agents, params.to);
+  if (!toAgent) return agentNotFound(id, params.to, ctx.agents);
 
   if (fromAgent.name === toAgent.name) {
     return { id, error: { code: 3, message: "Cannot handoff to the same agent" } };
@@ -511,6 +530,7 @@ function handleHandoff(
 function handleHistory(
   id: number,
   params: { target?: string; limit?: number },
+  _ctx: IpcHandlerContext,
 ): IpcResponse {
   const limit = params.limit ?? 10;
   let filtered = taskHistory;
@@ -527,17 +547,17 @@ function handleHistory(
 
 function handleSpawnAdd(
   id: number,
-  agents: ActiveAgent[],
   params: { parentAgent: string; targetAgent: string; context: string; model?: string; cwd?: string },
-  spawnManager?: SpawnManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
-  const parent = findAgent(agents, params.parentAgent);
-  if (!parent) return agentNotFound(id, params.parentAgent, agents);
+  const parent = findAgent(ctx.agents, params.parentAgent);
+  if (!parent) return agentNotFound(id, params.parentAgent, ctx.agents);
 
-  const target = findAgent(agents, params.targetAgent);
-  if (!target) return agentNotFound(id, params.targetAgent, agents);
+  const target = findAgent(ctx.agents, params.targetAgent);
+  if (!target) return agentNotFound(id, params.targetAgent, ctx.agents);
 
   try {
     const job = spawnManager.spawn({
@@ -564,10 +584,10 @@ function handleSpawnAdd(
 
 function handleSpawnList(
   id: number,
-  agents: ActiveAgent[],
   params: { agent?: string },
-  spawnManager?: SpawnManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
   const jobs = params.agent
@@ -602,8 +622,9 @@ function handleSpawnList(
 function handleSpawnCancel(
   id: number,
   params: { id: string },
-  spawnManager?: SpawnManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
   const cancelled = spawnManager.cancel(params.id);
@@ -616,8 +637,9 @@ function handleSpawnCancel(
 function handleSpawnResult(
   id: number,
   params: { id: string },
-  spawnManager?: SpawnManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
   const job = spawnManager.getJob(params.id);
@@ -646,8 +668,9 @@ function handleSpawnResult(
 function handleSpawnLogs(
   id: number,
   params: { id: string },
-  spawnManager?: SpawnManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { spawnManager } = ctx;
   if (!spawnManager) return { id, error: { code: 5, message: "Spawn manager not enabled" } };
 
   const job = spawnManager.getJob(params.id);
@@ -670,14 +693,14 @@ function handleSpawnLogs(
 
 function handleForkAdd(
   id: number,
-  agents: ActiveAgent[],
   params: { agent: string; task: string; model?: string; cwd?: string },
-  forkManager?: ForkManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { forkManager } = ctx;
   if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
 
-  const agent = findAgent(agents, params.agent);
-  if (!agent) return agentNotFound(id, params.agent, agents);
+  const agent = findAgent(ctx.agents, params.agent);
+  if (!agent) return agentNotFound(id, params.agent, ctx.agents);
 
   try {
     const job = forkManager.fork({
@@ -702,16 +725,16 @@ function handleForkAdd(
 
 function handleForkList(
   id: number,
-  agents: ActiveAgent[],
   params: { agent?: string },
-  forkManager?: ForkManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { forkManager } = ctx;
   if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
 
   let jobs;
   if (params.agent) {
-    const agent = findAgent(agents, params.agent);
-    if (!agent) return agentNotFound(id, params.agent, agents);
+    const agent = findAgent(ctx.agents, params.agent);
+    if (!agent) return agentNotFound(id, params.agent, ctx.agents);
     jobs = forkManager.listByParent(agent.name);
   } else {
     jobs = forkManager.listAll();
@@ -736,8 +759,9 @@ function handleForkList(
 function handleForkCancel(
   id: number,
   params: { id: string },
-  forkManager?: ForkManager,
+  ctx: IpcHandlerContext,
 ): IpcResponse {
+  const { forkManager } = ctx;
   if (!forkManager) return { id, error: { code: 5, message: "Fork manager not enabled" } };
 
   const cancelled = forkManager.cancel(params.id);

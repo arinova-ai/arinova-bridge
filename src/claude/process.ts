@@ -150,6 +150,191 @@ function toolResultContentToString(content: unknown): string {
 }
 
 /**
+ * Tracks cumulative, per-window, and per-turn usage metrics (tokens, cost,
+ * rate limits, context) so that ClaudeProcess can delegate all accounting.
+ *
+ * Lives in the same file as ClaudeProcess to avoid multi-file splits while
+ * still keeping usage-tracking concerns cleanly separated.
+ */
+class UsageTracker {
+  totalCostUsd = 0;
+
+  // Latest snapshot (persisted across turns for /usage)
+  rateLimits = new Map<string, RateLimitInfo>();
+  lastContext: ContextUsage | undefined;
+  resolvedModel: string | undefined;
+
+  // 5H window usage tracking
+  private windowResetsAt = 0;
+  private windowInputTokens = 0;
+  private windowOutputTokens = 0;
+  private windowCostUsd = 0;
+  private windowTurns = 0;
+
+  // Per-turn usage accumulators
+  turnInputTokens = 0;
+  turnOutputTokens = 0;
+  turnCacheRead = 0;
+  turnCacheCreation = 0;
+  turnCostUsd: number | undefined;
+  turnNumTurns: number | undefined;
+  turnDurationMs: number | undefined;
+  turnContextTokens = 0;
+  turnContextWindow: number | undefined;
+  turnMaxOutputTokens: number | undefined;
+  turnRateLimits = new Map<string, RateLimitInfo>();
+
+  /** Reset per-turn accumulators at the start of a new turn. */
+  resetTurn(): void {
+    this.turnInputTokens = 0;
+    this.turnOutputTokens = 0;
+    this.turnCacheRead = 0;
+    this.turnCacheCreation = 0;
+    this.turnCostUsd = undefined;
+    this.turnNumTurns = undefined;
+    this.turnDurationMs = undefined;
+    this.turnContextTokens = 0;
+    this.turnContextWindow = undefined;
+    this.turnMaxOutputTokens = undefined;
+    this.turnRateLimits.clear();
+  }
+
+  /** Persist turn-level snapshots into cumulative/window-level state. */
+  commitTurn(): void {
+    // Persist rate limit snapshots
+    for (const [type, rl] of this.turnRateLimits) {
+      this.rateLimits.set(type, { ...rl });
+      if (type === "five_hour") {
+        const newResetsAt = rl.resetsAt ?? 0;
+        if (newResetsAt !== this.windowResetsAt) {
+          this.windowResetsAt = newResetsAt;
+          this.windowInputTokens = 0;
+          this.windowOutputTokens = 0;
+          this.windowCostUsd = 0;
+          this.windowTurns = 0;
+        }
+      }
+    }
+    // Accumulate window usage
+    this.windowInputTokens += this.turnInputTokens + this.turnCacheRead + this.turnCacheCreation;
+    this.windowOutputTokens += this.turnOutputTokens;
+    if (this.turnCostUsd !== undefined) this.windowCostUsd += this.turnCostUsd;
+    this.windowTurns += this.turnNumTurns ?? 1;
+
+    // Persist context snapshot
+    if (this.turnContextTokens > 0) {
+      this.lastContext = {
+        contextTokens: this.turnContextTokens,
+        contextWindow: this.turnContextWindow
+          ?? (this.resolvedModel ? MODEL_CONTEXT_WINDOWS[this.resolvedModel] : undefined),
+        maxOutputTokens: this.turnMaxOutputTokens,
+      };
+    }
+  }
+
+  /** Record a rate limit event. Returns the parsed info for logging. */
+  recordRateLimit(info: Record<string, unknown>): RateLimitInfo {
+    const rlType = typeof info.rateLimitType === "string" ? info.rateLimitType : "unknown";
+    const rl: RateLimitInfo = {
+      status: String(info.status ?? "unknown"),
+      resetsAt: typeof info.resetsAt === "number" ? info.resetsAt : undefined,
+      rateLimitType: rlType,
+      overageStatus: typeof info.overageStatus === "string" ? info.overageStatus : undefined,
+      overageResetsAt: typeof info.overageResetsAt === "number" ? info.overageResetsAt : undefined,
+      isUsingOverage: typeof info.isUsingOverage === "boolean" ? info.isUsingOverage : undefined,
+      utilization: typeof info.utilization === "number" ? info.utilization : undefined,
+    };
+    this.turnRateLimits.set(rlType, rl);
+    return rl;
+  }
+
+  /** Record token counts from a message_start event. */
+  recordMessageStart(msgUsage: Record<string, number>): void {
+    if (msgUsage.input_tokens) this.turnInputTokens += msgUsage.input_tokens;
+    if (msgUsage.cache_read_input_tokens) this.turnCacheRead += msgUsage.cache_read_input_tokens;
+    if (msgUsage.cache_creation_input_tokens) this.turnCacheCreation += msgUsage.cache_creation_input_tokens;
+    // Track latest input as context size (last message_start = most recent context)
+    const totalInput = (msgUsage.input_tokens ?? 0) + (msgUsage.cache_read_input_tokens ?? 0) + (msgUsage.cache_creation_input_tokens ?? 0);
+    if (totalInput > 0) this.turnContextTokens = totalInput;
+  }
+
+  /** Record output token counts from a message_delta event. */
+  recordMessageDelta(deltaUsage: Record<string, number>): void {
+    if (deltaUsage.output_tokens) this.turnOutputTokens += deltaUsage.output_tokens;
+  }
+
+  /** Record result-level fields (cost, turns, duration, model usage). */
+  recordResult(event: Record<string, unknown>, configuredModel: string | undefined): void {
+    if (typeof event.total_cost_usd === "number") {
+      this.totalCostUsd += event.total_cost_usd as number;
+      this.turnCostUsd = event.total_cost_usd as number;
+    }
+    if (typeof event.num_turns === "number") {
+      this.turnNumTurns = event.num_turns as number;
+    }
+    if (typeof event.duration_ms === "number") {
+      this.turnDurationMs = event.duration_ms as number;
+    }
+
+    // Resolve the primary turn model for hud_update.
+    // opts.model is the user's explicit selection — trust it. modelUsage is
+    // only used to pull contextWindow (max across models) and the matching
+    // entry's maxOutputTokens. Falling back to "model with most outputTokens"
+    // is unreliable because outputTokens is a session-cumulative value, so a
+    // Haiku sub-agent used for compact/summarize can eventually outrank the
+    // primary Opus/Sonnet across multiple turns.
+    const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
+    if (modelUsage) {
+      for (const info of Object.values(modelUsage)) {
+        const cw = typeof info.contextWindow === "number" ? info.contextWindow : 0;
+        if (cw > (this.turnContextWindow ?? 0)) this.turnContextWindow = cw;
+      }
+
+      if (configuredModel) {
+        this.resolvedModel = configuredModel;
+        const match = matchModelUsageEntry(modelUsage, configuredModel);
+        if (match && typeof match.maxOutputTokens === "number") {
+          this.turnMaxOutputTokens = match.maxOutputTokens;
+        }
+      } else {
+        let bestModelId: string | undefined;
+        let bestOutputTokens = -1;
+        let bestMaxOutputTokens: number | undefined;
+        for (const [modelId, info] of Object.entries(modelUsage)) {
+          if (typeof info.outputTokens === "number" && info.outputTokens > bestOutputTokens) {
+            bestOutputTokens = info.outputTokens;
+            bestModelId = modelId;
+            bestMaxOutputTokens = typeof info.maxOutputTokens === "number" ? info.maxOutputTokens : undefined;
+          }
+        }
+        if (bestModelId) {
+          this.resolvedModel = bestModelId;
+          if (bestMaxOutputTokens !== undefined) this.turnMaxOutputTokens = bestMaxOutputTokens;
+        }
+      }
+    }
+  }
+
+  /** Record cost from a stale (aborted) result without updating turn accumulators. */
+  recordStaleCost(event: Record<string, unknown>): void {
+    if (typeof event.total_cost_usd === "number") {
+      this.totalCostUsd += event.total_cost_usd as number;
+    }
+  }
+
+  getWindowUsage(): WindowUsage | undefined {
+    if (this.windowResetsAt === 0 && this.windowTurns === 0) return undefined;
+    return {
+      inputTokens: this.windowInputTokens,
+      outputTokens: this.windowOutputTokens,
+      costUsd: this.windowCostUsd,
+      turns: this.windowTurns,
+      resetsAt: this.windowResetsAt,
+    };
+  }
+}
+
+/**
  * Persistent Claude Code CLI process using the bidirectional stream-json protocol.
  *
  * Keeps a single long-running `claude` process and sends/receives
@@ -161,33 +346,9 @@ export class ClaudeProcess {
   private lineBuf = "";
   private sessionId = "";
   private alive = false;
-  private totalCostUsd = 0;
   private stderrBuf: string[] = [];
 
-  // Latest snapshot (persisted across turns for /usage)
-  private rateLimits = new Map<string, RateLimitInfo>();
-  private lastContext: ContextUsage | undefined;
-  private resolvedModel: string | undefined;
-
-  // 5H window usage tracking
-  private windowResetsAt = 0;
-  private windowInputTokens = 0;
-  private windowOutputTokens = 0;
-  private windowCostUsd = 0;
-  private windowTurns = 0;
-
-  // Per-turn usage accumulators
-  private turnInputTokens = 0;
-  private turnOutputTokens = 0;
-  private turnCacheRead = 0;
-  private turnCacheCreation = 0;
-  private turnCostUsd: number | undefined;
-  private turnNumTurns: number | undefined;
-  private turnDurationMs: number | undefined;
-  private turnContextTokens = 0;
-  private turnContextWindow: number | undefined;
-  private turnMaxOutputTokens: number | undefined;
-  private turnRateLimits = new Map<string, RateLimitInfo>();
+  private readonly usage = new UsageTracker();
 
   // Per-turn state
   private turnResolve: ((result: SendMessageResult) => void) | null = null;
@@ -214,10 +375,29 @@ export class ClaudeProcess {
   private readonly logTag: string;
   private readonly spawner: ProcessSpawner;
 
+  /** Map from event type to handler. Populated once in the constructor. */
+  private readonly eventHandlers: Map<string, (event: Record<string, unknown>) => void>;
+
+  /**
+   * Compatibility getter so that tests setting `(process as any).turnContextTokens`
+   * still work after the field moved into UsageTracker.
+   */
+  private get turnContextTokens(): number { return this.usage.turnContextTokens; }
+  private set turnContextTokens(v: number) { this.usage.turnContextTokens = v; }
+
   constructor(opts: ClaudeProcessOptions, spawner?: ProcessSpawner) {
     this.opts = opts;
     this.spawner = spawner ?? defaultSpawner;
     this.logTag = opts.agentName ? `claude-process[${opts.agentName}]` : "claude-process";
+
+    this.eventHandlers = new Map<string, (event: Record<string, unknown>) => void>([
+      ["system", (e) => this.handleSystem(e)],
+      ["rate_limit_event", (e) => this.handleRateLimitEvent(e)],
+      ["stream_event", (e) => this.handleStreamEvent(e)],
+      ["assistant", (e) => this.handleAssistant(e)],
+      ["user", (e) => this.handleUser(e)],
+      ["result", (e) => this.handleResult(e)],
+    ]);
   }
 
   /**
@@ -374,17 +554,7 @@ export class ClaudeProcess {
 
     this.turnProseText = "";
     this.turnOnText = onText ?? null;
-    this.turnInputTokens = 0;
-    this.turnOutputTokens = 0;
-    this.turnCacheRead = 0;
-    this.turnCacheCreation = 0;
-    this.turnCostUsd = undefined;
-    this.turnNumTurns = undefined;
-    this.turnDurationMs = undefined;
-    this.turnContextTokens = 0;
-    this.turnContextWindow = undefined;
-    this.turnMaxOutputTokens = undefined;
-    this.turnRateLimits.clear();
+    this.usage.resetTurn();
     this.turnId = randomUUID();
     this.turnMessageId = messageId;
     this.pendingToolCalls.clear();
@@ -469,35 +639,7 @@ export class ClaudeProcess {
     this.clearTurnTimeout();
     this.clearSignalListener();
 
-    // Persist rate limit snapshots
-    for (const [type, rl] of this.turnRateLimits) {
-      this.rateLimits.set(type, { ...rl });
-      if (type === "five_hour") {
-        const newResetsAt = rl.resetsAt ?? 0;
-        if (newResetsAt !== this.windowResetsAt) {
-          this.windowResetsAt = newResetsAt;
-          this.windowInputTokens = 0;
-          this.windowOutputTokens = 0;
-          this.windowCostUsd = 0;
-          this.windowTurns = 0;
-        }
-      }
-    }
-    // Accumulate window usage
-    this.windowInputTokens += this.turnInputTokens + this.turnCacheRead + this.turnCacheCreation;
-    this.windowOutputTokens += this.turnOutputTokens;
-    if (this.turnCostUsd !== undefined) this.windowCostUsd += this.turnCostUsd;
-    this.windowTurns += this.turnNumTurns ?? 1;
-
-    // Persist context snapshot
-    if (this.turnContextTokens > 0) {
-      this.lastContext = {
-        contextTokens: this.turnContextTokens,
-        contextWindow: this.turnContextWindow
-          ?? (this.resolvedModel ? MODEL_CONTEXT_WINDOWS[this.resolvedModel] : undefined),
-        maxOutputTokens: this.turnMaxOutputTokens,
-      };
-    }
+    this.usage.commitTurn();
 
     if (this.turnResolve) {
       const resolve = this.turnResolve;
@@ -507,8 +649,8 @@ export class ClaudeProcess {
       resolve({
         text: this.turnProseText,
         sessionId: this.sessionId,
-        durationMs: this.turnDurationMs,
-        numTurns: this.turnNumTurns,
+        durationMs: this.usage.turnDurationMs,
+        numTurns: this.usage.turnNumTurns,
       });
     }
   }
@@ -560,6 +702,10 @@ export class ClaudeProcess {
     return this.restartPromise;
   }
 
+  // ---------------------------------------------------------------------------
+  // processLine: JSON parse + event handler dispatch (R11)
+  // ---------------------------------------------------------------------------
+
   private processLine(line: string): void {
     if (!line.trim()) return;
 
@@ -574,198 +720,150 @@ export class ClaudeProcess {
 
     const eventType = String(event.type ?? "unknown");
 
-    if (eventType === "system" && event.subtype === "init") {
-      if (typeof event.session_id === "string") {
-        this.sessionId = event.session_id as string;
-        log.info(`${this.logTag}: session init sid=${this.sessionId.slice(0, 12)}`);
-      }
-      return;
-    }
-
-    if (eventType === "rate_limit_event") {
-      const info = event.rate_limit_info as Record<string, unknown> | undefined;
-      if (info) {
-        const rlType = typeof info.rateLimitType === "string" ? info.rateLimitType : "unknown";
-        const rl: RateLimitInfo = {
-          status: String(info.status ?? "unknown"),
-          resetsAt: typeof info.resetsAt === "number" ? info.resetsAt : undefined,
-          rateLimitType: rlType,
-          overageStatus: typeof info.overageStatus === "string" ? info.overageStatus : undefined,
-          overageResetsAt: typeof info.overageResetsAt === "number" ? info.overageResetsAt : undefined,
-          isUsingOverage: typeof info.isUsingOverage === "boolean" ? info.isUsingOverage : undefined,
-          utilization: typeof info.utilization === "number" ? info.utilization : undefined,
-        };
-        this.turnRateLimits.set(rlType, rl);
-        if (rl.status !== "allowed") {
-          log.warn(`${this.logTag}: rate limit ${rlType} status=${rl.status} info=${JSON.stringify(info)}`);
-        }
-      }
-      return;
-    }
-
     // While draining stale results from an aborted turn, skip stream events
     if (this.staleResults > 0) {
       if (eventType === "stream_event" || eventType === "assistant" || eventType === "user") {
         return;
       }
       if (eventType === "result") {
-        // Still track session ID and cost from the aborted turn
-        if (typeof event.session_id === "string") {
-          this.sessionId = event.session_id as string;
-        }
-        if (typeof event.total_cost_usd === "number") {
-          this.totalCostUsd += event.total_cost_usd as number;
-        }
-        this.staleResults--;
-        if (this.staleResults <= 0) {
-          this.staleResults = 0;
-          this.clearStaleDrainTimer();
-        }
-        log.info(`${this.logTag}: discarded stale result (remaining=${this.staleResults})`);
+        this.handleStaleResult(event);
         return;
       }
     }
 
-    // Streaming text delta — Claude's prose (only thing we send to chat)
-    if (eventType === "stream_event") {
-      const inner = event.event as Record<string, unknown> | undefined;
-      if (inner?.type === "content_block_delta") {
-        const delta = inner.delta as Record<string, unknown> | undefined;
-        if (delta?.type === "text_delta" && typeof delta.text === "string") {
-          const text = delta.text as string;
-          this.turnProseText += text;
-          this.turnOnText?.(text);
-        }
-      }
-      // message_start carries input token counts
-      if (inner?.type === "message_start") {
-        const msgUsage = (inner.message as Record<string, unknown>)?.usage as Record<string, number> | undefined;
-        if (msgUsage) {
-          if (msgUsage.input_tokens) this.turnInputTokens += msgUsage.input_tokens;
-          if (msgUsage.cache_read_input_tokens) this.turnCacheRead += msgUsage.cache_read_input_tokens;
-          if (msgUsage.cache_creation_input_tokens) this.turnCacheCreation += msgUsage.cache_creation_input_tokens;
-          // Track latest input as context size (last message_start = most recent context)
-          const totalInput = (msgUsage.input_tokens ?? 0) + (msgUsage.cache_read_input_tokens ?? 0) + (msgUsage.cache_creation_input_tokens ?? 0);
-          if (totalInput > 0) this.turnContextTokens = totalInput;
-        }
-      }
-      // message_delta carries output token counts
-      if (inner?.type === "message_delta") {
-        const deltaUsage = (inner as Record<string, unknown>).usage as Record<string, number> | undefined;
-        if (deltaUsage?.output_tokens) this.turnOutputTokens += deltaUsage.output_tokens;
-      }
-      return;
+    const handler = this.eventHandlers.get(eventType);
+    if (handler) {
+      handler(event);
+    } else {
+      log.warn(`${this.logTag}: unhandled event type="${eventType}" subtype="${event.subtype ?? ""}"`);
     }
+  }
 
-    // assistant event: may contain tool_use blocks — record tool call start.
-    if (eventType === "assistant") {
-      this.captureToolUses(event);
-      return;
-    }
+  // ---------------------------------------------------------------------------
+  // Event handlers (one per event type, registered in eventHandlers map)
+  // ---------------------------------------------------------------------------
 
-    // user event: may contain tool_result blocks — finalise + report each call.
-    if (eventType === "user") {
-      this.captureToolResults(event);
-      return;
-    }
-
-    // System progress events carry no user-visible signal.
-    if (eventType === "system") {
-      return;
-    }
-
-    // Result event — turn is complete
-    if (eventType === "result") {
+  private handleSystem(event: Record<string, unknown>): void {
+    if (event.subtype === "init") {
       if (typeof event.session_id === "string") {
         this.sessionId = event.session_id as string;
+        this.opts.logger.info(`${this.logTag}: session init sid=${this.sessionId.slice(0, 12)}`);
       }
+    }
+    // Non-init system events (progress, etc.) carry no user-visible signal.
+  }
 
-      if (typeof event.total_cost_usd === "number") {
-        this.totalCostUsd += event.total_cost_usd as number;
-        this.turnCostUsd = event.total_cost_usd as number;
+  private handleRateLimitEvent(event: Record<string, unknown>): void {
+    const info = event.rate_limit_info as Record<string, unknown> | undefined;
+    if (info) {
+      const rl = this.usage.recordRateLimit(info);
+      if (rl.status !== "allowed") {
+        this.opts.logger.warn(
+          `${this.logTag}: rate limit ${rl.rateLimitType ?? "unknown"} status=${rl.status} info=${JSON.stringify(info)}`,
+        );
       }
-      if (typeof event.num_turns === "number") {
-        this.turnNumTurns = event.num_turns as number;
+    }
+  }
+
+  private handleStreamEvent(event: Record<string, unknown>): void {
+    const inner = event.event as Record<string, unknown> | undefined;
+
+    // Streaming text delta — Claude's prose (only thing we send to chat)
+    if (inner?.type === "content_block_delta") {
+      const delta = inner.delta as Record<string, unknown> | undefined;
+      if (delta?.type === "text_delta" && typeof delta.text === "string") {
+        const text = delta.text as string;
+        this.turnProseText += text;
+        this.turnOnText?.(text);
       }
-      if (typeof event.duration_ms === "number") {
-        this.turnDurationMs = event.duration_ms as number;
+    }
+    // message_start carries input token counts
+    if (inner?.type === "message_start") {
+      const msgUsage = (inner.message as Record<string, unknown>)?.usage as Record<string, number> | undefined;
+      if (msgUsage) {
+        this.usage.recordMessageStart(msgUsage);
       }
-
-      // Resolve the primary turn model for hud_update.
-      // opts.model is the user's explicit selection — trust it. modelUsage is
-      // only used to pull contextWindow (max across models) and the matching
-      // entry's maxOutputTokens. Falling back to "model with most outputTokens"
-      // is unreliable because outputTokens is a session-cumulative value, so a
-      // Haiku sub-agent used for compact/summarize can eventually outrank the
-      // primary Opus/Sonnet across multiple turns.
-      const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
-      if (modelUsage) {
-        for (const info of Object.values(modelUsage)) {
-          const cw = typeof info.contextWindow === "number" ? info.contextWindow : 0;
-          if (cw > (this.turnContextWindow ?? 0)) this.turnContextWindow = cw;
-        }
-
-        if (this.opts.model) {
-          this.resolvedModel = this.opts.model;
-          const match = matchModelUsageEntry(modelUsage, this.opts.model);
-          if (match && typeof match.maxOutputTokens === "number") {
-            this.turnMaxOutputTokens = match.maxOutputTokens;
-          }
-        } else {
-          let bestModelId: string | undefined;
-          let bestOutputTokens = -1;
-          let bestMaxOutputTokens: number | undefined;
-          for (const [modelId, info] of Object.entries(modelUsage)) {
-            if (typeof info.outputTokens === "number" && info.outputTokens > bestOutputTokens) {
-              bestOutputTokens = info.outputTokens;
-              bestModelId = modelId;
-              bestMaxOutputTokens = typeof info.maxOutputTokens === "number" ? info.maxOutputTokens : undefined;
-            }
-          }
-          if (bestModelId) {
-            this.resolvedModel = bestModelId;
-            if (bestMaxOutputTokens !== undefined) this.turnMaxOutputTokens = bestMaxOutputTokens;
-          }
-        }
+    }
+    // message_delta carries output token counts
+    if (inner?.type === "message_delta") {
+      const deltaUsage = (inner as Record<string, unknown>).usage as Record<string, number> | undefined;
+      if (deltaUsage?.output_tokens) {
+        this.usage.recordMessageDelta(deltaUsage);
       }
+    }
+  }
 
-      const costUsd = typeof event.total_cost_usd === "number"
-        ? (event.total_cost_usd as number).toFixed(4)
-        : "?";
-      const numTurns = event.num_turns ?? "?";
-      const durationMs = event.duration_ms ?? "?";
+  /** assistant event: may contain tool_use blocks — record tool call start. */
+  private handleAssistant(event: Record<string, unknown>): void {
+    this.captureToolUses(event);
+  }
 
-      if (event.is_error || event.subtype === "error_during_execution") {
-        const errors = event.errors as string[] | undefined;
-        const errorMsg = errors?.join("; ") ?? String(event.result ?? "unknown error");
-        log.error(`${this.logTag}: turn error: ${errorMsg}`);
+  /** user event: may contain tool_result blocks — finalise + report each call. */
+  private handleUser(event: Record<string, unknown>): void {
+    this.captureToolResults(event);
+  }
 
-        if (!this.turnProseText.trim()) {
-          log.warn(`${this.logTag}: error with no prose output, rejecting`);
-          this.clearTurnTimeout();
-          if (this.turnReject) {
-            const reject = this.turnReject;
-            this.turnResolve = null;
-            this.turnReject = null;
-            this.turnOnText = null;
-            reject(new Error(`Claude turn error: ${errorMsg}`));
-          }
-          return;
-        }
-      }
+  private handleResult(event: Record<string, unknown>): void {
+    const log = this.opts.logger;
 
-      log.info(
-        `${this.logTag}: turn complete sid=${this.sessionId.slice(0, 12)} ` +
-        `proseLen=${this.turnProseText.length} ` +
-        `turns=${numTurns} cost=$${costUsd} dur=${durationMs}ms`,
-      );
-
-      this.completeTurn();
-      return;
+    if (typeof event.session_id === "string") {
+      this.sessionId = event.session_id as string;
     }
 
-    log.warn(`${this.logTag}: unhandled event type="${eventType}" subtype="${event.subtype ?? ""}"`);
+    this.usage.recordResult(event, this.opts.model);
+
+    const costUsd = typeof event.total_cost_usd === "number"
+      ? (event.total_cost_usd as number).toFixed(4)
+      : "?";
+    const numTurns = event.num_turns ?? "?";
+    const durationMs = event.duration_ms ?? "?";
+
+    if (event.is_error || event.subtype === "error_during_execution") {
+      const errors = event.errors as string[] | undefined;
+      const errorMsg = errors?.join("; ") ?? String(event.result ?? "unknown error");
+      log.error(`${this.logTag}: turn error: ${errorMsg}`);
+
+      if (!this.turnProseText.trim()) {
+        log.warn(`${this.logTag}: error with no prose output, rejecting`);
+        this.clearTurnTimeout();
+        if (this.turnReject) {
+          const reject = this.turnReject;
+          this.turnResolve = null;
+          this.turnReject = null;
+          this.turnOnText = null;
+          reject(new Error(`Claude turn error: ${errorMsg}`));
+        }
+        return;
+      }
+    }
+
+    log.info(
+      `${this.logTag}: turn complete sid=${this.sessionId.slice(0, 12)} ` +
+      `proseLen=${this.turnProseText.length} ` +
+      `turns=${numTurns} cost=$${costUsd} dur=${durationMs}ms`,
+    );
+
+    this.completeTurn();
   }
+
+  /** Handle a result event that arrived after the turn was aborted. */
+  private handleStaleResult(event: Record<string, unknown>): void {
+    // Still track session ID and cost from the aborted turn
+    if (typeof event.session_id === "string") {
+      this.sessionId = event.session_id as string;
+    }
+    this.usage.recordStaleCost(event);
+    this.staleResults--;
+    if (this.staleResults <= 0) {
+      this.staleResults = 0;
+      this.clearStaleDrainTimer();
+    }
+    this.opts.logger.info(`${this.logTag}: discarded stale result (remaining=${this.staleResults})`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
 
   async restart(): Promise<void> {
     this.opts.logger.info(`${this.logTag}: restarting...`);
@@ -873,6 +971,10 @@ export class ClaudeProcess {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Public accessors
+  // ---------------------------------------------------------------------------
+
   isAlive(): boolean {
     return this.alive;
   }
@@ -882,7 +984,7 @@ export class ClaudeProcess {
   }
 
   getTotalCost(): number {
-    return this.totalCostUsd;
+    return this.usage.totalCostUsd;
   }
 
   getCwd(): string | undefined {
@@ -890,26 +992,19 @@ export class ClaudeProcess {
   }
 
   getModel(): string | undefined {
-    return this.resolvedModel ?? this.opts.model;
+    return this.usage.resolvedModel ?? this.opts.model;
   }
 
   getRateLimits(): Map<string, RateLimitInfo> {
-    return this.rateLimits;
+    return this.usage.rateLimits;
   }
 
   getContext(): ContextUsage | undefined {
-    return this.lastContext;
+    return this.usage.lastContext;
   }
 
   getWindowUsage(): WindowUsage | undefined {
-    if (this.windowResetsAt === 0 && this.windowTurns === 0) return undefined;
-    return {
-      inputTokens: this.windowInputTokens,
-      outputTokens: this.windowOutputTokens,
-      costUsd: this.windowCostUsd,
-      turns: this.windowTurns,
-      resetsAt: this.windowResetsAt,
-    };
+    return this.usage.getWindowUsage();
   }
 
 }
