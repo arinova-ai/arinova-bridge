@@ -14,6 +14,17 @@ const execFileAsync = promisify(execFile);
 
 const log = createLogger("a2a");
 
+/** Injectable command executor for testability. */
+export interface CommandExecutor {
+  execFile(cmd: string, args: string[], opts?: { timeout?: number }): Promise<{ stdout: string; stderr: string }>;
+}
+
+const defaultExecutor: CommandExecutor = {
+  execFile: async (cmd, args, opts) => {
+    const result = await execFileAsync(cmd, args, opts);
+    return { stdout: String(result.stdout), stderr: String(result.stderr) };
+  },
+};
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
@@ -46,13 +57,13 @@ export function runExclusiveOnAgent<T>(
  * Query the sender agent's long-term memories via Arinova CLI.
  * Returns formatted memory context string, or undefined if no results / error.
  */
-async function querySenderMemories(source: string, content: string): Promise<string | undefined> {
+async function querySenderMemories(source: string, content: string, executor: CommandExecutor): Promise<string | undefined> {
   // Skip non-agent sources (spawn, fork, cli)
   if (!source || source === "cli" || source.includes(":")) return undefined;
 
   try {
     const queryText = content.length > 200 ? content.slice(0, 200) : content;
-    const { stdout } = await execFileAsync("arinova", [
+    const { stdout } = await executor.execFile("arinova", [
       "--profile", source,
       "--json",
       "memory", "query",
@@ -85,7 +96,7 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void },
+  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void; executor?: CommandExecutor },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -127,9 +138,10 @@ export async function deliverToAgent(
       // Query sender's long-term memories (A2A only, regardless of bridgeSessionStore)
       // Run this outside the per-agent send lock — it's a CLI subprocess call
       // against the sender, unrelated to the target's Claude process.
+      const executor = opts?.executor ?? defaultExecutor;
       let extraContext: string | undefined;
       if (from !== "cli") {
-        extraContext = await querySenderMemories(from, content);
+        extraContext = await querySenderMemories(from, content, executor);
       }
 
       await runExclusiveOnAgent(target.name, async () => {
@@ -218,13 +230,15 @@ export function createIpcRouter(
   bridgeSessionStore?: BridgeSessionStore,
   spawnManager?: SpawnManager,
   forkManager?: ForkManager,
+  executor?: CommandExecutor,
 ): (req: IpcRequest) => Promise<IpcResponse> {
+  const exec = executor ?? defaultExecutor;
   return async (req: IpcRequest): Promise<IpcResponse> => {
     switch (req.method) {
       case "list-agents":
         return handleListAgents(req.id, agents);
       case "deliver":
-        return handleDeliver(req.id, agents, req.params, bridgeSessionStore);
+        return handleDeliver(req.id, agents, req.params, bridgeSessionStore, exec);
       case "agent-status":
         return handleAgentStatus(req.id, agents, req.params);
       case "ping":
@@ -290,11 +304,12 @@ async function handleDeliver(
   agents: ActiveAgent[],
   params: { target: string; content: string; source?: string; cwd?: string; model?: string; wait?: boolean },
   bridgeSessionStore?: BridgeSessionStore,
+  executor?: CommandExecutor,
 ): Promise<IpcResponse> {
   const target = findAgent(agents, params.target);
   if (!target) return agentNotFound(id, params.target, agents);
 
-  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore };
+  const deliverOpts = { source: params.source, cwd: params.cwd, model: params.model, bridgeSessionStore, executor };
 
   // Fire-and-forget mode
   if (params.wait === false) {

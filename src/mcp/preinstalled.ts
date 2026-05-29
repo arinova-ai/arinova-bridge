@@ -7,6 +7,24 @@ import type { Logger } from "../util/logger.js";
 
 const require = createRequire(import.meta.url);
 
+/**
+ * Abstraction over filesystem operations used by this module.
+ * Inject a custom implementation for testing; production code uses `defaultFs`.
+ */
+export interface FileSystem {
+  writeFileSync(path: string, data: string, encoding?: string): void;
+  readFileSync(path: string, encoding: string): string;
+  existsSync(path: string): boolean;
+  mkdirSync(path: string, options?: { recursive?: boolean }): void;
+}
+
+const defaultFs: FileSystem = {
+  writeFileSync: writeFileSync as FileSystem["writeFileSync"],
+  readFileSync: readFileSync as FileSystem["readFileSync"],
+  existsSync,
+  mkdirSync: mkdirSync as FileSystem["mkdirSync"],
+};
+
 export interface ArinovaMcpEnv {
   botToken: string;
   serverUrl: string;
@@ -137,26 +155,26 @@ export function getPreinstalledMcpServers(arinova?: ArinovaMcpEnv, userServers?:
  * Used by anthropic-cli provider for --mcp-config flag.
  * If a user-provided mcpConfigPath is set, returns that instead.
  */
-export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>): string | undefined {
+export function ensureCliMcpConfig(userMcpConfigPath: string | undefined, logger: Logger, arinova?: ArinovaMcpEnv, userServers?: Record<string, McpStdioServer>, fs: FileSystem = defaultFs): string | undefined {
   // User-provided config takes priority
   if (userMcpConfigPath) {
     return userMcpConfigPath;
   }
 
   try {
-    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(MCP_CONFIG_DIR, { recursive: true });
 
     const config: McpCliConfig = {
       mcpServers: buildServerMap(arinova, userServers),
     };
 
     const desired = JSON.stringify(config, null, 2);
-    const existing = existsSync(MCP_CLI_CONFIG_PATH)
-      ? readFileSync(MCP_CLI_CONFIG_PATH, "utf-8")
+    const existing = fs.existsSync(MCP_CLI_CONFIG_PATH)
+      ? fs.readFileSync(MCP_CLI_CONFIG_PATH, "utf-8")
       : "";
 
     if (desired !== existing) {
-      writeFileSync(MCP_CLI_CONFIG_PATH, desired, "utf-8");
+      fs.writeFileSync(MCP_CLI_CONFIG_PATH, desired, "utf-8");
       logger.info(`mcp: generated CLI config at ${MCP_CLI_CONFIG_PATH}`);
     }
 
@@ -176,9 +194,10 @@ export function ensureAgentCliMcpConfig(
   logger: Logger,
   arinova: ArinovaMcpEnv,
   userServers?: Record<string, McpStdioServer>,
+  fs: FileSystem = defaultFs,
 ): string | undefined {
   try {
-    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(MCP_CONFIG_DIR, { recursive: true });
 
     const configPath = path.join(MCP_CONFIG_DIR, `${agentName}.json`);
     const config: McpCliConfig = {
@@ -186,12 +205,12 @@ export function ensureAgentCliMcpConfig(
     };
 
     const desired = JSON.stringify(config, null, 2);
-    const existing = existsSync(configPath)
-      ? readFileSync(configPath, "utf-8")
+    const existing = fs.existsSync(configPath)
+      ? fs.readFileSync(configPath, "utf-8")
       : "";
 
     if (desired !== existing) {
-      writeFileSync(configPath, desired, "utf-8");
+      fs.writeFileSync(configPath, desired, "utf-8");
       logger.info(`mcp: generated per-agent CLI config for "${agentName}" at ${configPath}`);
     }
 

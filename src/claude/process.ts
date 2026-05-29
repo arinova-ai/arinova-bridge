@@ -1,7 +1,16 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Logger } from "../util/logger.js";
 import { getErrorMessage } from "../util/errors.js";
+
+/**
+ * Abstraction over `child_process.spawn` so callers can inject a test double.
+ */
+export interface ProcessSpawner {
+  spawn(command: string, args: string[], options: SpawnOptions): ChildProcess;
+}
+
+const defaultSpawner: ProcessSpawner = { spawn: nodeSpawn };
 
 /**
  * A single tool call report, emitted immediately after each tool completes.
@@ -203,9 +212,11 @@ export class ClaudeProcess {
   private turnSignalListener: (() => void) | null = null;
 
   private readonly logTag: string;
+  private readonly spawner: ProcessSpawner;
 
-  constructor(opts: ClaudeProcessOptions) {
+  constructor(opts: ClaudeProcessOptions, spawner?: ProcessSpawner) {
     this.opts = opts;
+    this.spawner = spawner ?? defaultSpawner;
     this.logTag = opts.agentName ? `claude-process[${opts.agentName}]` : "claude-process";
   }
 
@@ -273,7 +284,7 @@ export class ClaudeProcess {
     }
     log.info(`${this.logTag}: spawning args=${redactedArgs.join(" ")}`);
 
-    const child = spawn(claudePath, argv, {
+    const child = this.spawner.spawn(claudePath, argv, {
       env,
       cwd: this.opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],

@@ -24,15 +24,29 @@ function isUnrecoverableTurnError(msg: string): boolean {
 // Context-injection tracking (shared across Chat + A2A)
 // ---------------------------------------------------------------------------
 
-/** Sessions that have already received bridge context injection. */
-const contextInjected = new Set<string>();
-/** Provider-side session IDs to detect mid-turn respawns. */
-const lastProviderSessionId = new Map<string, string>();
+/** Encapsulates the mutable state used by the message pipeline. */
+export interface PipelineState {
+  /** Sessions that have already received bridge context injection. */
+  contextInjected: Set<string>;
+  /** Provider-side session IDs to detect mid-turn respawns. */
+  lastProviderSessionId: Map<string, string>;
+}
+
+/** Create a fresh, isolated pipeline state (useful for tests). */
+export function createPipelineState(): PipelineState {
+  return {
+    contextInjected: new Set<string>(),
+    lastProviderSessionId: new Map<string, string>(),
+  };
+}
+
+/** Default module-level state — preserves backward compatibility for existing callers. */
+const defaultState: PipelineState = createPipelineState();
 
 /** Clear context-injection tracking for a session (e.g. after /model, /compact, /new). */
-export function clearContextInjected(sessionId: string): void {
-  contextInjected.delete(sessionId);
-  lastProviderSessionId.delete(sessionId);
+export function clearContextInjected(sessionId: string, state: PipelineState = defaultState): void {
+  state.contextInjected.delete(sessionId);
+  state.lastProviderSessionId.delete(sessionId);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +129,7 @@ export interface PipelineResult {
 // runMessagePipeline — the unified 8-step flow
 // ---------------------------------------------------------------------------
 
-export async function runMessagePipeline(ctx: PipelineContext): Promise<PipelineResult> {
+export async function runMessagePipeline(ctx: PipelineContext, state: PipelineState = defaultState): Promise<PipelineResult> {
   const {
     provider,
     bridgeSessionStore,
@@ -129,19 +143,19 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
 
   // Step 1: Detect provider session death or respawn → force re-injection
   const sessionInfo = provider.getSessionInfo(sessionId);
-  const prevSid = lastProviderSessionId.get(sessionId);
+  const prevSid = state.lastProviderSessionId.get(sessionId);
   if (prevSid && (!sessionInfo || !sessionInfo.alive)) {
-    clearContextInjected(sessionId);
+    clearContextInjected(sessionId, state);
   }
   if (sessionInfo && prevSid && sessionInfo.sessionId !== prevSid) {
-    clearContextInjected(sessionId);
+    clearContextInjected(sessionId, state);
   }
 
   // Step 2: Build bootstrap context only on first message of a new/reset provider session.
   // Persistent provider sessions/threads already retain their own history. On bootstrap,
   // prefer BridgeSessionStore because it can include compacted long-term context; fall
   // back to backend recent history only when the bridge has no context yet.
-  const isFirstMessage = !contextInjected.has(sessionId);
+  const isFirstMessage = !state.contextInjected.has(sessionId);
   let injectedContextThisTurn = isFirstMessage;
   let bridgeSessionContext = isFirstMessage
     ? (bridgeSessionStore.buildContext(sessionId) || undefined)
@@ -201,7 +215,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     );
 
     await provider.resetSession(sessionId, { cwd, model });
-    clearContextInjected(sessionId);
+    clearContextInjected(sessionId, state);
 
     // Provider session was destroyed — rebuild context for the fresh session.
     let retryContext = bridgeSessionStore.buildContext(sessionId) || undefined;
@@ -219,9 +233,9 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
   }
 
   // Step 5: Mark session as context-injected + track provider session ID
-  if (injectedContextThisTurn) contextInjected.add(sessionId);
+  if (injectedContextThisTurn) state.contextInjected.add(sessionId);
   if (sendResult.sessionId) {
-    lastProviderSessionId.set(sessionId, sendResult.sessionId);
+    state.lastProviderSessionId.set(sessionId, sendResult.sessionId);
   }
 
   // Step 6: Record assistant response in bridge session
@@ -257,7 +271,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
 
       // Step 8: Reset provider session so it starts fresh with compacted context
       await provider.resetSession(sessionId, { cwd, model });
-      clearContextInjected(sessionId);
+      clearContextInjected(sessionId, state);
       compacted = true;
     } catch (err) {
       log.warn(`[${agentName}] auto-compact failed for ${sessionId}: ${err}`);

@@ -33,10 +33,14 @@ export class CommandHandler {
   /** Agent name this handler belongs to (for spawn/fork ownership). */
   agentName?: string;
 
-  constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore) {
+  /** Path to the Claude status JSON file (rate limits, context, cost). */
+  private statusFilePath: string;
+
+  constructor(providers: Map<string, Provider>, config: BridgeConfig, sessionStore?: BridgeSessionStore, statusFilePath?: string) {
     this.providers = providers;
     this.config = config;
     this.sessionStore = sessionStore;
+    this.statusFilePath = statusFilePath ?? "/tmp/claude-status.json";
   }
 
   /** Get the effective provider for a conversation. */
@@ -529,7 +533,7 @@ export class CommandHandler {
   /** Read Claude Code status line cache (rate limits, context window, cost). */
   private readStatusFile(): Record<string, unknown> | null {
     try {
-      const raw = readFileSync("/tmp/claude-status.json", "utf-8");
+      const raw = readFileSync(this.statusFilePath, "utf-8");
       return JSON.parse(raw) as Record<string, unknown>;
     } catch {
       return null;
