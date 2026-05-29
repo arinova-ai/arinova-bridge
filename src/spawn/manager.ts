@@ -4,6 +4,7 @@ import type { ActiveAgent } from "../ipc/types.js";
 import { deliverToAgent } from "../ipc/router.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const log = createLogger("spawn");
 
@@ -46,7 +47,7 @@ export class SpawnManager {
 
     // Execute in background (non-blocking)
     this.executeSpawn(job, opts.cwd).catch((err) => {
-      log.warn(`spawn[${job.id}] background error: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`spawn[${job.id}] background error: ${getErrorMessage(err)}`);
     });
 
     return job;
@@ -207,7 +208,7 @@ export class SpawnManager {
       flushLog();
       this.timeouts.delete(job.id);
 
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
 
       // Check if already cancelled
       const current = this.store.get(job.id);
@@ -237,7 +238,7 @@ export class SpawnManager {
       source: `spawn:${job.id}`,
       bridgeSessionStore: this.bridgeSessionStore,
     }).catch((err) => {
-      log.warn(`spawn[${job.id}] report to parent failed: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`spawn[${job.id}] report to parent failed: ${getErrorMessage(err)}`);
     });
   }
 }

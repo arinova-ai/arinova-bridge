@@ -12,6 +12,7 @@ import type {
 import { SessionStore } from "../claude/session-store.js";
 import { buildContextPrefix } from "../util/context.js";
 import type { Logger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 export interface AnthropicCliConfig {
   providerId: string;
@@ -28,7 +29,7 @@ export interface AnthropicCliConfig {
 
 /** Errors raised from ClaudeProcess when the CLI is dead or dies mid-turn. */
 function isProcessDeadError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = getErrorMessage(err);
   return (
     msg.includes("Claude process is not running") ||
     msg.includes("Claude process exited unexpectedly") ||

@@ -4,6 +4,7 @@ import { statSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Logger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const BRIDGE_CLAUDE_SETTINGS = path.join(homedir(), ".arinova-bridge", "claude-settings.json");
 
@@ -89,7 +90,7 @@ export class HudMonitor {
         log.info("hud-monitor: ready for notifications");
       }, 25000);
     } catch (err) {
-      log.error(`hud-monitor: failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      log.error(`hud-monitor: failed to start: ${getErrorMessage(err)}`);
       this.started = false;
     }
   }

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import type { IpcRequest, IpcResponse } from "./types.js";
 import { subscribeWatch } from "./router.js";
 import type { Logger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const SOCKET_PATH = path.join(homedir(), ".arinova-bridge", "bridge.sock");
 
@@ -56,7 +57,7 @@ export function startIpcServer(
         .catch((err) => {
           const errResp: IpcResponse = {
             id: req.id,
-            error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+            error: { code: -32603, message: getErrorMessage(err) },
           };
           conn.end(JSON.stringify(errResp) + "\n");
         });

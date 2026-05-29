@@ -3,6 +3,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { getStatusIcon, formatDuration, formatDateTime } from "./util/formatting.js";
 const VERSION = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
 ).version as string;
@@ -451,14 +452,14 @@ async function cmdSpawn(args: string[]): Promise<void> {
       logs: Array<{ content: string; createdAt: number }>;
     };
 
-    const statusIcon = data.status === "running" ? "🔄" : data.status === "completed" ? "✅" : data.status === "failed" ? "❌" : "⏸️";
+    const statusIcon = getStatusIcon(data.status);
     console.log(`${statusIcon} Spawn Logs: ${data.id}  (${data.status})\n`);
 
     if (data.logs.length === 0) {
       console.log(data.status === "running" ? "(No logs yet — job is still running)" : "(No logs recorded)");
     } else {
       for (const entry of data.logs) {
-        const time = new Date(entry.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+        const time = formatDateTime(entry.createdAt);
         console.log(`[${time}]`);
         console.log(entry.content);
       }
@@ -488,10 +489,10 @@ async function cmdSpawn(args: string[]): Promise<void> {
       durationMs: number | null; model: string | null; costUsd: number | null;
     };
 
-    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-    const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+    const statusIcon = getStatusIcon(job.status);
+    const duration = formatDuration(job.durationMs);
     const cost = job.costUsd != null ? `$${job.costUsd.toFixed(4)}` : "—";
-    const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+    const time = formatDateTime(job.createdAt);
 
     console.log(`${statusIcon} Spawn Job: ${job.id}`);
     console.log(`  Parent: ${job.parentAgent}  Target: ${job.targetAgent}`);
@@ -528,8 +529,8 @@ async function cmdSpawn(args: string[]): Promise<void> {
 
     console.log("Spawn Jobs:\n");
     for (const job of jobs) {
-      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      const statusIcon = getStatusIcon(job.status);
+      const duration = formatDuration(job.durationMs);
       const cost = job.costUsd != null ? ` $${job.costUsd.toFixed(4)}` : "";
       console.log(`  ${statusIcon} ${job.id}  ${job.parentAgent} → ${job.targetAgent}  ${job.status}  ${duration}${cost}`);
       console.log(`     Context: ${job.contextPreview}`);
@@ -605,8 +606,8 @@ async function cmdFork(args: string[]): Promise<void> {
 
     console.log("Fork Jobs:\n");
     for (const job of jobs) {
-      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
+      const statusIcon = getStatusIcon(job.status);
+      const duration = formatDuration(job.durationMs);
       console.log(`  ${statusIcon} ${job.id}  ${job.parentAgent}  ${job.status}  ${duration}`);
       console.log(`     Task: ${job.taskPreview}`);
       if (job.resultPreview) {

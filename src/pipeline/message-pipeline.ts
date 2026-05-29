@@ -1,6 +1,7 @@
 import type { Provider, SendMessageOpts, SendResult, ToolCallReport } from "../providers/types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const log = createLogger("pipeline");
 
@@ -191,7 +192,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     sendResult = await provider.sendMessage(sendMessageArgs);
   } catch (err) {
     if (ctx.signal?.aborted) throw err;
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = getErrorMessage(err);
     if (!isUnrecoverableTurnError(errMsg)) throw err;
 
     const matchedPattern = UNRECOVERABLE_TURN_ERROR_PATTERNS.find((p) => errMsg.includes(p));

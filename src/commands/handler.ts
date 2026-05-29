@@ -7,6 +7,8 @@ import type { CommandContext, CommandResult } from "./types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
+import { formatResetIn, getStatusIcon, formatDuration, formatDateTime, truncate } from "../util/formatting.js";
+import { getErrorMessage } from "../util/errors.js";
 export class CommandHandler {
   private providers: Map<string, Provider>;
   private config: BridgeConfig;
@@ -470,7 +472,7 @@ export class CommandHandler {
           return compactResult.text;
         }, { model: compactModel });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = getErrorMessage(err);
         this.reply(ctx, `compact 失敗，session 維持原狀：${msg}`);
         return;
       }
@@ -510,7 +512,7 @@ export class CommandHandler {
     } else if (usage?.rateLimits) {
       for (const rl of usage.rateLimits) {
         const percent = Math.round((rl.utilization ?? 0) * 100);
-        const resetIn = rl.resetsAt ? this.formatResetIn(rl.resetsAt) : "";
+        const resetIn = rl.resetsAt ? formatResetIn(rl.resetsAt) : "";
         if (rl.rateLimitType === "five_hour") out.limit5h = { percent, resetIn };
         if (rl.rateLimitType === "seven_day") out.limit7d = { percent, resetIn };
       }
@@ -522,21 +524,6 @@ export class CommandHandler {
     }
 
     this.reply(ctx, JSON.stringify(out));
-  }
-
-  private formatResetIn(epoch: number): string {
-    const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
-    const diff = epochMs - Date.now();
-    if (diff <= 0) return "now";
-    const totalMins = Math.ceil(diff / 60_000);
-    const d = Math.floor(totalMins / 1440);
-    const h = Math.floor((totalMins % 1440) / 60);
-    const m = totalMins % 60;
-    const parts: string[] = [];
-    if (d > 0) parts.push(`${d}d`);
-    if (h > 0) parts.push(`${h}h`);
-    if (m > 0 || parts.length === 0) parts.push(`${m}m`);
-    return parts.join(" ");
   }
 
   /** Read Claude Code status line cache (rate limits, context window, cost). */
@@ -600,7 +587,7 @@ export class CommandHandler {
         const id = note.id.slice(0, 8);
         const creator = note.agentName ?? note.creatorName;
         const preview = note.content
-          ? ` — ${note.content.slice(0, 60)}${note.content.length > 60 ? "…" : ""}`
+          ? ` — ${truncate(note.content, 60)}`
           : "";
         lines.push(`\`${id}\` **${note.title}**${preview}  _(${creator})_`);
       }
@@ -611,7 +598,7 @@ export class CommandHandler {
 
       this.reply(ctx, lines.join("\n"));
     } catch (err) {
-      this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `取得筆記失敗: ${getErrorMessage(err)}`);
     }
   }
 
@@ -634,7 +621,7 @@ export class CommandHandler {
       const note = await ctx.createNote({ title, content });
       this.reply(ctx, `已新增筆記: **${note.title}** (\`${note.id.slice(0, 8)}\`)`);
     } catch (err) {
-      this.reply(ctx, `新增筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `新增筆記失敗: ${getErrorMessage(err)}`);
     }
   }
 
@@ -674,7 +661,7 @@ export class CommandHandler {
       const note = await ctx.updateNote(noteId, body);
       this.reply(ctx, `已更新筆記: **${note.title}** (\`${note.id.slice(0, 8)}\`)`);
     } catch (err) {
-      this.reply(ctx, `更新筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `更新筆記失敗: ${getErrorMessage(err)}`);
     }
   }
 
@@ -696,7 +683,7 @@ export class CommandHandler {
       await ctx.deleteNote(noteId);
       this.reply(ctx, `已刪除筆記 \`${noteId.slice(0, 8)}\``);
     } catch (err) {
-      this.reply(ctx, `刪除筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `刪除筆記失敗: ${getErrorMessage(err)}`);
     }
   }
 
@@ -713,7 +700,7 @@ export class CommandHandler {
       this.reply(ctx, `找不到匹配 "${prefix}" 的筆記\n用 /notes 查看筆記列表`);
       return null;
     } catch (err) {
-      this.reply(ctx, `取得筆記失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `取得筆記失敗: ${getErrorMessage(err)}`);
       return null;
     }
   }
@@ -773,11 +760,11 @@ export class CommandHandler {
 
     const lines = ["Spawn Jobs:\n"];
     for (const job of jobs) {
-      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
-      const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      const statusIcon = getStatusIcon(job.status);
+      const duration = formatDuration(job.durationMs);
+      const time = formatDateTime(job.createdAt);
       lines.push(`${statusIcon} \`${job.id}\`  → ${job.targetAgent}  ${job.status}  ${duration}`);
-      lines.push(`   ${time}  ${job.context.slice(0, 60)}${job.context.length > 60 ? "…" : ""}`);
+      lines.push(`   ${time}  ${truncate(job.context, 60)}`);
       if (job.result) {
         const firstLine = job.result.split("\n")[0].slice(0, 80);
         const truncated = job.result.length > 80;
@@ -801,9 +788,9 @@ export class CommandHandler {
       return;
     }
 
-    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-    const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
-    const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+    const statusIcon = getStatusIcon(job.status);
+    const duration = formatDuration(job.durationMs);
+    const time = formatDateTime(job.createdAt);
 
     const lines = [
       `${statusIcon} Spawn Job: \`${job.id}\``,
@@ -839,7 +826,7 @@ export class CommandHandler {
     }
 
     const logs = this.spawnManager!.getLogs(jobId);
-    const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
+    const statusIcon = getStatusIcon(job.status);
 
     if (logs.length === 0) {
       const hint = job.status === "running" ? "（尚無 log — 任務仍在執行中）" : "（無 log 紀錄）";
@@ -849,7 +836,7 @@ export class CommandHandler {
 
     const lines = [`${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n`];
     for (const entry of logs) {
-      const time = new Date(entry.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      const time = formatDateTime(entry.createdAt);
       lines.push(`**[${time}]**`);
       lines.push(entry.content);
     }
@@ -916,9 +903,9 @@ export class CommandHandler {
         parentAgent: this.agentName!,
         task,
       });
-      this.reply(ctx, `已建立 fork \`${job.id}\`\n任務: ${task.slice(0, 100)}${task.length > 100 ? "…" : ""}\n\n分身正在背景執行，完成後會自動回報結果。`);
+      this.reply(ctx, `已建立 fork \`${job.id}\`\n任務: ${truncate(task, 100)}\n\n分身正在背景執行，完成後會自動回報結果。`);
     } catch (err) {
-      this.reply(ctx, `Fork 建立失敗: ${err instanceof Error ? err.message : String(err)}`);
+      this.reply(ctx, `Fork 建立失敗: ${getErrorMessage(err)}`);
     }
   }
 
@@ -932,11 +919,11 @@ export class CommandHandler {
 
     const lines = ["Fork Jobs:\n"];
     for (const job of jobs) {
-      const statusIcon = job.status === "running" ? "🔄" : job.status === "completed" ? "✅" : job.status === "failed" ? "❌" : "⏸️";
-      const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "—";
-      const time = new Date(job.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+      const statusIcon = getStatusIcon(job.status);
+      const duration = formatDuration(job.durationMs);
+      const time = formatDateTime(job.createdAt);
       lines.push(`${statusIcon} \`${job.id}\`  ${job.status}  ${duration}`);
-      lines.push(`   ${time}  ${job.task.slice(0, 60)}${job.task.length > 60 ? "…" : ""}`);
+      lines.push(`   ${time}  ${truncate(job.task, 60)}`);
     }
 
     this.reply(ctx, lines.join("\n"));
@@ -980,10 +967,8 @@ export class CommandHandler {
     const lines = [`搜尋「${arg}」— 找到 ${results.length} 筆結果:\n`];
     for (const msg of results) {
       const sender = msg.sender ?? msg.role;
-      const time = new Date(msg.timestamp).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
-      const preview = msg.content.length > 120
-        ? msg.content.slice(0, 120) + "…"
-        : msg.content;
+      const time = formatDateTime(msg.timestamp);
+      const preview = truncate(msg.content, 120);
       lines.push(`**${sender}** _(${time})_\n${preview}\n`);
     }
 
@@ -1051,7 +1036,7 @@ export class CommandHandler {
         }, { model: compactModel });
         compactNote = "\nContext 已透過 compact 轉移";
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = getErrorMessage(err);
         compactNote = `\n⚠️ Context compact 失敗（${msg}），對話摘要未轉移`;
       }
     }

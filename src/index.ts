@@ -4,12 +4,14 @@ import { createProviders } from "./providers/registry.js";
 import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
 import { CommandHandler } from "./commands/handler.js";
 import { createLogger } from "./util/logger.js";
+import { formatResetIn, truncate } from "./util/formatting.js";
+import { getErrorMessage } from "./util/errors.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
 import { HudMonitor } from "./claude/hud-monitor.js";
 import { formatModelName, type HudData } from "./claude/hud-ws.js";
 import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
-import { createIpcRouter, recordTask, clearA2aContextInjected, runExclusiveOnAgent } from "./ipc/router.js";
+import { createIpcRouter, recordTask, runExclusiveOnAgent } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
 import { BridgeSessionStore } from "./session/bridge-session.js";
 import { runMessagePipeline, clearContextInjected } from "./pipeline/message-pipeline.js";
@@ -20,21 +22,6 @@ import { ForkManager } from "./fork/manager.js";
 import { resolveProviderConfigDir } from "./config-file.js";
 import { homedir } from "node:os";
 import path from "node:path";
-
-function formatResetIn(epoch: number): string {
-  const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
-  const diff = epochMs - Date.now();
-  if (diff <= 0) return "now";
-  const totalMins = Math.ceil(diff / 60_000);
-  const d = Math.floor(totalMins / 1440);
-  const h = Math.floor((totalMins % 1440) / 60);
-  const m = totalMins % 60;
-  const parts: string[] = [];
-  if (d > 0) parts.push(`${d}d`);
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0 || parts.length === 0) parts.push(`${m}m`);
-  return parts.join(" ");
-}
 
 const logger = createLogger("bridge");
 const config = loadConfig();
@@ -197,12 +184,10 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   commandHandler.onSessionClear = (conversationId) => {
     bridgeSessionStore.clear(conversationId);
     clearContextInjected(conversationId);
-    clearA2aContextInjected(conversationId);
   };
   // /model, /compact — light reset: clear tracking flags only, preserve DB (summary + messages)
   commandHandler.onSessionReset = (conversationId) => {
     clearContextInjected(conversationId);
-    clearA2aContextInjected(conversationId);
   };
   commandHandler.spawnManager = spawnManager;
   commandHandler.forkManager = forkManager;
@@ -285,7 +270,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         messageId: ctx.userMessageId,
       }));
 
-      if (sendResult.compacted) clearA2aContextInjected(sessionId);
+      if (sendResult.compacted) clearContextInjected(sessionId);
 
       ctx.sendComplete(sendResult.text);
 
@@ -303,8 +288,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       // Record for A2A history/watch
       recordTask({
         agent: agentName,
-        content: content.length > 200 ? content.slice(0, 200) + "…" : content,
-        responsePreview: sendResult.text.length > 200 ? sendResult.text.slice(0, 200) + "…" : sendResult.text,
+        content: truncate(content, 200),
+        responsePreview: truncate(sendResult.text, 200),
         durationMs: sendResult.durationMs ?? 0,
         costUsd: hudCost?.totalCostUsd,
         model: hudSessionModel || undefined,
@@ -345,7 +330,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         agent.sendHud(hudData as Record<string, unknown>, conversationId);
       })().catch((err) => logger.warn(`hud-ws[${agentName}]: push failed — ${err}`));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       if (ctx.signal.aborted || msg === "Turn aborted by user") {
         const reason = ctx.signal.aborted ? "signal aborted (client/SDK)" : `process: ${msg}`;
         logger.info(`[${agentName}] task cancelled for ${conversationId} — ${reason}`);

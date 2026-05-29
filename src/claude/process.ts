@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Logger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 /**
  * A single tool call report, emitted immediately after each tool completes.
@@ -537,7 +538,7 @@ export class ClaudeProcess {
     this.restartPromise = this.restart()
       .catch((err) => {
         this.opts.logger.error(
-          `${this.logTag}: restart failed: ${err instanceof Error ? err.message : String(err)}`,
+          `${this.logTag}: restart failed: ${getErrorMessage(err)}`,
         );
         throw err;
       })
@@ -854,7 +855,7 @@ export class ClaudeProcess {
           .then(() => reporter(report))
           .catch((err) => {
             this.opts.logger.warn(
-              `${this.logTag}: reportToolCall failed: ${err instanceof Error ? err.message : String(err)}`,
+              `${this.logTag}: reportToolCall failed: ${getErrorMessage(err)}`,
             );
           });
       }

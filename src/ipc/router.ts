@@ -5,13 +5,15 @@ import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
 import { runMessagePipeline, clearContextInjected } from "../pipeline/message-pipeline.js";
 import { createLogger } from "../util/logger.js";
+import { truncate } from "../util/formatting.js";
+import { getErrorMessage } from "../util/errors.js";
+import { A2A_PREFIX, isAgentSession, parseA2aDepth } from "../util/session-id.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const log = createLogger("a2a");
 
-const A2A_PREFIX = "a2a:";
 const MAX_DEPTH = 1;
 const MAX_HISTORY = 50;
 
@@ -40,13 +42,6 @@ export function runExclusiveOnAgent<T>(
   return next;
 }
 
-/** Clear A2A-specific context-injection tracking (delegates to pipeline). */
-export function clearA2aContextInjected(sessionId: string): void {
-  // The pipeline now owns the shared tracking state; this is kept as a
-  // compatibility shim so callers in index.ts don't need to change.
-  // Pipeline's clearContextInjected already covers both Chat + A2A.
-}
-
 /**
  * Query the sender agent's long-term memories via Arinova CLI.
  * Returns formatted memory context string, or undefined if no results / error.
@@ -73,15 +68,9 @@ async function querySenderMemories(source: string, content: string): Promise<str
     );
     return `[Sender memories — from ${source}]\n${lines.join("\n")}`;
   } catch (err) {
-    log.warn(`memory query for ${source} failed: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn(`memory query for ${source} failed: ${getErrorMessage(err)}`);
     return undefined;
   }
-}
-
-function parseA2aDepth(conversationId: string): number {
-  if (!conversationId.startsWith(A2A_PREFIX)) return 0;
-  const parts = conversationId.split(":");
-  return parseInt(parts[1], 10) || 0;
 }
 
 export interface DeliverResult {
@@ -106,7 +95,7 @@ export async function deliverToAgent(
   }
 
   const from = opts?.source ?? "cli";
-  const preview = content.length > 80 ? content.slice(0, 80) + "..." : content;
+  const preview = truncate(content, 80, "...");
   log.info(`${from} → ${target.name}: ${preview}`);
 
   // Use the same session as Chat — single session per agent
@@ -310,7 +299,7 @@ async function handleDeliver(
   // Fire-and-forget mode
   if (params.wait === false) {
     deliverToAgent(target, params.content, deliverOpts).catch((err) => {
-      log.warn(`fire-and-forget deliver to ${target.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`fire-and-forget deliver to ${target.name} failed: ${getErrorMessage(err)}`);
     });
     return { id, result: { agent: target.name, queued: true } };
   }
@@ -319,7 +308,7 @@ async function handleDeliver(
     const result = await deliverToAgent(target, params.content, deliverOpts);
     return { id, result: { agent: target.name, text: result.text, durationMs: result.durationMs } };
   } catch (err) {
-    return { id, error: { code: 2, message: err instanceof Error ? err.message : String(err) } };
+    return { id, error: { code: 2, message: getErrorMessage(err) } };
   }
 }
 
@@ -333,7 +322,7 @@ function handleAgentStatus(
 
   const provider = target.provider;
   const allSessions = provider.listSessions();
-  const agentSessions = allSessions.filter((s) => s.conversationId.startsWith(`${target.name}:`));
+  const agentSessions = allSessions.filter((s) => isAgentSession(s.conversationId, target.name));
 
   return {
     id,
@@ -363,7 +352,7 @@ function handlePing(
   if (!target) return agentNotFound(id, params.target, agents);
 
   const sessions = target.provider.listSessions();
-  const agentSessions = sessions.filter((s) => s.conversationId.startsWith(`${target.name}:`));
+  const agentSessions = sessions.filter((s) => isAgentSession(s.conversationId, target.name));
   const hasActiveSession = agentSessions.some((s) => s.alive !== false);
 
   return {
@@ -391,7 +380,7 @@ function handleAgentCost(
 
   const costs = targets.map((a) => {
     const sessions = a.provider.listSessions()
-      .filter((s) => s.conversationId.startsWith(`${a.name}:`));
+      .filter((s) => isAgentSession(s.conversationId, a.name));
 
     let totalCostUsd = 0;
     let totalInput = 0;
@@ -428,7 +417,7 @@ function handleAgentStop(
   if (!target) return agentNotFound(id, params.target, agents);
 
   const sessions = target.provider.listSessions()
-    .filter((s) => s.conversationId.startsWith(`${target.name}:`));
+    .filter((s) => isAgentSession(s.conversationId, target.name));
 
   let interrupted = 0;
   for (const s of sessions) {
@@ -450,7 +439,7 @@ async function handleAgentReset(
   if (!target) return agentNotFound(id, params.target, agents);
 
   const sessions = target.provider.listSessions()
-    .filter((s) => s.conversationId.startsWith(`${target.name}:`));
+    .filter((s) => isAgentSession(s.conversationId, target.name));
 
   let reset = 0;
   for (const s of sessions) {
@@ -480,7 +469,7 @@ function handleHandoff(
   }
 
   const fromSessions = fromAgent.provider.listSessions()
-    .filter((s) => s.conversationId.startsWith(`${fromAgent.name}:`));
+    .filter((s) => isAgentSession(s.conversationId, fromAgent.name));
 
   if (fromSessions.length === 0) {
     return { id, error: { code: 4, message: `Agent "${fromAgent.name}" has no active sessions to hand off` } };
@@ -554,7 +543,7 @@ function handleSpawnAdd(
       },
     };
   } catch (err) {
-    return { id, error: { code: 10, message: err instanceof Error ? err.message : String(err) } };
+    return { id, error: { code: 10, message: getErrorMessage(err) } };
   }
 }
 
@@ -582,7 +571,7 @@ function handleSpawnList(
       costUsd: j.costUsd,
       createdAt: j.createdAt,
       completedAt: j.completedAt,
-      contextPreview: j.context.length > 100 ? j.context.slice(0, 100) + "…" : j.context,
+      contextPreview: truncate(j.context, 100),
       resultPreview: j.result
         ? (() => {
             const firstLine = j.result.split("\n")[0];
@@ -692,7 +681,7 @@ function handleForkAdd(
       },
     };
   } catch (err) {
-    return { id, error: { code: 12, message: err instanceof Error ? err.message : String(err) } };
+    return { id, error: { code: 12, message: getErrorMessage(err) } };
   }
 }
 
@@ -723,8 +712,8 @@ function handleForkList(
       model: j.model,
       createdAt: j.createdAt,
       completedAt: j.completedAt,
-      taskPreview: j.task.length > 100 ? j.task.slice(0, 100) + "…" : j.task,
-      resultPreview: j.result ? (j.result.length > 100 ? j.result.slice(0, 100) + "…" : j.result) : null,
+      taskPreview: truncate(j.task, 100),
+      resultPreview: j.result ? truncate(j.result, 100) : null,
     })),
   };
 }

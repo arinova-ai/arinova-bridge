@@ -4,6 +4,7 @@ import type { ActiveAgent } from "../ipc/types.js";
 import { deliverToAgent } from "../ipc/router.js";
 import type { BridgeSessionStore } from "../session/bridge-session.js";
 import { createLogger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const log = createLogger("fork");
 
@@ -46,7 +47,7 @@ export class ForkManager {
 
     // Execute in background (non-blocking)
     this.executeFork(job, opts.cwd).catch((err) => {
-      log.warn(`fork[${job.id}] background error: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`fork[${job.id}] background error: ${getErrorMessage(err)}`);
     });
 
     return job;
@@ -187,7 +188,7 @@ export class ForkManager {
       clearTimeout(timer);
       this.timeouts.delete(job.id);
 
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
 
       // Check if already cancelled
       const current = this.store.get(job.id);
@@ -217,7 +218,7 @@ export class ForkManager {
       source: `fork:${job.id}`,
       bridgeSessionStore: this.bridgeSessionStore,
     }).catch((err) => {
-      log.warn(`fork[${job.id}] report to parent failed: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`fork[${job.id}] report to parent failed: ${getErrorMessage(err)}`);
     });
   }
 }
