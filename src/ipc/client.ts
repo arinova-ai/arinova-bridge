@@ -6,6 +6,7 @@ import type { IpcRequest, IpcResponse } from "./types.js";
 
 const SOCKET_PATH = path.join(homedir(), ".arinova-bridge", "bridge.sock");
 const TIMEOUT_MS = 600_000;
+const TIMEOUT_SECONDS = TIMEOUT_MS / 1000;
 
 function ensureSocket(): void {
   if (!fs.existsSync(SOCKET_PATH)) {
@@ -25,7 +26,7 @@ export function sendIpcRequest(req: IpcRequest): Promise<IpcResponse> {
       if (!settled) {
         settled = true;
         conn.destroy();
-        reject(new Error("IPC request timed out (60s)"));
+        reject(new Error(`IPC request timed out (${TIMEOUT_SECONDS}s)`));
       }
     }, TIMEOUT_MS);
 
