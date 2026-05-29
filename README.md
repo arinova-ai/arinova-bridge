@@ -204,10 +204,10 @@ MCP servers are downloaded on first use via `npx` (no additional install needed)
 ```bash
 git clone <repo-url>
 cd arinova-bridge
-npm install
-npm run dev       # Run with tsx (hot reload)
-npm run build     # Compile TypeScript
-npm test          # Run tests
+pnpm install
+pnpm dev          # Run with tsx (hot reload)
+pnpm build        # Compile TypeScript
+pnpm test         # Run tests
 ```
 
 ## License
