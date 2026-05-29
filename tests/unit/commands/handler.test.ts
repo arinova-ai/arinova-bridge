@@ -119,6 +119,16 @@ function createCtx(conversationId = "conv-1"): CommandContext & {
   return ctx;
 }
 
+type CompactSummariser = (messages: Array<{ role: string; content: string }>, opts?: unknown) => Promise<string | void>;
+
+function createCompactSessionStore(
+  compactImpl: (convId: string, summariser: CompactSummariser, opts?: unknown) => Promise<void>,
+) {
+  return {
+    compact: vi.fn(compactImpl),
+  };
+}
+
 describe("CommandHandler", () => {
   let providers: Map<string, Provider>;
   let handler: CommandHandler;
@@ -378,8 +388,8 @@ describe("CommandHandler", () => {
     // ── Non-Anthropic providers: bridgeSessionStore.compact() ──
 
     it("openai: compacts via sessionStore and resets session", async () => {
-      const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+      const mockSessionStore = createCompactSessionStore(
+        async (_convId: string, summariser: CompactSummariser, _opts?: unknown) => {
           // Simulate the summariser being called with middle messages
           await summariser(
             [
@@ -388,8 +398,8 @@ describe("CommandHandler", () => {
             ],
             undefined,
           );
-        }),
-      };
+        },
+      );
       const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       // Switch to openai provider
@@ -419,8 +429,8 @@ describe("CommandHandler", () => {
 
     it("non-anthropic: summariser prompt includes token budget", async () => {
       let capturedPrompt = "";
-      const mockSessionStore = {
-        compact: vi.fn(async (_convId: string, summariser: Function, _opts?: any) => {
+      const mockSessionStore = createCompactSessionStore(
+        async (_convId: string, summariser: CompactSummariser, _opts?: unknown) => {
           // Wrap sendMessage to capture the prompt
           const origSendMessage = openaiProvider.sendMessage;
           vi.mocked(openaiProvider.sendMessage).mockImplementation(async (opts: any) => {
@@ -429,8 +439,8 @@ describe("CommandHandler", () => {
           });
           await summariser([{ role: "user", content: "msg" }], undefined);
           openaiProvider.sendMessage = origSendMessage;
-        }),
-      };
+        },
+      );
       const handlerWithStore = new CommandHandler(providers, createMockConfig(), mockSessionStore as any);
 
       const ctx = createCtx("conv-5");

@@ -7,8 +7,9 @@ import type { CommandContext, CommandResult } from "./types.js";
 import { type BridgeSessionStore, getSummaryMaxTokens, buildCompactPrompt } from "../session/bridge-session.js";
 import type { SpawnManager } from "../spawn/manager.js";
 import type { ForkManager } from "../fork/manager.js";
-import { formatResetIn, getStatusIcon, formatDuration, formatDateTime, truncate } from "../util/formatting.js";
+import { formatResetIn, formatDateTime, truncate } from "../util/formatting.js";
 import { getErrorMessage } from "../util/errors.js";
+import { handleForkCommand, handleSpawnCommand } from "./job-commands.js";
 export class CommandHandler {
   private providers: Map<string, Provider>;
   private config: BridgeConfig;
@@ -684,249 +685,25 @@ export class CommandHandler {
   // --- Spawn Command ---
 
   private handleSpawn(arg: string, ctx: CommandContext): void {
-    if (!this.spawnManager || !this.agentName) {
-      this.reply(ctx, "Spawn manager 未啟用");
-      return;
-    }
-
-    const parts = arg.split(/\s+/);
-    const sub = parts[0]?.toLowerCase();
-
-    if (!sub || sub === "help") {
-      this.reply(
-        ctx,
-        [
-          "用法:",
-          "  /spawn list — 列出所有 spawn 子任務",
-          "  /spawn result <id> — 查看完整回傳內容",
-          "  /spawn logs <id> — 查看執行過程 log",
-          "  /spawn cancel <id> — 取消 spawn 子任務",
-          "",
-          "Spawn 透過 CLI 建立：",
-          "  arinova-bridge spawn --agent <parent> --target <target> --context '...'",
-        ].join("\n"),
-      );
-      return;
-    }
-
-    switch (sub) {
-      case "list":
-      case "ls":
-        this.handleSpawnList(ctx);
-        return;
-      case "result":
-        this.handleSpawnResult(parts.slice(1), ctx);
-        return;
-      case "logs":
-      case "log":
-        this.handleSpawnLogs(parts.slice(1), ctx);
-        return;
-      case "cancel":
-        this.handleSpawnCancel(parts.slice(1), ctx);
-        return;
-      default:
-        this.reply(ctx, `未知的 spawn 子指令: ${sub}\n用法: /spawn list|result|logs|cancel`);
-    }
-  }
-
-  private handleSpawnList(ctx: CommandContext): void {
-    const jobs = this.spawnManager!.listByParent(this.agentName!);
-
-    if (jobs.length === 0) {
-      this.reply(ctx, "目前沒有 spawn 子任務");
-      return;
-    }
-
-    const lines = ["Spawn Jobs:\n"];
-    for (const job of jobs) {
-      const statusIcon = getStatusIcon(job.status);
-      const duration = formatDuration(job.durationMs);
-      const time = formatDateTime(job.createdAt);
-      lines.push(`${statusIcon} \`${job.id}\`  → ${job.targetAgent}  ${job.status}  ${duration}`);
-      lines.push(`   ${time}  ${truncate(job.context, 60)}`);
-      if (job.result) {
-        const firstLine = job.result.split("\n")[0].slice(0, 80);
-        const truncated = job.result.length > 80;
-        lines.push(`   Result: ${firstLine}${truncated ? `… (/spawn result ${job.id})` : ""}`);
-      }
-    }
-
-    this.reply(ctx, lines.join("\n"));
-  }
-
-  private handleSpawnResult(parts: string[], ctx: CommandContext): void {
-    const jobId = parts[0];
-    if (!jobId) {
-      this.reply(ctx, "用法: /spawn result <id>");
-      return;
-    }
-
-    const job = this.spawnManager!.getJob(jobId);
-    if (!job || job.parentAgent !== this.agentName) {
-      this.reply(ctx, `找不到 spawn job "${jobId}"`);
-      return;
-    }
-
-    const statusIcon = getStatusIcon(job.status);
-    const duration = formatDuration(job.durationMs);
-    const time = formatDateTime(job.createdAt);
-
-    const lines = [
-      `${statusIcon} Spawn Job: \`${job.id}\``,
-      `Target: ${job.targetAgent}  Status: ${job.status}  Duration: ${duration}`,
-      `Created: ${time}`,
-      "",
-      "**Context:**",
-      job.context,
-    ];
-
-    if (job.result) {
-      lines.push("", "**Result:**", job.result);
-    } else if (job.status === "running") {
-      lines.push("", "_(Job is still running — no result yet)_");
-    } else {
-      lines.push("", "_(No result)_");
-    }
-
-    this.reply(ctx, lines.join("\n"));
-  }
-
-  private handleSpawnLogs(parts: string[], ctx: CommandContext): void {
-    const jobId = parts[0];
-    if (!jobId) {
-      this.reply(ctx, "用法: /spawn logs <id>");
-      return;
-    }
-
-    const job = this.spawnManager!.getJob(jobId);
-    if (!job || job.parentAgent !== this.agentName) {
-      this.reply(ctx, `找不到 spawn job "${jobId}"`);
-      return;
-    }
-
-    const logs = this.spawnManager!.getLogs(jobId);
-    const statusIcon = getStatusIcon(job.status);
-
-    if (logs.length === 0) {
-      const hint = job.status === "running" ? "（尚無 log — 任務仍在執行中）" : "（無 log 紀錄）";
-      this.reply(ctx, `${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n\n${hint}`);
-      return;
-    }
-
-    const lines = [`${statusIcon} Spawn Logs: \`${job.id}\`  ${job.status}\n`];
-    for (const entry of logs) {
-      const time = formatDateTime(entry.createdAt);
-      lines.push(`**[${time}]**`);
-      lines.push(entry.content);
-    }
-
-    this.reply(ctx, lines.join("\n"));
-  }
-
-  private handleSpawnCancel(parts: string[], ctx: CommandContext): void {
-    const target = parts[0];
-    if (!target) {
-      this.reply(ctx, "用法: /spawn cancel <id>");
-      return;
-    }
-
-    const cancelled = this.spawnManager!.cancel(target);
-    if (cancelled) {
-      this.reply(ctx, `已取消 spawn job \`${target}\``);
-    } else {
-      this.reply(ctx, `找不到或無法取消 spawn job "${target}"（可能已完成）`);
-    }
+    handleSpawnCommand({
+      arg,
+      ctx,
+      spawnManager: this.spawnManager,
+      agentName: this.agentName,
+      reply: (replyCtx, text) => this.reply(replyCtx, text),
+    });
   }
 
   // --- Fork Command ---
 
   private handleFork(arg: string, ctx: CommandContext): void {
-    if (!this.forkManager || !this.agentName) {
-      this.reply(ctx, "Fork manager 未啟用");
-      return;
-    }
-
-    const parts = arg.split(/\s+/);
-    const sub = parts[0]?.toLowerCase();
-
-    if (!sub || sub === "help") {
-      this.reply(
-        ctx,
-        [
-          "用法:",
-          "  /fork <task> — Fork 分身執行任務",
-          "  /fork list — 列出所有 fork 任務",
-          "  /fork cancel <id> — 取消 fork 任務",
-          "",
-          "也可透過 CLI 建立：",
-          "  arinova-bridge fork --agent <name> --task '...'",
-        ].join("\n"),
-      );
-      return;
-    }
-
-    switch (sub) {
-      case "list":
-      case "ls":
-        this.handleForkList(ctx);
-        return;
-      case "cancel":
-        this.handleForkCancel(parts.slice(1), ctx);
-        return;
-      default:
-        // Treat entire arg as fork task
-        this.handleForkCreate(arg, ctx);
-    }
-  }
-
-  private handleForkCreate(task: string, ctx: CommandContext): void {
-    try {
-      const job = this.forkManager!.fork({
-        parentAgent: this.agentName!,
-        task,
-      });
-      this.reply(
-        ctx,
-        `已建立 fork \`${job.id}\`\n任務: ${truncate(task, 100)}\n\n分身正在背景執行，完成後會自動回報結果。`,
-      );
-    } catch (err) {
-      this.reply(ctx, `Fork 建立失敗: ${getErrorMessage(err)}`);
-    }
-  }
-
-  private handleForkList(ctx: CommandContext): void {
-    const jobs = this.forkManager!.listByParent(this.agentName!);
-
-    if (jobs.length === 0) {
-      this.reply(ctx, "目前沒有 fork 任務");
-      return;
-    }
-
-    const lines = ["Fork Jobs:\n"];
-    for (const job of jobs) {
-      const statusIcon = getStatusIcon(job.status);
-      const duration = formatDuration(job.durationMs);
-      const time = formatDateTime(job.createdAt);
-      lines.push(`${statusIcon} \`${job.id}\`  ${job.status}  ${duration}`);
-      lines.push(`   ${time}  ${truncate(job.task, 60)}`);
-    }
-
-    this.reply(ctx, lines.join("\n"));
-  }
-
-  private handleForkCancel(parts: string[], ctx: CommandContext): void {
-    const target = parts[0];
-    if (!target) {
-      this.reply(ctx, "用法: /fork cancel <id>");
-      return;
-    }
-
-    const cancelled = this.forkManager!.cancel(target);
-    if (cancelled) {
-      this.reply(ctx, `已取消 fork job \`${target}\``);
-    } else {
-      this.reply(ctx, `找不到或無法取消 fork job "${target}"（可能已完成）`);
-    }
+    handleForkCommand({
+      arg,
+      ctx,
+      forkManager: this.forkManager,
+      agentName: this.agentName,
+      reply: (replyCtx, text) => this.reply(replyCtx, text),
+    });
   }
 
   // --- Search Command ---

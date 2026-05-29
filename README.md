@@ -209,6 +209,7 @@ pnpm install
 pnpm dev          # Run with tsx (hot reload)
 pnpm build        # Compile TypeScript
 pnpm test         # Run tests
+pnpm test:file tests/unit/config.test.ts
 ```
 
 ## License
