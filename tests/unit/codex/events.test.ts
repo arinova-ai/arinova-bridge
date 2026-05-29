@@ -168,6 +168,36 @@ describe("processTurn", () => {
     expect(sink.onComplete).toHaveBeenCalledWith("Done.");
   });
 
+  it("returns null usage when turn.completed has no usage field", async () => {
+    const sink = createSink();
+    const events: ThreadEvent[] = [
+      { type: "turn.completed" },
+    ];
+
+    const result = await processTurn(eventStream(events), sink);
+    expect(result.usage).toBeNull();
+  });
+
+  it("uses string error directly for turn.failed", async () => {
+    const sink = createSink();
+    const events: ThreadEvent[] = [
+      { type: "turn.failed", error: "Rate limited" } as unknown as ThreadEvent,
+    ];
+
+    await processTurn(eventStream(events), sink);
+    expect(sink.onError).toHaveBeenCalledWith("Rate limited");
+  });
+
+  it("falls back to default message when turn.failed error has non-string message", async () => {
+    const sink = createSink();
+    const events: ThreadEvent[] = [
+      { type: "turn.failed", error: { message: 42 } } as unknown as ThreadEvent,
+    ];
+
+    await processTurn(eventStream(events), sink);
+    expect(sink.onError).toHaveBeenCalledWith("Turn failed");
+  });
+
   it("handles multiple agent_message items (resets delta tracking)", async () => {
     const sink = createSink();
     const events: ThreadEvent[] = [

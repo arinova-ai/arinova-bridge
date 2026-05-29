@@ -56,11 +56,13 @@ import { AnthropicCliProvider } from "../../../src/providers/anthropic-cli.js";
 import { OpenAICliProvider } from "../../../src/providers/openai-cli.js";
 import { ensureCodexMcpServers } from "../../../src/mcp/preinstalled.js";
 import { readOAuthToken, isTokenExpired } from "../../../src/oauth/token-store.js";
+import { refreshAccessToken } from "../../../src/oauth/minimax.js";
 import type { BridgeConfig } from "../../../src/config.js";
 import type { ProviderEntry } from "../../../src/config-file.js";
 
 const mockReadOAuthToken = vi.mocked(readOAuthToken);
 const mockIsTokenExpired = vi.mocked(isTokenExpired);
+const mockRefreshAccessToken = vi.mocked(refreshAccessToken);
 const mockEnsureCodexMcpServers = vi.mocked(ensureCodexMcpServers);
 const mockAnthropicCliProvider = vi.mocked(AnthropicCliProvider);
 const mockOpenAICliProvider = vi.mocked(OpenAICliProvider);
@@ -371,5 +373,89 @@ describe("createProviders", () => {
 
     expect(providers.has("minimax-oauth")).toBe(true);
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("refreshed"));
+  });
+
+  // ── Coverage: lines 54-55 — openai-cli with baseUrl sets OPENAI_BASE_URL ──
+  it("sets OPENAI_BASE_URL for openai-cli provider with baseUrl", async () => {
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "openai-custom",
+          type: "openai-cli",
+          displayName: "OpenAI Custom",
+          enabled: true,
+          apiKey: "sk-test",
+          baseUrl: "https://custom.openai.example.com",
+        },
+      ]),
+      logger,
+    );
+
+    expect(providers.has("openai-custom")).toBe(true);
+    expect(mockOpenAICliProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "openai-custom",
+        env: expect.objectContaining({
+          OPENAI_BASE_URL: "https://custom.openai.example.com",
+          OPENAI_API_KEY: "sk-test",
+        }),
+      }),
+      logger,
+    );
+  });
+
+  // ── Coverage: lines 86-87 — OAuth token refresh failure ────────────────
+  it("returns null OAuth token when refresh fails (lines 86-87)", async () => {
+    mockReadOAuthToken.mockReturnValue({
+      accessToken: "expired-token",
+      refreshToken: "bad-refresh",
+      expiresAt: Math.floor(Date.now() / 1000) - 100,
+    });
+    mockIsTokenExpired.mockReturnValue(true);
+    mockRefreshAccessToken.mockRejectedValueOnce(new Error("refresh server down"));
+
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "minimax-fail-refresh",
+          type: "anthropic-cli",
+          displayName: "MiniMax Fail Refresh",
+          enabled: true,
+          baseUrl: "https://api.minimax.io/anthropic",
+        },
+      ]),
+      logger,
+    );
+
+    // Provider should still be created (without OAuth token env)
+    expect(providers.has("minimax-fail-refresh")).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("OAuth token refresh failed"),
+    );
+  });
+
+  // ── Coverage: line 117 — createProvider throws, caught by createProviders ──
+  it("catches and logs errors thrown during provider creation (line 117)", async () => {
+    // Make the AnthropicCliProvider constructor throw
+    mockAnthropicCliProvider.mockImplementationOnce(() => {
+      throw new Error("constructor exploded");
+    });
+
+    const providers = await createProviders(
+      createConfig([
+        {
+          id: "broken-provider",
+          type: "anthropic-cli",
+          displayName: "Broken Provider",
+          enabled: true,
+        },
+      ]),
+      logger,
+    );
+
+    expect(providers.has("broken-provider")).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("failed to create broken-provider provider"),
+    );
   });
 });

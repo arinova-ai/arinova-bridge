@@ -161,5 +161,114 @@ describe("codex/rpc-client", () => {
       // Should not log warnings
       expect(mockLogger.warn).not.toHaveBeenCalled();
     });
+
+    it("warns on response for unknown request id", async () => {
+      const { stdout } = createClient();
+      stdout.write(JSON.stringify({ id: 999, result: "orphan" }) + "\n");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("unknown id=999"));
+    });
+
+    it("warns on unrecognized message structure", async () => {
+      const { stdout } = createClient();
+      // Message with no id, no method, no result, no error — falls through all branches
+      stdout.write(JSON.stringify({ data: "something" }) + "\n");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("unrecognized message"));
+    });
+  });
+
+  describe("notification handler error", () => {
+    it("catches and logs errors thrown by notification handlers", async () => {
+      const { client, stdout } = createClient();
+      client.onNotification("bad.event", () => {
+        throw new Error("handler exploded");
+      });
+
+      stdout.write(JSON.stringify({ method: "bad.event", params: {} }) + "\n");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining("notification handler error (bad.event)"),
+      );
+    });
+  });
+
+  describe("server request handler error", () => {
+    it("catches handler error and falls back to auto-approve", async () => {
+      const { client, stdin, stdout } = createClient();
+      const written: string[] = [];
+      stdin.on("data", (chunk: Buffer) => written.push(chunk.toString()));
+
+      client.onServerRequest("fail.request", () => {
+        throw new Error("handler kaboom");
+      });
+
+      stdout.write(JSON.stringify({ id: 50, method: "fail.request", params: {} }) + "\n");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining("server request handler error (fail.request)"),
+      );
+      // Should still send a response with fallback accept
+      const response = JSON.parse(written[0]);
+      expect(response.id).toBe(50);
+      expect(response.result).toEqual({ decision: "accept" });
+    });
+  });
+
+  describe("stdin error handling", () => {
+    it("marks client closed and rejects pending on stdin error", async () => {
+      const { client, stdin } = createClient(5000);
+      const promise = client.request("pending.method");
+      // Attach a catch handler before emitting error to prevent unhandled rejection
+      const caught = promise.catch((err: Error) => err);
+
+      // Emit an error on stdin
+      stdin.emit("error", new Error("pipe broken"));
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.isClosed).toBe(true);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("stdin error: pipe broken"),
+      );
+      const err = await caught;
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toContain("stdin error: pipe broken");
+    });
+
+    it("does not log when stdin error occurs after close", async () => {
+      const { client, stdin, stdout } = createClient();
+      // Close the client first
+      stdout.push(null);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(client.isClosed).toBe(true);
+
+      mockLogger.warn.mockClear();
+      stdin.emit("error", new Error("late error"));
+      await new Promise((r) => setTimeout(r, 10));
+
+      // The warn about "stdin error" should NOT be called because closed was already true
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("stdin error"),
+      );
+    });
+  });
+
+  describe("writeLine error handling", () => {
+    it("catches write errors and logs them", () => {
+      const { client, stdin } = createClient();
+      // Override stdin.write to throw
+      stdin.write = () => {
+        throw new Error("write failed");
+      };
+
+      // notify calls writeLine internally
+      client.notify("test.event", { data: 1 });
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining("write error"),
+      );
+    });
   });
 });

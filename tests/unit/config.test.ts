@@ -117,6 +117,38 @@ describe("loadConfig", () => {
     expect(config.defaults.cwd).toContain("projects");
   });
 
+  it("defaults openai-cli compact model to gpt-5.4-mini", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "openai-cli",
+      providers: [],
+      defaults: { cwd: "/home/test" },
+      agents: [
+        { name: "bot", botToken: "bot-token", provider: "openai-cli" },
+      ],
+    });
+
+    const config = loadConfig();
+    expect(config.agents[0].compactModel).toBe("gpt-5.4-mini");
+  });
+
+  it("defaults unknown provider compact model to claude-haiku-4-5", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "custom-llm",
+      providers: [],
+      defaults: { cwd: "/home/test" },
+      agents: [
+        { name: "bot", botToken: "bot-token", provider: "custom-llm" },
+      ],
+    });
+
+    const config = loadConfig();
+    expect(config.agents[0].compactModel).toBe("claude-haiku-4-5");
+  });
+
   it("defaults openai-oauth compact model to gpt-5.4-mini", () => {
     mockReadConfigFile.mockReturnValue({
       version: 2,

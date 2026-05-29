@@ -103,6 +103,25 @@ describe("ForkStore", () => {
     expect(updated.result!).toContain("truncated");
   });
 
+  it("countRunningByParent returns count of running jobs", () => {
+    store.add("lucy", "task 1");
+    store.add("lucy", "task 2");
+    const j3 = store.add("lucy", "task 3");
+    store.complete(j3.id, "completed", "done");
+    store.add("pan", "task 4");
+
+    expect(store.countRunningByParent("lucy")).toBe(2);
+    expect(store.countRunningByParent("pan")).toBe(1);
+    expect(store.countRunningByParent("nobody")).toBe(0);
+  });
+
+  it("complete is a no-op for non-existent job", () => {
+    // Line 179: `if (!job) return;` in complete()
+    store.complete("nonexistent-id", "failed", "error");
+    // Should not throw
+    expect(store.get("nonexistent-id")).toBeNull();
+  });
+
   it("persists across re-open", () => {
     store.add("lucy", "persistent");
     store.close();

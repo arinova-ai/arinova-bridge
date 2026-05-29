@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionStore, type SessionStoreConfig } from "../../../src/claude/session-store.js";
+import { ClaudeProcess } from "../../../src/claude/process.js";
 
 // Mock the ClaudeProcess class — must use a class/function, not arrow
 vi.mock("../../../src/claude/process.js", () => {
@@ -172,6 +173,108 @@ describe("SessionStore", () => {
 
     it("returns undefined for unknown conversation", () => {
       expect(store.getLastSessionId("conv-999")).toBeUndefined();
+    });
+
+    it("falls back to lastSessionId when getSessionId returns empty", () => {
+      const entry = store.createSession("conv-1");
+      // Simulate getSessionId returning empty string (falsy)
+      (entry.process.getSessionId as ReturnType<typeof vi.fn>).mockReturnValue("");
+      entry.lastSessionId = "old-sid-456";
+      expect(store.getLastSessionId("conv-1")).toBe("old-sid-456");
+    });
+  });
+
+  describe("setAgentMcpConfig", () => {
+    it("sets per-agent MCP config path used by createSession", () => {
+      store.setAgentMcpConfig("my-agent", "/custom/mcp.json");
+      // Create a session with the agent name matching the MCP config
+      const entry = store.createSession("my-agent:conv-1", { agentName: "my-agent" });
+      expect(entry).toBeDefined();
+      // The process was constructed with the custom MCP path
+      const MockedClaudeProcess = vi.mocked(ClaudeProcess);
+      const lastCall = MockedClaudeProcess.mock.calls[MockedClaudeProcess.mock.calls.length - 1];
+      expect(lastCall[0].mcpConfigPath).toBe("/custom/mcp.json");
+    });
+  });
+
+  describe("idle sweep", () => {
+    it("evicts sessions that exceed idleTimeoutMs and preserves their session IDs", () => {
+      vi.useFakeTimers();
+      try {
+        // Create a store with a short idle timeout
+        const config = createConfig();
+        config.idleTimeoutMs = 5_000;
+        const sweepStore = new SessionStore(config, logger);
+
+        const entry = sweepStore.createSession("conv-idle");
+        // Make the session look old
+        entry.lastActivity = Date.now() - 10_000;
+
+        // Advance time to trigger the setInterval callback (60s interval)
+        vi.advanceTimersByTime(60_000);
+
+        // Session should have been evicted
+        expect(sweepStore.getSession("conv-idle")).toBeUndefined();
+        // Session ID should be preserved in dead sessions
+        expect(sweepStore.getDeadSession("sid-123")).toBeDefined();
+        expect(sweepStore.getDeadSession("sid-123")?.sessionId).toBe("sid-123");
+
+        // Cleanup
+        sweepStore.stopAll();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not evict busy sessions even if idle timeout exceeded", () => {
+      vi.useFakeTimers();
+      try {
+        const config = createConfig();
+        config.idleTimeoutMs = 5_000;
+        const sweepStore = new SessionStore(config, logger);
+
+        const entry = sweepStore.createSession("conv-busy");
+        entry.lastActivity = Date.now() - 10_000;
+        // Mark the process as busy
+        (entry.process.isBusy as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+        vi.advanceTimersByTime(60_000);
+
+        // Session should NOT have been evicted because it's busy
+        expect(sweepStore.getSession("conv-busy")).toBeDefined();
+
+        // Cleanup
+        sweepStore.stopAll();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not preserve dead session when getSessionId returns null", () => {
+      vi.useFakeTimers();
+      try {
+        const config = createConfig();
+        config.idleTimeoutMs = 5_000;
+        const sweepStore = new SessionStore(config, logger);
+
+        const entry = sweepStore.createSession("conv-nosid");
+        entry.lastActivity = Date.now() - 10_000;
+        // Make getSessionId return null (no session ID to preserve)
+        (entry.process.getSessionId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+        vi.advanceTimersByTime(60_000);
+
+        // Session should be evicted
+        expect(sweepStore.getSession("conv-nosid")).toBeUndefined();
+        // No dead session should be created (no sid to key on)
+        // All dead sessions from other tests are in a different store instance
+        const listed = sweepStore.listSessions();
+        expect(listed).toHaveLength(0);
+
+        sweepStore.stopAll();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

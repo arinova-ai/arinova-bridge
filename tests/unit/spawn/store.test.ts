@@ -132,6 +132,22 @@ describe("SpawnStore", () => {
     expect(updated.result!).toContain("truncated");
   });
 
+  it("listAll returns all jobs (up to limit)", () => {
+    store.add("lucy", "pan", "task 1");
+    store.add("lucy", "mia", "task 2");
+    store.add("pan", "lucy", "task 3");
+
+    const all = store.listAll();
+    expect(all).toHaveLength(3);
+  });
+
+  it("complete is a no-op for non-existent job", () => {
+    // Line 213: `if (!job) return;` in complete()
+    store.complete("nonexistent-id", "failed", "error");
+    // Should not throw
+    expect(store.get("nonexistent-id")).toBeNull();
+  });
+
   it("counts running jobs by parent", () => {
     store.add("lucy", "pan", "task 1");
     store.add("lucy", "mia", "task 2");

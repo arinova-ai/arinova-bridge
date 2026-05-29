@@ -158,4 +158,269 @@ describe("ForkManager", () => {
     expect(manager.listAll()).toHaveLength(3);
     expect(manager.getJob(manager.listAll()[0].id)).not.toBeNull();
   });
+
+  // ---------------------------------------------------------------------------
+  // Edge cases: job already cancelled/timed-out before delivery returns
+  // ---------------------------------------------------------------------------
+
+  it("skips result when job already cancelled before delivery resolves", async () => {
+    let resolveDeliver!: (v: { text: string; durationMs: number }) => void;
+    deliverSpy.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveDeliver = resolve; }),
+    );
+
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    const job = manager.fork({ parentAgent: "lucy", task: "will be cancelled mid-flight" });
+
+    // Cancel while delivery is still in-flight
+    manager.cancel(job.id);
+    expect(store.get(job.id)!.status).toBe("cancelled");
+
+    // Resolve the delivery — manager should detect status != running
+    resolveDeliver({ text: "too late", durationMs: 100 });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Status should remain cancelled
+    expect(store.get(job.id)!.status).toBe("cancelled");
+  });
+
+  it("skips result when job already failed (stale) before delivery resolves", async () => {
+    let resolveDeliver!: (v: { text: string; durationMs: number }) => void;
+    deliverSpy.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveDeliver = resolve; }),
+    );
+
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    const job = manager.fork({ parentAgent: "lucy", task: "will be marked stale" });
+
+    // Simulate external failure (e.g. recoverStale)
+    store.complete(job.id, "failed", "Stale — bridge restarted");
+
+    resolveDeliver({ text: "result after stale", durationMs: 50 });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(store.get(job.id)!.status).toBe("failed");
+    expect(store.get(job.id)!.result).toContain("Stale");
+  });
+
+  it("skips update when delivery rejects but job already cancelled", async () => {
+    let rejectDeliver!: (err: Error) => void;
+    deliverSpy.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => { rejectDeliver = reject; }),
+    );
+
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    const job = manager.fork({ parentAgent: "lucy", task: "error after cancel" });
+
+    manager.cancel(job.id);
+    expect(store.get(job.id)!.status).toBe("cancelled");
+
+    rejectDeliver(new Error("too late error"));
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Should remain cancelled, not overwritten to failed
+    expect(store.get(job.id)!.status).toBe("cancelled");
+  });
+
+  // ---------------------------------------------------------------------------
+  // reportToParent edge cases
+  // ---------------------------------------------------------------------------
+
+  it("handles parent agent disappearing between execute and report", async () => {
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    let callCount = 0;
+    deliverSpy.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // Remove agent so reportToParent can't find it
+        manager.setAgents([]);
+        return { text: "done", durationMs: 100 };
+      }
+      return { text: "", durationMs: 0 };
+    });
+
+    const job = manager.fork({ parentAgent: "lucy", task: "parent will vanish" });
+
+    await vi.waitFor(() => {
+      expect(store.get(job.id)!.status).toBe("completed");
+    });
+
+    // deliverToAgent should only be called once (execute), not for report
+    expect(deliverSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles deliverToAgent rejection during reportToParent", async () => {
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    let callCount = 0;
+    deliverSpy.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { text: "fork result", durationMs: 100 };
+      }
+      throw new Error("report delivery failed");
+    });
+
+    const job = manager.fork({ parentAgent: "lucy", task: "report will fail" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    // Job itself should be completed even though report failed
+    const updated = store.get(job.id)!;
+    expect(updated.status).toBe("completed");
+    expect(updated.result).toBe("fork result");
+  });
+
+  // ---------------------------------------------------------------------------
+  // bridgeSessionStore context prefix
+  // ---------------------------------------------------------------------------
+
+  it("builds context prefix from bridgeSessionStore when available", async () => {
+    const agents = [makeAgent("lucy")];
+    const mockBridgeSessionStore = {
+      buildContext: vi.fn().mockReturnValue("some context from main session"),
+    } as any;
+    manager.setAgents(agents, mockBridgeSessionStore);
+
+    manager.fork({ parentAgent: "lucy", task: "task with context" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const firstCallArgs = deliverSpy.mock.calls[0];
+    expect(firstCallArgs[1]).toContain("[Fork context from main session]");
+    expect(firstCallArgs[1]).toContain("some context from main session");
+    expect(firstCallArgs[1]).toContain("task with context");
+    expect(mockBridgeSessionStore.buildContext).toHaveBeenCalledWith("lucy:default");
+  });
+
+  it("skips context prefix when bridgeSessionStore returns empty", async () => {
+    const agents = [makeAgent("lucy")];
+    const mockBridgeSessionStore = {
+      buildContext: vi.fn().mockReturnValue(""),
+    } as any;
+    manager.setAgents(agents, mockBridgeSessionStore);
+
+    manager.fork({ parentAgent: "lucy", task: "task no context" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const firstCallArgs = deliverSpy.mock.calls[0];
+    expect(firstCallArgs[1]).not.toContain("[Fork context from main session]");
+    expect(firstCallArgs[1]).toContain("task no context");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Misc edge cases
+  // ---------------------------------------------------------------------------
+
+  it("uses custom cwd when provided", async () => {
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    manager.fork({ parentAgent: "lucy", task: "with cwd", cwd: "/custom/path" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const opts = deliverSpy.mock.calls[0][2] as any;
+    expect(opts.cwd).toBe("/custom/path");
+  });
+
+  it("passes model to deliverToAgent when specified", async () => {
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    manager.fork({ parentAgent: "lucy", task: "with model", model: "gpt-4" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const opts = deliverSpy.mock.calls[0][2] as any;
+    expect(opts.model).toBe("gpt-4");
+  });
+
+  it("cancel returns false for non-existent job", () => {
+    expect(manager.cancel("nonexistent")).toBe(false);
+  });
+
+  it("recoverStale returns 0 when no running jobs exist", () => {
+    expect(manager.recoverStale()).toBe(0);
+  });
+
+  it("recoverStale marks multiple stale jobs as failed", () => {
+    store.add("lucy", "stale 1");
+    store.add("lucy", "stale 2");
+    store.add("pan", "stale 3");
+
+    const recovered = manager.recoverStale();
+    expect(recovered).toBe(3);
+
+    const all = store.listAll();
+    for (const job of all) {
+      expect(job.status).toBe("failed");
+      expect(job.result).toContain("Stale");
+    }
+  });
+
+  it("truncates long result in reportToParent preview", async () => {
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    const longText = "x".repeat(3000);
+    deliverSpy.mockResolvedValueOnce({ text: longText, durationMs: 100 });
+
+    manager.fork({ parentAgent: "lucy", task: "long result" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    // Second call is the report — check the content has truncation marker
+    const reportContent = deliverSpy.mock.calls[1][1] as string;
+    expect(reportContent).toContain("...(truncated)");
+    expect(reportContent.length).toBeLessThan(longText.length);
+  });
+
+  it("reports failure to parent with 失敗 label when fork fails", async () => {
+    deliverSpy.mockRejectedValueOnce(new Error("kaboom"));
+
+    const agents = [makeAgent("lucy")];
+    manager.setAgents(agents);
+
+    manager.fork({ parentAgent: "lucy", task: "will fail" });
+
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const reportContent = deliverSpy.mock.calls[1][1] as string;
+    expect(reportContent).toContain("失敗");
+    expect(reportContent).toContain("kaboom");
+  });
 });

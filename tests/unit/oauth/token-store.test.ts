@@ -78,6 +78,21 @@ describe("token-store", () => {
     expect(readOAuthToken("minimax-oauth")).toBeNull();
   });
 
+  it("creates config directory if it does not exist when writing", async () => {
+    // Remove the tmpDir so getConfigDir() returns a non-existent path
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    expect(fs.existsSync(tmpDir)).toBe(false);
+
+    const { writeOAuthToken, readOAuthToken } = await loadModule();
+
+    writeOAuthToken("test-provider", {
+      accessToken: "a", refreshToken: "r", expiresAt: 100,
+    });
+
+    expect(fs.existsSync(tmpDir)).toBe(true);
+    expect(readOAuthToken("test-provider")!.accessToken).toBe("a");
+  });
+
   it("sets file permissions to 0600", async () => {
     const { writeOAuthToken } = await loadModule();
 

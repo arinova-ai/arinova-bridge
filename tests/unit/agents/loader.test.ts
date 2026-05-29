@@ -137,6 +137,49 @@ describe("loadAgentPrompts", () => {
     expect(pan?.body).toBe("BODY");
   });
 
+  it("parses block-list followed by another key (commitPendingList mid-parse)", () => {
+    // Frontmatter: block list 'include' then another key 'role'.
+    // This triggers commitPendingList() at line 71 when the next key is encountered.
+    write(
+      "_shared_team.md",
+      "---\ninclude:\n  - pan\n  - bella\nrole: engineering\n---\nTEAM SHARED",
+    );
+    write("pan.md", "PAN");
+
+    const prompts = loadAgentPrompts(tmpDir);
+    expect(prompts.sharedGroups).toHaveLength(1);
+    expect(prompts.sharedGroups[0].include).toEqual(["pan", "bella"]);
+    // The 'role' key should also be parsed (used in metaToStrings for per-agent files)
+    expect(buildAgentSystemPrompt("pan", prompts)).toBe("TEAM SHARED\n\nPAN");
+  });
+
+  it("ignores non-key-value lines in frontmatter (blank or comment lines)", () => {
+    // Line 75: `if (!kv) continue` when a line doesn't match key: value pattern
+    write(
+      "pan.md",
+      "---\nname: Pan\n\n# this is a comment\nrole: engineer\n---\nBODY",
+    );
+    const prompts = loadAgentPrompts(tmpDir);
+    const pan = prompts.agents.get("pan");
+    expect(pan?.meta).toEqual({ name: "Pan", role: "engineer" });
+    expect(pan?.body).toBe("BODY");
+  });
+
+  it("accepts comma-separated string include (not array)", () => {
+    // Lines 116-117: extractInclude takes the string path (not Array.isArray)
+    write(
+      "_shared_ops.md",
+      "---\ninclude: pan, bella\n---\nOPS BODY",
+    );
+    write("pan.md", "PAN");
+    write("bella.md", "BELLA");
+
+    const prompts = loadAgentPrompts(tmpDir);
+    expect(prompts.sharedGroups).toHaveLength(1);
+    expect(prompts.sharedGroups[0].include).toEqual(["pan", "bella"]);
+    expect(buildAgentSystemPrompt("pan", prompts)).toBe("OPS BODY\n\nPAN");
+  });
+
   it("reloading picks up newly added files", () => {
     write("pan.md", "PAN");
     const first = loadAgentPrompts(tmpDir);

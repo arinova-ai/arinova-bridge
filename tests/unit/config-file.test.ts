@@ -74,6 +74,21 @@ describe("config-file", () => {
     expect(fs.existsSync(configDir)).toBe(true);
   });
 
+  it("getConfigDir returns the config directory path", async () => {
+    const { getConfigDir } = await loadModule();
+    const dir = getConfigDir();
+    expect(dir).toContain(".arinova-bridge");
+    expect(path.isAbsolute(dir)).toBe(true);
+  });
+
+  it("getConfigPath returns the config file path", async () => {
+    const { getConfigPath } = await loadModule();
+    const p = getConfigPath();
+    expect(p).toContain("config.json");
+    expect(p).toContain(".arinova-bridge");
+    expect(path.isAbsolute(p)).toBe(true);
+  });
+
   it("returns null for malformed JSON", async () => {
     const { readConfigFile } = await loadModule();
     const configDir = path.join(tmpDir, ".arinova-bridge");
