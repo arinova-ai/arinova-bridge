@@ -21,6 +21,7 @@ INSTALL
 QUICK START
   arinova-bridge setup          # Interactive config wizard
   arinova-bridge start          # Start the bridge server
+  arinova-bridge --token=obt_*  # Onboarding: claim token and start
 
 COMMANDS
   start    Start the bridge server (writes PID to ~/.arinova-bridge/bridge.pid)
@@ -142,6 +143,11 @@ AGENT PROMPT FILES
   Prompts are read once at bridge startup and cached; restart the bridge to
   reload after editing these files.
 
+OPTIONS
+  --token <token>       Bot token or onboarding claim token (obt_*).
+                         Overrides ARINOVA_BOT_TOKEN. Implies "start" when
+                         no command is given.
+
 ENVIRONMENT VARIABLES
   ARINOVA_SERVER_URL    Override WebSocket server URL
   ARINOVA_BOT_TOKEN     Override bot token (single-agent mode)
@@ -257,9 +263,34 @@ async function cmdLogin(args: string[]): Promise<void> {
   await runLogin(providerId, { deviceAuth });
 }
 
+function extractToken(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--token" && i + 1 < args.length) return args[i + 1];
+    if (args[i].startsWith("--token=")) return args[i].slice("--token=".length);
+  }
+  return undefined;
+}
+
+function stripTokenArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--token") { i++; continue; }
+    if (args[i].startsWith("--token=")) continue;
+    out.push(args[i]);
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const command = args[0] ?? "help";
+
+  const token = extractToken(args);
+  if (token) {
+    process.env.ARINOVA_BOT_TOKEN = token;
+  }
+
+  const remaining = stripTokenArgs(args);
+  const command = remaining[0] ?? (token ? "start" : "help");
 
   switch (command) {
     case "start":

@@ -20,6 +20,8 @@ import { SpawnManager } from "./spawn/manager.js";
 import { ForkStore } from "./fork/store.js";
 import { ForkManager } from "./fork/manager.js";
 import { resolveProviderConfigDir } from "./config-file.js";
+import { savePermanentToken } from "./onboarding/token-persistence.js";
+import { fetchOnboardingKnowledge } from "./onboarding/knowledge.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -351,7 +353,47 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     logger.error(`[${agentName}] Agent error: ${err.message}`);
   });
 
+  // Onboarding claim flow: obt_* token → permanent ari_* token exchange
+  const isOnboardingToken = agentCfg.botToken.startsWith("obt_");
+  let claimedToken: string | null = null;
+
+  if (isOnboardingToken) {
+    agent.on("token_claimed", (data) => {
+      claimedToken = data.permanentToken;
+      logger.info(`[${agentName}] Onboarding token claimed — saving permanent token`);
+      savePermanentToken(data.permanentToken, logger);
+    });
+  }
+
   await agent.connect();
+
+  // Post-auth: fetch onboarding knowledge and inject into system prompt
+  if (isOnboardingToken && claimedToken) {
+    const agentId = agent.getAgentId();
+    if (agentId) {
+      const knowledge = await fetchOnboardingKnowledge(
+        config.arinova.serverUrl,
+        claimedToken,
+        agentId,
+        logger,
+      );
+      agentCfg.systemPrompt = agentCfg.systemPrompt
+        ? `${agentCfg.systemPrompt}\n\n${knowledge}`
+        : knowledge;
+      logger.info(`[${agentName}] Onboarding knowledge injected (${knowledge.length} chars)`);
+    }
+
+    // Update MCP env with permanent token for sub-processes
+    for (const candidateProvider of providers.values()) {
+      if (candidateProvider.setAgentMcpEnv) {
+        candidateProvider.setAgentMcpEnv(agentName, {
+          ARINOVA_BOT_TOKEN: claimedToken,
+          ARINOVA_SERVER_URL: config.arinova.serverUrl,
+        });
+      }
+    }
+  }
+
   activeAgents.push({ agent, name: agentName, commandHandler, provider, agentConfig: agentCfg });
   logger.info(
     `[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`,
