@@ -71,8 +71,18 @@ export function loadConfig(): BridgeConfig {
 
   const mcpConfigPath = process.env.MCP_CONFIG_PATH ?? file?.defaults?.mcpConfigPath ?? undefined;
 
-  // Read providers from config file array
+  // Read providers from config file array.
+  // For first-touch onboarding (obt_* token, no config), inject a default
+  // anthropic-cli provider so the bridge can start without setup.
   const providers: ProviderEntry[] = file?.providers ?? [];
+  if (providers.length === 0 && botToken.startsWith("obt_")) {
+    providers.push({
+      id: "anthropic-oauth",
+      type: "anthropic-cli",
+      displayName: "Claude (onboarding)",
+      enabled: true,
+    });
+  }
 
   // User-defined MCP servers from config
   const mcpServers: Record<string, McpServerEntry> = file?.mcpServers ?? {};

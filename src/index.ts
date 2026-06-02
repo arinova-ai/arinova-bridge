@@ -361,7 +361,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     agent.on("token_claimed", (data) => {
       claimedToken = data.permanentToken;
       logger.info(`[${agentName}] Onboarding token claimed — saving permanent token`);
-      savePermanentToken(data.permanentToken, logger);
+      savePermanentToken(data.permanentToken, logger, agentName);
     });
   }
 

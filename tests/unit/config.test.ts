@@ -174,6 +174,43 @@ describe("loadConfig", () => {
     expect(config.agents[0].compactModel).toBe("claude-haiku-4-5");
   });
 
+  it("auto-injects anthropic-cli provider for obt_* token with no config", () => {
+    mockReadConfigFile.mockReturnValue(null);
+    process.env.ARINOVA_BOT_TOKEN = "obt_abc123def456";
+
+    const config = loadConfig();
+
+    expect(config.providers).toHaveLength(1);
+    expect(config.providers[0].id).toBe("anthropic-oauth");
+    expect(config.providers[0].type).toBe("anthropic-cli");
+    expect(config.providers[0].enabled).toBe(true);
+  });
+
+  it("does not inject provider for obt_* token when providers exist", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "anthropic-oauth",
+      providers: [{ id: "anthropic-oauth", type: "anthropic-cli", displayName: "Existing", enabled: true }],
+      defaults: { cwd: "/home/test" },
+    });
+    process.env.ARINOVA_BOT_TOKEN = "obt_abc123def456";
+
+    const config = loadConfig();
+
+    expect(config.providers).toHaveLength(1);
+    expect(config.providers[0].displayName).toBe("Existing");
+  });
+
+  it("does not inject provider for ari_* token with no config", () => {
+    mockReadConfigFile.mockReturnValue(null);
+    process.env.ARINOVA_BOT_TOKEN = "ari_permanent_token";
+
+    const config = loadConfig();
+
+    expect(config.providers).toEqual([]);
+  });
+
   it("defaults openai-oauth compact model to gpt-5.4-mini", () => {
     mockReadConfigFile.mockReturnValue({
       version: 2,

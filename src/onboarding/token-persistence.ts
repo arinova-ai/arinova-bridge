@@ -4,12 +4,23 @@ import type { Logger } from "../util/logger.js";
 /**
  * Persist the permanent `ari_*` token to config.json, replacing the
  * one-time onboarding claim token so the bridge uses it on restart.
+ *
+ * Updates both the top-level `arinova.botToken` and the matching entry
+ * in `config.agents` (if multi-agent mode is configured).
  */
-export function savePermanentToken(token: string, logger: Logger): void {
+export function savePermanentToken(token: string, logger: Logger, agentName?: string): void {
   const existing = readConfigFile();
 
   if (existing) {
     existing.arinova.botToken = token;
+
+    if (existing.agents && agentName) {
+      const entry = existing.agents.find((a) => a.name === agentName);
+      if (entry) {
+        entry.botToken = token;
+      }
+    }
+
     writeConfigFile(existing);
   } else {
     const config: ConfigFile = {
@@ -19,7 +30,14 @@ export function savePermanentToken(token: string, logger: Logger): void {
         botToken: token,
       },
       defaultProvider: "anthropic-oauth",
-      providers: [],
+      providers: [
+        {
+          id: "anthropic-oauth",
+          type: "anthropic-cli",
+          displayName: "Claude (onboarding)",
+          enabled: true,
+        },
+      ],
       defaults: {},
     };
     writeConfigFile(config);
