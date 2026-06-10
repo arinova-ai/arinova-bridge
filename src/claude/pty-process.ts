@@ -52,14 +52,30 @@ export type SendMessageResult = {
   numTurns?: number;
 };
 
-const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  "claude-opus-4-6": 1_000_000,
-  "claude-sonnet-4-6": 1_000_000,
-  "claude-haiku-4-5": 200_000,
-  "claude-haiku-4-5-20251001": 200_000,
-  "claude-sonnet-4-5-20250514": 1_000_000,
-  "claude-opus-4-20250514": 200_000,
-};
+// Pattern rules instead of an exact-id table: model strings arrive as
+// aliases ("haiku"), full dated ids, or statusline display names
+// ("Haiku 4.5") — an exact-match miss must NEVER fabricate a tiny
+// window (the old `contextWindow: 100` fallback made needsCompact's
+// threshold ~50 tokens, so every turn auto-compacted and the chat sat
+// in "streaming" for the whole invisible compact turn).
+const MODEL_CONTEXT_WINDOW_RULES: Array<{ match: RegExp; window: number }> = [
+  { match: /fable/i, window: 1_000_000 },
+  { match: /opus[ -]?4[.-][5-9]/i, window: 1_000_000 },
+  { match: /sonnet[ -]?4[.-][5-9]/i, window: 1_000_000 },
+  { match: /haiku/i, window: 200_000 },
+  { match: /opus|sonnet/i, window: 200_000 },
+];
+
+// Conservative default for unknown models: compacting a bit early is
+// harmless; a fabricated tiny window compacts on every turn.
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+export function contextWindowFor(modelId: string): number {
+  for (const rule of MODEL_CONTEXT_WINDOW_RULES) {
+    if (rule.match.test(modelId)) return rule.window;
+  }
+  return DEFAULT_CONTEXT_WINDOW;
+}
 
 /** Parse a duration string like "3d2h05m" or "2h30m" or "45m" to a future epoch (seconds). */
 function durationToEpoch(dur: string): number {
@@ -234,19 +250,14 @@ export class PtyProcess {
         this.totalCostUsd += usage.costUsd;
       }
       if (usage?.contextPercent != null) {
-        const modelId = this.opts.model ?? "";
-        const contextWindow = MODEL_CONTEXT_WINDOWS[modelId];
-        if (contextWindow) {
-          this.lastContext = {
-            contextTokens: Math.round((usage.contextPercent / 100) * contextWindow),
-            contextWindow,
-          };
-        } else {
-          this.lastContext = {
-            contextTokens: usage.contextPercent,
-            contextWindow: 100,
-          };
-        }
+        // Prefer the transcript-reported model (full id) over the
+        // configured one (possibly an alias) for the window lookup.
+        const modelId = usage.model ?? this.opts.model ?? "";
+        const contextWindow = contextWindowFor(modelId);
+        this.lastContext = {
+          contextTokens: Math.round((usage.contextPercent / 100) * contextWindow),
+          contextWindow,
+        };
       }
 
       return {
