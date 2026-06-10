@@ -138,6 +138,11 @@ export class PtyProcess {
       args: extraArgs,
       env,
       responseTimeoutMs: 10 * 60 * 1000,
+      // Resumed sessions append to their original transcript whose path
+      // isn't predictable from here — fall back to screen scraping there.
+      // Fresh sessions get a generated --session-id, which both enables
+      // the transcript reader and makes getSessionId()/restart() work.
+      transcript: !this.opts.resumeSessionId,
     });
 
     this.alive = true;
@@ -178,11 +183,12 @@ export class PtyProcess {
       this.opts.logger.error(`${this.logTag}: error: ${err.message}`);
     });
 
-    this.readyPromise = this.pty.start().then(() => {
+    const pty = this.pty;
+    this.readyPromise = pty.start().then(() => {
       this.opts.logger.info(`${this.logTag}: ready (IDLE)`);
-      if (this.opts.resumeSessionId) {
-        this.sessionId = this.opts.resumeSessionId;
-      }
+      // Fresh sessions run under the --session-id we generated; resumed
+      // ones keep the id they were resumed from.
+      this.sessionId = this.opts.resumeSessionId ?? pty.sessionId;
     }).catch((err: Error) => {
       this.readyError = err;
       this.alive = false;

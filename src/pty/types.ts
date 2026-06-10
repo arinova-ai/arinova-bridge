@@ -17,6 +17,16 @@ export interface ClaudePtyOptions {
   model?: string;
   systemPrompt?: string;
   scrollback?: number;
+  /** Session UUID passed to `claude --session-id`. Auto-generated when
+   *  omitted (unless transcript is disabled). Determines the transcript
+   *  JSONL path. */
+  sessionId?: string;
+  /** Read the authoritative response from the session transcript JSONL
+   *  (raw markdown, real usage, full tool inputs) instead of scraping
+   *  the screen. Default true; the screen remains the fallback. Disable
+   *  when resuming an existing session (`--resume`) — the resumed
+   *  session's transcript path is not predictable. */
+  transcript?: boolean;
 }
 
 export enum ClaudeState {
@@ -62,6 +72,9 @@ export interface SendResult {
   durationMs: number;
   toolsUsed: ToolUseInfo[];
   usage?: TurnUsage;
+  /** Where the response text came from: the session transcript (raw
+   *  markdown preserved) or the rendered screen (fallback). */
+  source: "transcript" | "screen";
 }
 
 export interface PipeResult {

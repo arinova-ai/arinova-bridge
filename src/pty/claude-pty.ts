@@ -1,7 +1,14 @@
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
 import * as pty from 'node-pty';
 import { TerminalParser } from './terminal-parser.js';
 import { StateDetector } from './state-detector.js';
+import {
+  TranscriptReader,
+  transcriptPathFor,
+  type TranscriptLine,
+} from './transcript-reader.js';
+import { stripInjectedContext } from '../util/context.js';
 import type {
   ClaudePtyOptions,
   SendOptions,
@@ -39,6 +46,7 @@ export interface ClaudePtyEventMap {
   response: [fullResponse: string];
   toolUse: [info: ToolUseInfo];
   streamEvent: [event: StreamEvent];
+  transcriptLine: [line: TranscriptLine];
   error: [error: Error];
   exit: [code: number, signal?: number];
 }
@@ -47,6 +55,10 @@ export class ClaudePty extends EventEmitter {
   private ptyProcess: pty.IPty | null = null;
   private parser: TerminalParser;
   private detector: StateDetector;
+  private transcriptReader: TranscriptReader | null = null;
+  private turnTranscript: TranscriptLine[] = [];
+  readonly sessionId: string;
+  private transcriptEnabled: boolean;
   private disposed = false;
 
   private pendingResolve: ((result: SendResult) => void) | null = null;
@@ -95,6 +107,8 @@ export class ClaudePty extends EventEmitter {
       model: options.model,
       systemPrompt: options.systemPrompt,
     };
+    this.transcriptEnabled = options.transcript !== false;
+    this.sessionId = options.sessionId ?? randomUUID();
 
     this.parser = new TerminalParser(
       this.opts.cols,
@@ -115,6 +129,19 @@ export class ClaudePty extends EventEmitter {
     }
 
     const cliArgs = this.buildArgs();
+
+    if (this.transcriptEnabled) {
+      this.transcriptReader = new TranscriptReader(
+        transcriptPathFor(this.opts.cwd, this.sessionId),
+      );
+      this.transcriptReader.on('line', (line: TranscriptLine) => {
+        this.emit('transcriptLine', line);
+        if (line.type === 'assistant' && !line.isSidechain) {
+          this.turnTranscript.push(line);
+        }
+      });
+      this.transcriptReader.start();
+    }
 
     this.ptyProcess = pty.spawn(this.opts.claudePath, cliArgs, {
       name: 'xterm-256color',
@@ -167,6 +194,7 @@ export class ClaudePty extends EventEmitter {
     this.autoApprovePermissions = options?.autoApprovePermissions ?? false;
     this.turnStartLine = this.parser.getTotalLines();
     this.turnToolsUsed = [];
+    this.turnTranscript = [];
     this.turnStartTime = Date.now();
     this.parser.resetTurnTracking();
     this.parser.resetTurnUsage();
@@ -256,11 +284,17 @@ export class ClaudePty extends EventEmitter {
     return this.parser.getTurnUsage();
   }
 
+  /** Transcript lines collected during the current/most recent turn. */
+  getTurnTranscript(): TranscriptLine[] {
+    return [...this.turnTranscript];
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.clearResponseTimer();
     this.clearContentPollTimer();
+    this.transcriptReader?.dispose();
     this.detector.dispose();
     this.parser.dispose();
     this.ptyProcess?.kill();
@@ -309,6 +343,9 @@ export class ClaudePty extends EventEmitter {
   private buildArgs(): string[] {
     const args: string[] = [];
 
+    if (this.transcriptEnabled) {
+      args.push('--session-id', this.sessionId);
+    }
     args.push('--permission-mode', this.opts.permissionMode);
 
     if (this.opts.model) {
@@ -365,18 +402,101 @@ export class ClaudePty extends EventEmitter {
     return { toolName: 'unknown', summary: '' };
   }
 
+  // Distill the turn's transcript lines into response text, tool calls,
+  // and usage. Unlike `claude -p` (which returns only the final
+  // message's text), the bridge keeps ALL assistant text blocks joined —
+  // narration before tool calls is conversationally meaningful in chat,
+  // and this matches what the screen-scrape path has always produced.
+  private extractTranscriptTurn(): {
+    text: string;
+    toolsUsed: ToolUseInfo[];
+    usage: Partial<TurnUsage>;
+  } | null {
+    const msgs = this.turnTranscript.filter(
+      (l) => Array.isArray(l.message?.content),
+    );
+    if (msgs.length === 0) return null;
+
+    const textParts: string[] = [];
+    const toolsUsed: ToolUseInfo[] = [];
+    // The transcript writes one line per content block; blocks of the
+    // same API message repeat the same message.id and usage. Dedupe by
+    // id so each iteration's tokens are counted once (last line wins).
+    const usageByMessageId = new Map<string, NonNullable<TranscriptLine['message']>>();
+    let model: string | undefined;
+
+    for (const m of msgs) {
+      for (const b of m.message!.content as Array<{ type: string; text?: string; name?: string; input?: unknown }>) {
+        if (b.type === 'text' && b.text) {
+          textParts.push(b.text);
+        } else if (b.type === 'tool_use') {
+          let summary = '';
+          try {
+            summary = JSON.stringify(b.input ?? {}).slice(0, 200);
+          } catch { /* unserializable input */ }
+          toolsUsed.push({ toolName: b.name ?? 'unknown', summary });
+        }
+      }
+      if (m.message!.id) usageByMessageId.set(m.message!.id, m.message!);
+      model = m.message!.model ?? model;
+    }
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    for (const msg of usageByMessageId.values()) {
+      inputTokens += msg.usage?.input_tokens ?? 0;
+      outputTokens += msg.usage?.output_tokens ?? 0;
+    }
+
+    return {
+      text: stripInjectedContext(textParts.join('\n\n')).trim(),
+      toolsUsed,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        model,
+      },
+    };
+  }
+
   private resolveCurrentSend(): void {
     if (!this.pendingResolve) return;
 
-    const { text } = this.parser.extractResponseContent(this.turnStartLine);
+    // Final synchronous drain — the turn's last assistant line is on
+    // disk before the idle prompt box repaints, but the 200ms poll may
+    // not have picked it up yet.
+    this.transcriptReader?.poll();
+    const transcript = this.extractTranscriptTurn();
+
     const durationMs = Date.now() - this.turnStartTime;
-    const usage = this.parser.getTurnUsage();
-    const result: SendResult = {
-      response: text,
-      durationMs,
-      toolsUsed: this.turnToolsUsed,
-      usage,
-    };
+    const screenUsage = this.parser.getTurnUsage();
+
+    let text: string;
+    let result: SendResult;
+    if (transcript) {
+      text = transcript.text;
+      result = {
+        response: text,
+        durationMs,
+        toolsUsed: transcript.toolsUsed.length > 0 ? transcript.toolsUsed : this.turnToolsUsed,
+        // Transcript usage is authoritative (real token counts); keep
+        // statusline-derived fields (ctx%, rate limits, cost) it can't
+        // know.
+        usage: { ...screenUsage, ...transcript.usage },
+        source: 'transcript',
+      };
+    } else {
+      text = this.parser.extractResponseContent(this.turnStartLine).text;
+      result = {
+        response: text,
+        durationMs,
+        toolsUsed: this.turnToolsUsed,
+        usage: screenUsage,
+        source: 'screen',
+      };
+    }
+    const usage = result.usage;
 
     this.emit('streamEvent', { type: 'content_block_stop', index: this.contentBlockIndex });
     this.emit('streamEvent', {
@@ -390,8 +510,9 @@ export class ClaudePty extends EventEmitter {
       result: text,
       duration_ms: durationMs,
       num_turns: 1,
-      tools_used: this.turnToolsUsed,
+      tools_used: result.toolsUsed,
       stop_reason: 'end_turn',
+      session_id: this.sessionId,
       usage,
     });
 

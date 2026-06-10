@@ -6,6 +6,9 @@ import type { Terminal as TerminalType } from '@xterm/headless';
 
 const _require = createRequire(import.meta.url);
 const { Terminal } = _require('@xterm/headless') as { Terminal: new (options?: Record<string, unknown>) => TerminalType };
+const { Unicode11Addon } = _require('@xterm/addon-unicode11') as {
+  Unicode11Addon: new () => { activate(t: unknown): void; dispose(): void };
+};
 import { BOX_DRAWING_LINE, TOOL_NAMES } from './constants.js';
 import type { TurnUsage } from './types.js';
 import { stripInjectedContext, hasUnclosedInjectionBlock } from '../util/context.js';
@@ -24,6 +27,13 @@ const TOOL_INVOCATION_RE = new RegExp(`^⏺\\s+(${TOOL_NAMES.join('|')})\\(`);
 // CLI affordance and makes the match robust against assistant text that
 // happens to begin with "Calling" or "Called".
 const MCP_INVOCATION_RE = /^⏺\s+(Calling|Called)\b.*\(ctrl\+o to expand\)/;
+
+// `Read 1 file (ctrl+o to expand)` / `Ran 2 commands (ctrl+o to expand)` —
+// collapsed tool-activity summary the CLI renders instead of the
+// `⏺ Tool(...)` form. It carries no ⏺ marker (just the 2-col indent), so
+// match on the trailing expand affordance: any line ending with it is
+// tool chrome, never assistant text.
+const COLLAPSED_TOOL_RE = /\(ctrl\+o to expand\)\s*$/;
 
 // Set BRIDGE_PTY_DEBUG=1 to dump streaming-delta input/output to a log
 // file for diagnostics. Otherwise the function below is a no-op.
@@ -64,6 +74,14 @@ export class TerminalParser {
 
   constructor(cols: number, rows: number, scrollback: number) {
     this.terminal = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
+    // The CLI computes glyph widths with string-width (emoji = 2 cells);
+    // xterm's default Unicode v6 table gives many emoji width 1. The
+    // mismatch desyncs cursor accounting on repaints and leaks stale
+    // cells from the previous frame into scraped rows — switch to the
+    // v11 table so both sides agree.
+    const unicode11 = new Unicode11Addon();
+    (this.terminal as unknown as { loadAddon(a: unknown): void }).loadAddon(unicode11);
+    this.terminal.unicode.activeVersion = '11';
   }
 
   setLastSentPrompt(prompt: string): void {
@@ -85,6 +103,13 @@ export class TerminalParser {
     const lines: string[] = [];
     for (let y = 0; y < buf.length; y++) {
       const line = buf.getLine(y);
+      // A row marked isWrapped is the continuation of the previous row
+      // (the terminal hard-wrapped one logical line at the column limit)
+      // — rejoin it so callers see the original unwrapped line.
+      if (line?.isWrapped && lines.length > 0) {
+        lines[lines.length - 1] += line.translateToString(true);
+        continue;
+      }
       lines.push(line ? line.translateToString(true) : '');
     }
     return lines;
@@ -493,11 +518,20 @@ export class TerminalParser {
       const line = allLines[i];
       const trimmed = line.trim();
 
-      if (this.isUiChrome(line)) continue;
+      // Inside the response range only transient overlays (spinner,
+      // hints, statusline) can appear — use the narrow filter so
+      // assistant text that merely *looks* like chrome (a `model:` line,
+      // a `───` horizontal rule) survives. The broad isUiChrome stays
+      // for boundary scans outside the response range.
+      if (this.isOverlayChrome(line)) continue;
       if (/^❯/.test(trimmed)) continue;
 
       // Tool-block triggers — never push, always set state to IN_TOOL.
-      if (TOOL_INVOCATION_RE.test(trimmed) || MCP_INVOCATION_RE.test(trimmed)) {
+      if (
+        TOOL_INVOCATION_RE.test(trimmed) ||
+        MCP_INVOCATION_RE.test(trimmed) ||
+        COLLAPSED_TOOL_RE.test(trimmed)
+      ) {
         state = 'IN_TOOL';
         continue;
       }
@@ -521,9 +555,12 @@ export class TerminalParser {
       }
 
       // Plain text line, no marker — continuation. Belongs to whichever
-      // block we're currently in.
+      // block we're currently in. The CLI indents continuation lines by
+      // 2 columns to align with the text after `⏺ `; drop that base
+      // indent so the extracted text matches the original (relative
+      // indentation, e.g. code blocks, is preserved).
       if (state === 'IN_TEXT') {
-        out.push(line);
+        out.push(line.replace(/^ {2}/, ''));
       }
       // state === 'IN_TOOL' → drop the line (tool result continuation).
     }
@@ -576,6 +613,36 @@ export class TerminalParser {
     }
 
     return contentLines.join('\n');
+  }
+
+  // Narrow chrome filter for rows *inside* the response range: only
+  // transient overlays the CLI renders mid-response. Deliberately does
+  // NOT match box-drawing rules or `cost:`/`model:`/`tokens:` lines —
+  // those can be legitimate assistant text.
+  private isOverlayChrome(line: string): boolean {
+    const trimmed = line.trim();
+    if (trimmed === '') return false;
+
+    // Spinner: `✻ Thinking… (esc to interrupt)`
+    if (/^[✻✢·✶✽✳]\s/.test(trimmed)) return true;
+    // Full-width horizontal rule (separator the CLI draws above the
+    // prompt box). Rules inside assistant text are content-width, far
+    // narrower than the terminal — only the full-width one is chrome.
+    if (BOX_DRAWING_LINE.test(trimmed) && trimmed.length >= this.terminal.cols - 4) return true;
+    // `⏵⏵ accept edits` hint
+    if (/^⏵⏵\s/.test(trimmed)) return true;
+    // Bridge HUD statusline — parse usage out of it, then drop the row.
+    if (trimmed.includes(HUD_SENTINEL)) {
+      this.parseStatusLine(trimmed);
+      return true;
+    }
+    if (/^\[[^\]]+\]\s+ctx:\s*\d+%/.test(trimmed)) {
+      this.parseStatusLine(trimmed);
+      return true;
+    }
+    if (/^⎿\s+SessionStart:/.test(trimmed)) return true;
+
+    return false;
   }
 
   private isUiChrome(line: string): boolean {
