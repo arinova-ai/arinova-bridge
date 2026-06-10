@@ -17,15 +17,20 @@ export interface ClaudePtyOptions {
   model?: string;
   systemPrompt?: string;
   scrollback?: number;
-  /** Session UUID passed to `claude --session-id`. Auto-generated when
-   *  omitted (unless transcript is disabled). Determines the transcript
-   *  JSONL path. */
+  /** Session UUID. Auto-generated when omitted. Determines the
+   *  transcript JSONL path, and (unless passSessionIdArg is false) is
+   *  passed to `claude --session-id`. */
   sessionId?: string;
+  /** Pass `--session-id <sessionId>` on the CLI. Default true. Set
+   *  false when the args already carry `--resume <sessionId>` — the
+   *  resumed session appends to its existing `<sessionId>.jsonl`
+   *  (verified), so the transcript still works without the flag. */
+  passSessionIdArg?: boolean;
   /** Read the authoritative response from the session transcript JSONL
    *  (raw markdown, real usage, full tool inputs) instead of scraping
-   *  the screen. Default true; the screen remains the fallback. Disable
-   *  when resuming an existing session (`--resume`) — the resumed
-   *  session's transcript path is not predictable. */
+   *  the screen. Default true; the screen remains the fallback. NB the
+   *  screen fallback returns the TUI's *rendered* markdown — tables
+   *  become box-drawing graphics, bold/fences lose their markers. */
   transcript?: boolean;
 }
 

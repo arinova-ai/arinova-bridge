@@ -154,11 +154,13 @@ export class PtyProcess {
       args: extraArgs,
       env,
       responseTimeoutMs: 10 * 60 * 1000,
-      // Resumed sessions append to their original transcript whose path
-      // isn't predictable from here — fall back to screen scraping there.
-      // Fresh sessions get a generated --session-id, which both enables
-      // the transcript reader and makes getSessionId()/restart() work.
-      transcript: !this.opts.resumeSessionId,
+      // Fresh sessions get a generated --session-id; resumed sessions
+      // append to their existing `<resumeSessionId>.jsonl` (verified),
+      // so both paths read the transcript — the screen-scrape fallback
+      // would return TUI-rendered markdown (tables become box-drawing
+      // graphics), which chat clients cannot render.
+      sessionId: this.opts.resumeSessionId,
+      passSessionIdArg: !this.opts.resumeSessionId,
     });
 
     this.alive = true;

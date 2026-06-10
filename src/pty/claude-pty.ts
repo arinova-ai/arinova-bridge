@@ -57,8 +57,11 @@ export class ClaudePty extends EventEmitter {
   private detector: StateDetector;
   private transcriptReader: TranscriptReader | null = null;
   private turnTranscript: TranscriptLine[] = [];
+  private turnPrompt: string | null = null;
+  private turnUserSeen = false;
   readonly sessionId: string;
   private transcriptEnabled: boolean;
+  private passSessionIdArg: boolean;
   private disposed = false;
 
   private pendingResolve: ((result: SendResult) => void) | null = null;
@@ -108,6 +111,7 @@ export class ClaudePty extends EventEmitter {
       systemPrompt: options.systemPrompt,
     };
     this.transcriptEnabled = options.transcript !== false;
+    this.passSessionIdArg = options.passSessionIdArg !== false;
     this.sessionId = options.sessionId ?? randomUUID();
 
     this.parser = new TerminalParser(
@@ -136,7 +140,23 @@ export class ClaudePty extends EventEmitter {
       );
       this.transcriptReader.on('line', (line: TranscriptLine) => {
         this.emit('transcriptLine', line);
-        if (line.type === 'assistant' && !line.isSidechain) {
+        // Gate on our own user-prompt line before collecting assistant
+        // lines: stray turns (e.g. a SessionStart/resume hook producing
+        // "No response requested.") can flush to the transcript after
+        // send() cleared the buffer and would otherwise contaminate the
+        // turn. If the prompt line never matches, the turn falls back
+        // to screen extraction — safe.
+        if (
+          !this.turnUserSeen &&
+          line.type === 'user' &&
+          typeof line.message?.content === 'string' &&
+          this.turnPrompt !== null &&
+          line.message.content === this.turnPrompt
+        ) {
+          this.turnUserSeen = true;
+          return;
+        }
+        if (this.turnUserSeen && line.type === 'assistant' && !line.isSidechain) {
           this.turnTranscript.push(line);
         }
       });
@@ -195,6 +215,8 @@ export class ClaudePty extends EventEmitter {
     this.turnStartLine = this.parser.getTotalLines();
     this.turnToolsUsed = [];
     this.turnTranscript = [];
+    this.turnPrompt = prompt;
+    this.turnUserSeen = false;
     this.turnStartTime = Date.now();
     this.parser.resetTurnTracking();
     this.parser.resetTurnUsage();
@@ -343,7 +365,7 @@ export class ClaudePty extends EventEmitter {
   private buildArgs(): string[] {
     const args: string[] = [];
 
-    if (this.transcriptEnabled) {
+    if (this.transcriptEnabled && this.passSessionIdArg) {
       args.push('--session-id', this.sessionId);
     }
     args.push('--permission-mode', this.opts.permissionMode);
