@@ -4,6 +4,9 @@
   "description": "Multi-provider bridge between Arinova Chat and AI coding assistants (Claude, Codex)",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
+  "arinovaBridge": {
+    "pinnedClaudeVersion": "2.1.143"
+  },
   "main": "dist/index.js",
   "files": [
     "dist",
@@ -32,6 +35,7 @@
     "@arinova-ai/mcp-server": "staging",
     "@arinova-ai/theme-sdk": "0.0.4-staging.0",
     "@inquirer/prompts": "^8.2.1",
+    "@xterm/headless": "^5.5.0",
     "better-sqlite3": "^11.0.0",
     "js-tiktoken": "^1.0.21",
     "node-pty": "^1.2.0-beta.12"

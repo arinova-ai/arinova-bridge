@@ -129,12 +129,26 @@ async function createProvider(entry: ProviderEntry, config: BridgeConfig, logger
   const userMcp = Object.keys(config.mcpServers).length > 0 ? config.mcpServers : undefined;
 
   switch (entry.type) {
-    case "anthropic-cli":
+    case "anthropic-cli": {
+      // Honour a pinned Claude binary, but fall back to PATH if it's gone
+      // (e.g. ~/.arinova-bridge/vendor was cleaned). The PTY terminal parser
+      // is version-sensitive, so pinning keeps the CLI output format stable.
+      let claudePath = entry.claudePath ?? "claude";
+      if (entry.claudePath) {
+        const { validatePinnedBinary } = await import("../claude-pin.js");
+        if (!validatePinnedBinary(entry.claudePath)) {
+          logger.warn(
+            `registry: ${entry.id}: pinned claudePath="${entry.claudePath}" missing or not executable. ` +
+              `Falling back to "claude" on PATH. Re-run \`arinova-bridge pin-claude\` to restore pinning.`,
+          );
+          claudePath = "claude";
+        }
+      }
       return new AnthropicCliProvider(
         {
           providerId: entry.id,
           displayName: entry.displayName,
-          claudePath: entry.claudePath ?? "claude",
+          claudePath,
           mcpConfigPath: ensureCliMcpConfig(config.defaults.mcpConfigPath, logger, arinovaMcp, userMcp),
           defaultCwd: config.defaults.cwd,
           maxSessions: config.defaults.maxSessions,
@@ -145,6 +159,7 @@ async function createProvider(entry: ProviderEntry, config: BridgeConfig, logger
         },
         logger,
       );
+    }
 
     case "anthropic-sdk":
       if (!entry.apiKey) {

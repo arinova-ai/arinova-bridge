@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionStore, type SessionStoreConfig } from "../../../src/claude/session-store.js";
-import { ClaudeProcess } from "../../../src/claude/process.js";
+import { PtyProcess } from "../../../src/claude/pty-process.js";
 
-// Mock the ClaudeProcess class — must use a class/function, not arrow
-vi.mock("../../../src/claude/process.js", () => {
+// Mock the PtyProcess class — must use a class/function, not arrow
+vi.mock("../../../src/claude/pty-process.js", () => {
   return {
-    ClaudeProcess: vi.fn(function (this: any) {
+    PtyProcess: vi.fn(function (this: any) {
       this.start = vi.fn();
       this.stop = vi.fn(async () => {});
       this.sendMessage = vi.fn(async (text: string, onText?: (t: string) => void) => {
@@ -191,8 +191,8 @@ describe("SessionStore", () => {
       const entry = store.createSession("my-agent:conv-1", { agentName: "my-agent" });
       expect(entry).toBeDefined();
       // The process was constructed with the custom MCP path
-      const MockedClaudeProcess = vi.mocked(ClaudeProcess);
-      const lastCall = MockedClaudeProcess.mock.calls[MockedClaudeProcess.mock.calls.length - 1];
+      const MockedPtyProcess = vi.mocked(PtyProcess);
+      const lastCall = MockedPtyProcess.mock.calls[MockedPtyProcess.mock.calls.length - 1];
       expect(lastCall[0].mcpConfigPath).toBe("/custom/mcp.json");
     });
   });

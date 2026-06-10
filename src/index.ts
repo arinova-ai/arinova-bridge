@@ -7,9 +7,7 @@ import { createLogger } from "./util/logger.js";
 import { formatResetIn, truncate } from "./util/formatting.js";
 import { getErrorMessage } from "./util/errors.js";
 import { startOAuthRefreshTimer } from "./oauth/refresh-timer.js";
-import { HudMonitor } from "./claude/hud-monitor.js";
 import { formatModelName, type HudData } from "./claude/hud-ws.js";
-import { readFileSync } from "node:fs";
 import { startIpcServer } from "./ipc/server.js";
 import { createIpcRouter, recordTask, runExclusiveOnAgent } from "./ipc/router.js";
 import type { ActiveAgent } from "./ipc/types.js";
@@ -19,7 +17,6 @@ import { SpawnStore } from "./spawn/store.js";
 import { SpawnManager } from "./spawn/manager.js";
 import { ForkStore } from "./fork/store.js";
 import { ForkManager } from "./fork/manager.js";
-import { resolveProviderConfigDir } from "./config-file.js";
 import { savePermanentToken } from "./onboarding/token-persistence.js";
 import { fetchOnboardingKnowledge } from "./onboarding/knowledge.js";
 import { homedir } from "node:os";
@@ -55,21 +52,9 @@ logger.info(`Enabled providers: ${Array.from(providers.keys()).join(", ")}`);
 
 const stopRefreshTimer = startOAuthRefreshTimer(config.providers, logger);
 
-// Claude rate-limit HUD monitor is account-specific because Claude Code reads
-// OAuth state from CLAUDE_CONFIG_DIR. Keep one PTY per anthropic-cli provider.
-const hudMonitors = new Map<string, HudMonitor>();
-for (const entry of config.providers) {
-  if (!entry.enabled || entry.type !== "anthropic-cli") continue;
-
-  const configDir = resolveProviderConfigDir(entry.configDir);
-  const hudMonitor = new HudMonitor({
-    logger,
-    claudePath: entry.claudePath,
-    env: configDir ? { CLAUDE_CONFIG_DIR: configDir } : undefined,
-  });
-  hudMonitor.start();
-  hudMonitors.set(entry.id, hudMonitor);
-}
+// Rate limits are parsed inline from each PTY session's terminal status line
+// (see PtyProcess.getRateLimits via getUsageInfo), so there is no separate
+// per-provider HUD monitor process.
 
 // Track all agents for shutdown
 const activeAgents: ActiveAgent[] = [];
@@ -303,17 +288,10 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           };
         }
 
-        // Rate limits: Claude reads status file; other providers use rateLimits from getUsageInfo()
-        if (msgProvider.type.startsWith("anthropic")) {
-          try {
-            await hudMonitors.get(msgProvider.id)?.notify();
-            const sf = JSON.parse(readFileSync("/tmp/claude-status.json", "utf-8")) as Record<string, unknown>;
-            if (sf.limit5h) hudData.limit5h = sf.limit5h as HudData["limit5h"];
-            if (sf.limit7d) hudData.limit7d = sf.limit7d as HudData["limit7d"];
-          } catch {
-            /* status file unavailable */
-          }
-        } else if (hudUsage?.rateLimits) {
+        // Rate limits come from getUsageInfo() for every provider. For
+        // anthropic-cli these are parsed from the PTY terminal status line;
+        // other providers expose them natively.
+        if (hudUsage?.rateLimits) {
           for (const rl of hudUsage.rateLimits) {
             const percent = Math.round((rl.utilization ?? 0) * 100);
             const resetIn = rl.resetsAt ? formatResetIn(rl.resetsAt) : "";
@@ -432,9 +410,6 @@ async function shutdown(signal: string) {
   spawnManager.stopAll();
   forkManager.stopAll();
   stopIpc();
-  for (const hudMonitor of hudMonitors.values()) {
-    hudMonitor.stop();
-  }
   stopRefreshTimer();
 
   for (const { agent, name } of activeAgents) {

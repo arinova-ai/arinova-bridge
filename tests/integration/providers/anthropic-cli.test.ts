@@ -9,13 +9,13 @@ type ProcBehavior = {
 const procScripts: ProcBehavior[] = [];
 /** All mock process instances created during the current test. */
 const procInstances: any[] = [];
-/** Constructor opts received by each mock ClaudeProcess (aligned with procInstances). */
+/** Constructor opts received by each mock PtyProcess (aligned with procInstances). */
 const procCtorOpts: any[] = [];
 
-// Mock ClaudeProcess — must use function keyword, not arrow
-vi.mock("../../../src/claude/process.js", () => {
+// Mock PtyProcess — must use function keyword, not arrow
+vi.mock("../../../src/claude/pty-process.js", () => {
   return {
-    ClaudeProcess: vi.fn(function (this: any, opts: any) {
+    PtyProcess: vi.fn(function (this: any, opts: any) {
       const script = procScripts.shift() ?? {};
       this.opts = opts;
       this.start = vi.fn();
@@ -341,7 +341,7 @@ describe("AnthropicCliProvider", () => {
   });
 
   describe("reportToolCall wiring", () => {
-    it("threads reportToolCall from sendMessage to the ClaudeProcess constructor", async () => {
+    it("threads reportToolCall from sendMessage to the PtyProcess constructor", async () => {
       const reporter = vi.fn();
 
       await provider.sendMessage({
@@ -403,7 +403,7 @@ describe("AnthropicCliProvider", () => {
       expect(procCtorOpts[1].reportToolCall).toBe(reporter);
     });
 
-    it("warmup forwards reportToolCall to the ClaudeProcess constructor", () => {
+    it("warmup forwards reportToolCall to the PtyProcess constructor", () => {
       const reporter = vi.fn();
       provider.warmup("conv-warm", {
         cwd: "/w",

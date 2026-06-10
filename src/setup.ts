@@ -299,6 +299,7 @@ async function runSetup(): Promise<boolean> {
   const hasAnthropicCli = providers.some((p) => p.type === "anthropic-cli");
   if (hasAnthropicCli) {
     await setupClaudeStatusLine();
+    await setupClaudePin();
   }
 
   console.log("\nYou can now start the bridge with:");
@@ -314,6 +315,10 @@ const STATUSLINE_CONFIG = {
   command: "~/.arinova-bridge/statusline.sh",
 };
 
+// The printed line is prefixed with the `__BRIDGE_HUD__` sentinel — the PTY
+// parser (src/pty/terminal-parser.ts) uses it (and only it) to identify this
+// row as UI chrome and extract ctx%/5h%/7d% rate-limit data. Do not change the
+// sentinel without updating terminal-parser.ts.
 const STATUSLINE_SCRIPT =
   [
     "#!/bin/bash",
@@ -353,11 +358,67 @@ const STATUSLINE_SCRIPT =
     "import sys, json",
     "d = json.load(sys.stdin)",
     "ctx = d.get('context',{}).get('percent','?')",
-    "r5 = d.get('limit5h',{}).get('percent','?')",
-    "cost = d.get('cost',0)",
-    "print(f'ctx:{ctx}% | 5h:{r5}% | \\${cost:.3f}')",
+    "r5 = d.get('limit5h',{})",
+    "r7 = d.get('limit7d',{})",
+    "p5 = r5.get('percent','?')",
+    "p7 = r7.get('percent','?')",
+    "ri5 = f\\\" ({r5['resetIn']})\\\" if r5.get('resetIn') else ''",
+    "ri7 = f\\\" ({r7['resetIn']})\\\" if r7.get('resetIn') else ''",
+    "model = d.get('model','') or '?'",
+    "cost = d.get('cost', 0)",
+    "print(f'__BRIDGE_HUD__ [{model}] ctx:{ctx}% | 5h:{p5}%{ri5} | 7d:{p7}%{ri7} | \\${cost:.3f}')",
     '" 2>/dev/null',
   ].join("\n") + "\n";
+
+async function setupClaudePin(): Promise<void> {
+  const { readPinnedVersion, pinClaudeBinary, ClaudeBinaryNotFoundError } = await import(
+    "./claude-pin.js"
+  );
+
+  const version = readPinnedVersion();
+  if (!version) return; // package.json missing the field — nothing to pin
+
+  console.log("\n── Claude CLI 版本鎖定 ──────────────────");
+  console.log(`Bridge 預期使用 Claude Code ${version}（package.json 宣告）。`);
+  console.log("會把本機已安裝的 binary 複製到 ~/.arinova-bridge/vendor/ 給 bridge 專用，");
+  console.log("這樣外面 claude 被 auto-updater 換版本時 bridge 不會受影響。");
+
+  const enablePin = await confirm({
+    message: `要立刻 pin Claude Code ${version} 嗎？`,
+    default: true,
+  });
+  if (!enablePin) {
+    console.log("  跳過 pin。之後可手動跑 `arinova-bridge pin-claude`。");
+    return;
+  }
+
+  let result;
+  try {
+    result = pinClaudeBinary(version);
+  } catch (err) {
+    if (err instanceof ClaudeBinaryNotFoundError) {
+      console.warn(`  ⚠ ${err.message}`);
+      console.warn("  跳過 pin。請先安裝對應版本的 Claude Code 再跑 `arinova-bridge pin-claude`。");
+      return;
+    }
+    throw err;
+  }
+
+  // Write claudePath back into every anthropic-cli provider.
+  const config = readConfigFile();
+  if (!config) return;
+  let updated = 0;
+  for (const provider of config.providers) {
+    if (provider.type === "anthropic-cli" && provider.claudePath !== result.pinnedPath) {
+      provider.claudePath = result.pinnedPath;
+      updated++;
+    }
+  }
+  if (updated > 0) writeConfigFile(config);
+
+  console.log(`  ✓ 複製到 ${result.pinnedPath} (${Math.round(result.bytesCopied / 1024 / 1024)} MB)`);
+  console.log(`  ✓ 更新 ${updated} 個 anthropic-cli provider 的 claudePath`);
+}
 
 async function setupClaudeStatusLine(): Promise<void> {
   console.log("\n── Rate Limit Monitoring ──────────────");

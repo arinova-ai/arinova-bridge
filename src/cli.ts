@@ -31,6 +31,10 @@ COMMANDS
   fork     Fork agent to execute task in sub-session (add, list, cancel)
   config   Show current configuration (secrets masked)
   setup    Interactive setup wizard (providers, bot token, statusLine)
+  pin-claude  Copy a specific Claude Code version into the bridge vendor dir
+              and point anthropic-cli providers at it. Defaults to the version
+              declared in package.json -> arinovaBridge.pinnedClaudeVersion.
+              Usage: arinova-bridge pin-claude [version]
   login    OAuth login for a specific provider (without re-running full setup)
   help     Show this help message
 
@@ -256,6 +260,65 @@ async function cmdSetup(): Promise<void> {
   await import("./setup.js");
 }
 
+async function cmdPinClaude(args: string[]): Promise<void> {
+  const { readPinnedVersion, pinClaudeBinary, ClaudeBinaryNotFoundError } = await import(
+    "./claude-pin.js"
+  );
+  const { readConfigFile, writeConfigFile, getConfigPath } = await import("./config-file.js");
+
+  // Positional version arg overrides package.json default. Anything starting
+  // with `-` is treated as a flag (none are defined right now) and ignored.
+  const explicit = args.find((a) => !a.startsWith("-"));
+  const version = explicit ?? readPinnedVersion();
+  if (!version) {
+    console.error(
+      "No version specified and package.json lacks `arinovaBridge.pinnedClaudeVersion`. " +
+        "Pass a version explicitly: `arinova-bridge pin-claude 2.1.143`.",
+    );
+    process.exit(1);
+  }
+
+  let result;
+  try {
+    result = pinClaudeBinary(version);
+  } catch (err) {
+    if (err instanceof ClaudeBinaryNotFoundError) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  console.log(`Pinned Claude Code ${result.version}`);
+  console.log(`  source : ~/.local/share/claude/versions/${result.version}`);
+  console.log(`  dest   : ${result.pinnedPath}`);
+  console.log(`  size   : ${Math.round(result.bytesCopied / 1024 / 1024)} MB`);
+
+  // Update every anthropic-cli provider's claudePath. We don't touch other
+  // provider types (openai-cli etc.) — they manage their own binaries.
+  const config = readConfigFile();
+  if (!config) {
+    console.warn(
+      `\nNo config file at ${getConfigPath()} — skipping claudePath update. ` +
+        `Run \`arinova-bridge setup\` first, then re-run pin-claude.`,
+    );
+    return;
+  }
+  let updated = 0;
+  for (const provider of config.providers) {
+    if (provider.type === "anthropic-cli" && provider.claudePath !== result.pinnedPath) {
+      provider.claudePath = result.pinnedPath;
+      updated++;
+    }
+  }
+  if (updated > 0) {
+    writeConfigFile(config);
+    console.log(`\nUpdated ${updated} anthropic-cli provider(s) in ${getConfigPath()}.`);
+  } else {
+    console.log(`\nAll anthropic-cli providers already pointing at the pinned binary.`);
+  }
+}
+
 async function cmdLogin(args: string[]): Promise<void> {
   const { runLogin } = await import("./login.js");
   const providerId = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
@@ -313,6 +376,9 @@ async function main(): Promise<void> {
       break;
     case "setup":
       await cmdSetup();
+      break;
+    case "pin-claude":
+      await cmdPinClaude(args.slice(1));
       break;
     case "login":
       await cmdLogin(args.slice(1));

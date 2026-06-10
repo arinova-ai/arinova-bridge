@@ -35,6 +35,9 @@ importers:
       '@inquirer/prompts':
         specifier: ^8.2.1
         version: 8.3.0(@types/node@25.4.0)
+      '@xterm/headless':
+        specifier: ^5.5.0
+        version: 5.5.0
       better-sqlite3:
         specifier: ^11.0.0
         version: 11.10.0
@@ -1023,6 +1026,9 @@ packages:
 
   '@vitest/utils@4.1.2':
     resolution: {integrity: sha512-xw2/TiX82lQHA06cgbqRKFb5lCAy3axQ4H4SoUFhUsg+wztiet+co86IAMDtF6Vm1hc7J6j09oh/rgDn+JdKIQ==}
+
+  '@xterm/headless@5.5.0':
+    resolution: {integrity: sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g==}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -2709,6 +2715,8 @@ snapshots:
       '@vitest/pretty-format': 4.1.2
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
+
+  '@xterm/headless@5.5.0': {}
 
   accepts@2.0.0:
     dependencies:
