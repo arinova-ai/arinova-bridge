@@ -30,6 +30,7 @@ import {
   DEFAULT_RESPONSE_TIMEOUT_MS,
   DEFAULT_CLOSE_TIMEOUT_MS,
   DEFAULT_PERMISSION_MODE,
+  BOX_DRAWING_CHARS,
 } from './constants.js';
 import {
   StartupTimeoutError,
@@ -330,8 +331,22 @@ export class ClaudePty extends EventEmitter {
 
     this.contentPollTimer = setTimeout(() => {
       this.contentPollTimer = null;
-      const delta = this.parser.extractStreamingDelta();
+      let delta = this.parser.extractStreamingDelta();
       if (delta) {
+        // Deltas come from the rendered screen. A markdown table is
+        // re-rendered (box-drawing graphics, growing row by row) on
+        // every repaint, so its delta lines are overlapping garbage
+        // that a chat UI accumulates verbatim — drop those lines from
+        // the live preview. The table arrives intact in the final
+        // response (raw markdown via the transcript), which replaces
+        // the preview at stream end.
+        if (BOX_DRAWING_CHARS.test(delta)) {
+          delta = delta
+            .split('\n')
+            .filter((l) => !BOX_DRAWING_CHARS.test(l))
+            .join('\n');
+          if (delta.trim() === '') return;
+        }
         this.emit('content', delta);
         this.emit('streamEvent', {
           type: 'content_block_delta',
