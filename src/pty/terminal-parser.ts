@@ -9,7 +9,7 @@ const { Terminal } = _require('@xterm/headless') as { Terminal: new (options?: R
 const { Unicode11Addon } = _require('@xterm/addon-unicode11') as {
   Unicode11Addon: new () => { activate(t: unknown): void; dispose(): void };
 };
-import { BOX_DRAWING_LINE, TOOL_NAMES } from './constants.js';
+import { BOX_DRAWING_LINE, BOX_DRAWING_CHARS, TOOL_NAMES } from './constants.js';
 import type { TurnUsage } from './types.js';
 import { stripInjectedContext, hasUnclosedInjectionBlock } from '../util/context.js';
 
@@ -503,6 +503,63 @@ export class TerminalParser {
   // and the indented continuation lines below a tool result are dropped
   // — tool activity is surfaced to consumers via separate `toolUse` /
   // `streamEvent` channels, not via the assistant-text stream.
+  // Convert one TUI-rendered table line back to markdown. The CLI
+  // renders markdown tables as box-drawing graphics, re-painting the
+  // whole table (with shifting column widths) as rows stream in. By
+  // trimming the width padding out of each cell, a logical row converts
+  // to the SAME markdown string on every repaint — the extracted text
+  // stays prefix-stable as the table grows, so streaming deltas carry
+  // just the new rows instead of overlapping re-render garbage.
+  //
+  // Returns the converted line, or null to drop (borders, repeated
+  // separators). `tbl` is per-extraction table state.
+  private convertTableLine(
+    trimmed: string,
+    tbl: { inTable: boolean; separatorEmitted: boolean; cols: number },
+  ): string | null {
+    // Top border ┌─┬─┐ / ╭─┬─╮ — table starts.
+    if (/^[┌╭][─┬┼]*[┐╮]$/.test(trimmed.replace(/\s/g, ''))) {
+      tbl.inTable = true;
+      tbl.separatorEmitted = false;
+      tbl.cols = 0;
+      return null;
+    }
+    // Bottom border └─┴─┘ — table ends.
+    if (/^[└╰][─┴┼]*[┘╯]$/.test(trimmed.replace(/\s/g, ''))) {
+      tbl.inTable = false;
+      return null;
+    }
+    // Inner separator ├─┼─┤ — keep only the first (header separator).
+    if (/^├[─┼]*┤$/.test(trimmed.replace(/\s/g, ''))) {
+      if (tbl.inTable && !tbl.separatorEmitted && tbl.cols > 0) {
+        tbl.separatorEmitted = true;
+        return `|${'---|'.repeat(tbl.cols)}`;
+      }
+      return null;
+    }
+    // Cell row │ a │ b │ → | a | b |
+    if (/^│.*│$/.test(trimmed)) {
+      const cells = trimmed
+        .slice(1, -1)
+        .split('│')
+        .map((c) => c.trim());
+      if (tbl.cols === 0) tbl.cols = cells.length;
+      return `| ${cells.join(' | ')} |`;
+    }
+    return trimmed; // not a table line (shouldn't reach here)
+  }
+
+  private isBoxTableLine(trimmed: string): boolean {
+    if (!BOX_DRAWING_CHARS.test(trimmed)) return false;
+    const compact = trimmed.replace(/\s/g, '');
+    return (
+      /^[┌╭][─┬┼]*[┐╮]$/.test(compact) ||
+      /^[└╰][─┴┼]*[┘╯]$/.test(compact) ||
+      /^├[─┼]*┤$/.test(compact) ||
+      /^│.*│$/.test(trimmed)
+    );
+  }
+
   private collectAssistantText(
     allLines: string[],
     startIdx: number,
@@ -513,6 +570,7 @@ export class TerminalParser {
     // first iteration flip to IN_TOOL if it's a tool invocation.
     let state: State = 'IN_TEXT';
     const out: string[] = [];
+    const tbl = { inTable: false, separatorEmitted: false, cols: 0 };
 
     for (let i = startIdx; i < endIdx; i++) {
       const line = allLines[i];
@@ -540,10 +598,23 @@ export class TerminalParser {
         continue;
       }
 
+      // Push one line of assistant text, converting TUI-rendered table
+      // rows back to markdown along the way.
+      const pushText = (text: string) => {
+        const t = text.trim();
+        if (this.isBoxTableLine(t)) {
+          const converted = this.convertTableLine(t, tbl);
+          if (converted !== null) out.push(converted);
+        } else {
+          tbl.inTable = false;
+          out.push(text);
+        }
+      };
+
       // Plain `⏺ <text>` — opens (or re-opens) an assistant text block.
       if (/^⏺\s/.test(trimmed)) {
         state = 'IN_TEXT';
-        out.push(line.replace(/^⏺\s?/, ''));
+        pushText(line.replace(/^⏺\s?/, ''));
         continue;
       }
 
@@ -560,7 +631,7 @@ export class TerminalParser {
       // indent so the extracted text matches the original (relative
       // indentation, e.g. code blocks, is preserved).
       if (state === 'IN_TEXT') {
-        out.push(line.replace(/^ {2}/, ''));
+        pushText(line.replace(/^ {2}/, ''));
       }
       // state === 'IN_TOOL' → drop the line (tool result continuation).
     }
