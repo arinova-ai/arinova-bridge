@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { ClaudePty } from "../pty/claude-pty.js";
+import { ResponseTimeoutError } from "../pty/errors.js";
 import { ClaudeState } from "../pty/types.js";
 import type { TurnUsage, TurnToolCall } from "../pty/types.js";
 import type { Logger } from "../util/logger.js";
@@ -279,6 +280,20 @@ export class PtyProcess {
       };
     } catch (err) {
       if (signal?.aborted) throw new Error("Turn aborted by user", { cause: err });
+      if (err instanceof ResponseTimeoutError) {
+        // The response timer only rejects the JS promise — the CLI is still
+        // mid-turn, so every later send would fail with NOT_READY until it
+        // finishes on its own. Interrupt it and wait for the prompt back.
+        this.abortTurn();
+        let recovered = await this.waitForIdle(5000);
+        if (!recovered) {
+          this.abortTurn();
+          recovered = await this.waitForIdle(5000);
+        }
+        this.opts.logger.warn(
+          `${this.logTag}: response timed out — interrupted turn, ${recovered ? "back to IDLE" : "still busy"}`,
+        );
+      }
       throw err;
     } finally {
       this.turnOnText = null;
@@ -290,6 +305,17 @@ export class PtyProcess {
 
   abortTurn(): void {
     this.pty?.writeRaw("\x03");
+  }
+
+  /** Poll until the CLI prompt returns to IDLE. Resolves true once idle. */
+  async waitForIdle(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!this.alive || !this.pty) return false;
+      if (this.pty.state === ClaudeState.IDLE) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.pty?.state === ClaudeState.IDLE;
   }
 
   async stop(): Promise<void> {

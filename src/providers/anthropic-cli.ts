@@ -197,9 +197,12 @@ export class AnthropicCliProvider implements Provider {
     let entry = this.store.getSession(conversationId);
 
     if (entry && entry.process.isAlive()) {
-      // Abort any in-flight turn (e.g. cancel + immediate new message)
+      // Abort any in-flight turn (e.g. cancel + immediate new message).
+      // Ctrl+C takes a moment to land — sending before the CLI is back at
+      // its prompt raises NOT_READY.
       if (entry.process.isBusy()) {
         entry.process.abortTurn();
+        await entry.process.waitForIdle(5000);
       }
       entry.lastActivity = Date.now();
     } else {

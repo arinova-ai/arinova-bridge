@@ -18,6 +18,7 @@ function makeMockProcess() {
     isAlive: vi.fn(() => true),
     isBusy: vi.fn(() => false),
     abortTurn: vi.fn(),
+    waitForIdle: vi.fn(async () => true),
     getSessionId: vi.fn(() => "sid-1"),
     getTotalCost: vi.fn(() => 0.05),
     getCwd: vi.fn(() => "/test"),
