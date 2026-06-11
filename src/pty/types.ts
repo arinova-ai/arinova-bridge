@@ -49,6 +49,19 @@ export interface ToolUseInfo {
   summary: string;
 }
 
+/** A completed tool call assembled from the session transcript by
+ *  pairing the assistant's tool_use block with its tool_result. Carries
+ *  the real input JSON, output, and error state — unlike the
+ *  screen-scraped `toolUse` event (name + one-line summary only). */
+export interface TurnToolCall {
+  toolUseId: string;
+  toolName: string;
+  input: unknown;
+  output?: string;
+  isError: boolean;
+  durationMs?: number;
+}
+
 export interface PermissionInfo {
   toolName: string;
   command: string;

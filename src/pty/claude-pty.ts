@@ -15,6 +15,7 @@ import type {
   SendResult,
   TurnUsage,
   ToolUseInfo,
+  TurnToolCall,
   PipeResult,
   PromptOptions,
   StreamEvent} from './types.js';
@@ -40,12 +41,36 @@ import {
   SendInProgressError,
 } from './errors.js';
 
+const TOOL_OUTPUT_MAX_CHARS = 4000;
+
+// tool_result content is a string or an array of content blocks; flatten
+// to a bounded string — Read results can carry whole files and the
+// report is uploaded to the chat platform.
+function normalizeToolOutput(content: unknown): string | undefined {
+  let text: string;
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : ''))
+      .filter(Boolean)
+      .join('\n');
+  } else {
+    return undefined;
+  }
+  if (text.length > TOOL_OUTPUT_MAX_CHARS) {
+    return `${text.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n… [truncated ${text.length - TOOL_OUTPUT_MAX_CHARS} chars]`;
+  }
+  return text;
+}
+
 export interface ClaudePtyEventMap {
   stateChange: [state: ClaudeState, previousState: ClaudeState];
   data: [chunk: string];
   content: [delta: string];
   response: [fullResponse: string];
   toolUse: [info: ToolUseInfo];
+  toolCall: [call: TurnToolCall];
   streamEvent: [event: StreamEvent];
   transcriptLine: [line: TranscriptLine];
   error: [error: Error];
@@ -60,6 +85,10 @@ export class ClaudePty extends EventEmitter {
   private turnTranscript: TranscriptLine[] = [];
   private turnPrompt: string | null = null;
   private turnUserSeen = false;
+  private pendingToolUses = new Map<
+    string,
+    { name: string; input: unknown; ts?: string }
+  >();
   readonly sessionId: string;
   private transcriptEnabled: boolean;
   private passSessionIdArg: boolean;
@@ -159,6 +188,47 @@ export class ClaudePty extends EventEmitter {
         }
         if (this.turnUserSeen && line.type === 'assistant' && !line.isSidechain) {
           this.turnTranscript.push(line);
+          // Track tool_use blocks so the matching tool_result can be
+          // paired into a complete toolCall event.
+          if (Array.isArray(line.message?.content)) {
+            for (const b of line.message.content) {
+              if (b.type === 'tool_use' && b.id) {
+                this.pendingToolUses.set(b.id, {
+                  name: b.name ?? 'unknown',
+                  input: b.input,
+                  ts: line.timestamp,
+                });
+              }
+            }
+          }
+        }
+        // tool_result lands on a user line — pair it with its tool_use
+        // and emit the full call (real input JSON, output, error state).
+        if (
+          this.turnUserSeen &&
+          line.type === 'user' &&
+          !line.isSidechain &&
+          Array.isArray(line.message?.content)
+        ) {
+          for (const b of line.message.content) {
+            if (b.type !== 'tool_result' || !b.tool_use_id) continue;
+            const pending = this.pendingToolUses.get(b.tool_use_id);
+            if (!pending) continue;
+            this.pendingToolUses.delete(b.tool_use_id);
+            let durationMs: number | undefined;
+            if (pending.ts && line.timestamp) {
+              const d = Date.parse(line.timestamp) - Date.parse(pending.ts);
+              if (Number.isFinite(d) && d >= 0) durationMs = d;
+            }
+            this.emit('toolCall', {
+              toolUseId: b.tool_use_id,
+              toolName: pending.name,
+              input: pending.input,
+              output: normalizeToolOutput(b.content),
+              isError: b.is_error === true,
+              durationMs,
+            });
+          }
         }
       });
       this.transcriptReader.start();
@@ -218,6 +288,7 @@ export class ClaudePty extends EventEmitter {
     this.turnTranscript = [];
     this.turnPrompt = prompt;
     this.turnUserSeen = false;
+    this.pendingToolUses.clear();
     this.turnStartTime = Date.now();
     this.parser.resetTurnTracking();
     this.parser.resetTurnUsage();

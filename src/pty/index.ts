@@ -11,6 +11,7 @@ export {
   SendResult,
   TurnUsage,
   ToolUseInfo,
+  TurnToolCall,
   PermissionInfo,
   PipeResult,
   PromptOptions,

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { ClaudePty } from "../pty/claude-pty.js";
 import { ClaudeState } from "../pty/types.js";
-import type { TurnUsage, ToolUseInfo } from "../pty/types.js";
+import type { TurnUsage, TurnToolCall } from "../pty/types.js";
 import type { Logger } from "../util/logger.js";
 
 const BRIDGE_CLAUDE_SETTINGS = path.join(homedir(), ".arinova-bridge", "claude-settings.json");
@@ -169,20 +169,29 @@ export class PtyProcess {
       this.turnOnText?.(delta);
     });
 
-    this.pty.on("toolUse", (info: ToolUseInfo) => {
-      if (this.reporter) {
-        const report: ToolCallReport = {
-          sessionId: this.sessionId,
-          turnId: this.turnId,
-          seqOrder: this.turnToolCallSeq++,
-          toolName: info.toolName,
-          input: {},
-          output: info.summary || undefined,
-          success: true,
-          messageId: this.turnMessageId,
-        };
-        try { Promise.resolve(this.reporter(report)).catch(() => {}); } catch { /* ignore */ }
-      }
+    // Tool reports come from the transcript (tool_use paired with its
+    // tool_result): real input JSON, output, error state, and duration —
+    // the screen-scraped `toolUse` event only knows a name and a
+    // one-line summary.
+    this.pty.on("toolCall", (call: TurnToolCall) => {
+      if (!this.reporter) return;
+      const report: ToolCallReport = {
+        sessionId: this.sessionId,
+        turnId: this.turnId,
+        seqOrder: this.turnToolCallSeq++,
+        toolName: call.toolName,
+        input: (call.input && typeof call.input === "object"
+          ? call.input
+          : { value: call.input ?? null }) as Record<string, unknown>,
+        output: call.output,
+        durationMs: call.durationMs,
+        success: !call.isError,
+        error: call.isError
+          ? (call.output ?? "tool error").slice(0, 500)
+          : undefined,
+        messageId: this.turnMessageId,
+      };
+      try { Promise.resolve(this.reporter(report)).catch(() => {}); } catch { /* ignore */ }
     });
 
     this.pty.on("exit", (code: number) => {

@@ -23,8 +23,12 @@ export interface TranscriptLine {
           type: string;
           text?: string;
           thinking?: string;
+          id?: string;
           name?: string;
           input?: unknown;
+          tool_use_id?: string;
+          content?: unknown;
+          is_error?: boolean;
         }>;
     usage?: {
       input_tokens?: number;
