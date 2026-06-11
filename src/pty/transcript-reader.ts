@@ -47,7 +47,16 @@ export interface TranscriptLine {
 export function transcriptPathFor(cwd: string, sessionId: string): string {
   const configDir =
     process.env.CLAUDE_CONFIG_DIR ?? path.join(homedir(), ".claude");
-  const encoded = path.resolve(cwd).replace(/[^a-zA-Z0-9]/g, "-");
+  // The CLI encodes the symlink-resolved cwd (/tmp → /private/tmp on
+  // macOS) — resolve the same way or the reader watches a path that
+  // never exists.
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(cwd);
+  } catch {
+    resolved = path.resolve(cwd);
+  }
+  const encoded = resolved.replace(/[^a-zA-Z0-9]/g, "-");
   return path.join(configDir, "projects", encoded, `${sessionId}.jsonl`);
 }
 

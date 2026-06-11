@@ -31,6 +31,10 @@ import {
   DEFAULT_RESPONSE_TIMEOUT_MS,
   DEFAULT_CLOSE_TIMEOUT_MS,
   DEFAULT_PERMISSION_MODE,
+  STARTUP_SETTLE_MS,
+  PROMPT_ECHO_TIMEOUT_MS,
+  PROMPT_ECHO_POLL_MS,
+  PROMPT_WRITE_ATTEMPTS,
   BOX_DRAWING_CHARS,
 } from './constants.js';
 import {
@@ -75,6 +79,10 @@ export interface ClaudePtyEventMap {
   transcriptLine: [line: TranscriptLine];
   error: [error: Error];
   exit: [code: number, signal?: number];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class ClaudePty extends EventEmitter {
@@ -272,6 +280,10 @@ export class ClaudePty extends EventEmitter {
     );
 
     this.detector.setInterceptCallback(null);
+
+    // The CLI keeps repainting briefly after the prompt box first appears
+    // (MCP/server init) and can swallow input written into that window.
+    await delay(STARTUP_SETTLE_MS);
   }
 
   async send(prompt: string, options?: SendOptions): Promise<SendResult> {
@@ -317,16 +329,31 @@ export class ClaudePty extends EventEmitter {
     this.ptyProcess?.write(data);
   }
 
-  private writePrompt(prompt: string): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        this.ptyProcess!.write(prompt);
-        setTimeout(() => {
-          this.ptyProcess!.write('\r');
-          resolve();
-        }, 50);
-      }, 100);
-    });
+  private async writePrompt(prompt: string): Promise<void> {
+    // Bracketed paste: newlines insert literally instead of submitting
+    // line-by-line, and the CLI renders the input as a single paste.
+    const payload = `\x1b[200~${prompt}\x1b[201~`;
+    await delay(100);
+    for (let attempt = 1; attempt <= PROMPT_WRITE_ATTEMPTS; attempt++) {
+      this.ptyProcess!.write(payload);
+      if (await this.waitForPromptEcho()) break;
+      // Nothing echoed in the input box — the write was swallowed (seen
+      // when the CLI is still repainting right after startup). Type it
+      // again rather than pressing Enter on an empty box.
+    }
+    await delay(50);
+    this.ptyProcess!.write('\r');
+  }
+
+  /** True once the input box shows content for the prompt we just wrote. */
+  private async waitForPromptEcho(): Promise<boolean> {
+    const deadline = Date.now() + PROMPT_ECHO_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const input = this.parser.getPromptBoxInput();
+      if (input) return true;
+      await delay(PROMPT_ECHO_POLL_MS);
+    }
+    return false;
   }
 
   approvePermission(): void {

@@ -184,6 +184,18 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
+    // Platform cron/trigger wakeups are agent-level tasks with no
+    // conversation — conversationId arrives undefined despite the SDK
+    // type (fixed in agent-sdk 0.0.19-staging.5).
+    const taskLabel = conversationId ?? `task:${ctx.taskId}`;
+    const requireConversation = (api: string): string => {
+      if (!conversationId) {
+        throw new Error(
+          `${api} unavailable: this task (${taskLabel}) is a platform wakeup with no conversation`,
+        );
+      }
+      return conversationId;
+    };
     // Single session per agent — Chat and A2A share the same context
     const sessionId = `${agentName}:default`;
 
@@ -201,11 +213,13 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         senderUsername: ctx.senderUsername,
         members: ctx.members,
         fetchHistory: ctx.fetchHistory,
-        // Arinova API calls use original conversationId (not session-scoped)
-        listNotes: (options) => agent.listNotes(conversationId, options),
-        createNote: (body) => agent.createNote(conversationId, body),
-        updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
-        deleteNote: (noteId) => agent.deleteNote(conversationId, noteId),
+        // Arinova API calls use original conversationId (not session-scoped);
+        // platform wakeups have none, so fail with a clear message instead
+        // of hitting the API with undefined.
+        listNotes: (options) => agent.listNotes(requireConversation("listNotes"), options),
+        createNote: (body) => agent.createNote(requireConversation("createNote"), body),
+        updateNote: (noteId, body) => agent.updateNote(requireConversation("updateNote"), noteId, body),
+        deleteNote: (noteId) => agent.deleteNote(requireConversation("deleteNote"), noteId),
       });
       if (result.handled) return;
 
@@ -307,14 +321,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       const msg = getErrorMessage(err);
       if (ctx.signal.aborted || msg === "Turn aborted by user") {
         const reason = ctx.signal.aborted ? "signal aborted (client/SDK)" : `process: ${msg}`;
-        logger.info(`[${agentName}] task cancelled for ${conversationId} — ${reason}`);
+        logger.info(`[${agentName}] task cancelled for ${taskLabel} — ${reason}`);
         // Ensure the client receives a terminal signal so it doesn't hang.
         // The SDK's abort listener may have already sent agent_error; sendError
         // is guarded against duplicates so this is safe to call unconditionally.
         ctx.sendError("cancelled");
         return;
       }
-      logger.error(`[${agentName}] task error for ${conversationId}: ${msg}`);
+      logger.error(`[${agentName}] task error for ${taskLabel}: ${msg}`);
       ctx.sendError(msg);
     }
   });

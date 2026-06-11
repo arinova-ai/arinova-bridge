@@ -256,6 +256,44 @@ export class TerminalParser {
     return false;
   }
 
+  /**
+   * Text currently sitting in the input prompt box, or null when no box is
+   * visible. Multi-line input (e.g. a bracketed paste, which the CLI may
+   * collapse to a "[Pasted text #N +M lines]" placeholder) spans several
+   * lines between the box borders.
+   */
+  getPromptBoxInput(): string | null {
+    const allLines = this.readAllLines();
+
+    let lastNonEmpty = allLines.length - 1;
+    while (lastNonEmpty >= 0 && allLines[lastNonEmpty].trim() === '') {
+      lastNonEmpty--;
+    }
+    if (lastNonEmpty < 0) return null;
+
+    const scanStart = Math.max(0, lastNonEmpty - 30);
+    for (let bottom = lastNonEmpty; bottom > scanStart; bottom--) {
+      const cur = allLines[bottom].trim();
+      if (!(BOX_DRAWING_LINE.test(cur) && cur.length > 10)) continue;
+
+      for (let top = bottom - 1; top >= scanStart; top--) {
+        const line = allLines[top].trim();
+        if (!(BOX_DRAWING_LINE.test(line) && line.length > 10)) continue;
+
+        const content = allLines.slice(top + 1, bottom).map((l) => l.trim());
+        // The input box always renders its prompt marker; a bordered
+        // region without one is some other widget (dialog, table).
+        if (!content.some((l) => l.startsWith('❯'))) return null;
+        return content
+          .map((l) => (l.startsWith('❯') ? l.slice(1).trim() : l))
+          .join('\n')
+          .trim();
+      }
+      return null;
+    }
+    return null;
+  }
+
   private hasResponseAbove(allLines: string[], promptBoxTopBorder: number): boolean {
     for (let j = promptBoxTopBorder - 1; j >= 0 && j >= promptBoxTopBorder - 30; j--) {
       if (/^⏺/.test(allLines[j].trim())) return true;
