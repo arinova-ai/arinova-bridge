@@ -185,9 +185,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
     // Platform cron/trigger wakeups are agent-level tasks with no
-    // conversation — conversationId arrives undefined despite the SDK
-    // type (fixed in agent-sdk 0.0.19-staging.5).
-    const taskLabel = conversationId ?? `task:${ctx.taskId}`;
+    // conversation — label them by kind so logs stay traceable.
+    const taskLabel = conversationId ?? `${ctx.taskKind ?? "task"}:${ctx.taskId}`;
     const requireConversation = (api: string): string => {
       if (!conversationId) {
         throw new Error(
