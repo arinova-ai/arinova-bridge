@@ -161,6 +161,10 @@ export async function deliverToAgent(
             queue: true,
             extraContext,
             senderName: from,
+            // `from` is the source agent's handle for A2A deliveries (only
+            // "cli" is a non-agent source), so attribute the message to the
+            // real agent rather than leaving it unattributed.
+            senderAgentName: from !== "cli" ? from : undefined,
             reportToolCall: (report) => target.agent.reportToolCall(report),
           });
           responseText = result.text;

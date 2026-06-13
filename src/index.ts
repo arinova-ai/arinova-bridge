@@ -237,6 +237,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         conversationType: ctx.conversationType,
         senderUserId: ctx.senderUserId,
         senderUsername: ctx.senderUsername,
+        senderAgentId: ctx.senderAgentId,
+        senderAgentName: ctx.senderAgentName,
         members: ctx.members,
         fetchHistory: ctx.fetchHistory,
         // Arinova API calls use original conversationId (not session-scoped)
@@ -258,32 +260,43 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       // agentWideLock already serializes WS task vs WS task; this adds the
       // missing WS task vs A2A exclusion so a fresh WS task never aborts a
       // queued A2A turn in the shared Claude process.
-      const sendResult = await runExclusiveOnAgent(agentName, () => runMessagePipeline({
-        provider: msgProvider,
-        bridgeSessionStore,
-        sessionId,
-        content,
-        agentName,
-        cwd,
-        model,
-        systemPrompt: agentCfg.systemPrompt,
-        compactModel: agentCfg.compactModel,
-        onChunk: (text) => ctx.sendChunk(text),
-        signal: ctx.signal,
-        uploadFile: ctx.uploadFile,
-        attachments: ctx.attachments,
-        conversationType: ctx.conversationType,
-        senderUserId: ctx.senderUserId,
-        senderUsername: ctx.senderUsername,
-        members: ctx.members,
-        replyTo: ctx.replyTo,
-        fetchHistory: ctx.fetchHistory,
-        history: ctx.history,
-        senderName: ctx.senderUsername,
-        userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
-        reportToolCall: (report) => agent.reportToolCall(report),
-        messageId: ctx.userMessageId,
-      }));
+      const sendResult = await runExclusiveOnAgent(agentName, () =>
+        runMessagePipeline({
+          provider: msgProvider,
+          bridgeSessionStore,
+          sessionId,
+          content,
+          agentName,
+          cwd,
+          model,
+          systemPrompt: agentCfg.systemPrompt,
+          compactModel: agentCfg.compactModel,
+          onChunk: (text) => ctx.sendChunk(text),
+          signal: ctx.signal,
+          uploadFile: ctx.uploadFile,
+          attachments: ctx.attachments,
+          conversationType: ctx.conversationType,
+          senderUserId: ctx.senderUserId,
+          senderUsername: ctx.senderUsername,
+          senderAgentId: ctx.senderAgentId,
+          senderAgentName: ctx.senderAgentName,
+          members: ctx.members,
+          replyTo: ctx.replyTo,
+          fetchHistory: ctx.fetchHistory,
+          history: ctx.history,
+          // Prefer the real agent handle: for agent-authored messages the
+          // backend may set senderUsername to the workspace owner.
+          senderName: ctx.senderAgentName ?? ctx.senderUsername,
+          userMessageMeta: {
+            userId: ctx.senderUserId,
+            username: ctx.senderUsername,
+            agentId: ctx.senderAgentId,
+            agentName: ctx.senderAgentName,
+          },
+          reportToolCall: (report) => agent.reportToolCall(report),
+          messageId: ctx.userMessageId,
+        }),
+      );
 
       if (sendResult.compacted) clearA2aContextInjected(sessionId);
 

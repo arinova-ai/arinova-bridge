@@ -58,6 +58,15 @@ export interface SendMessageOpts {
   senderUserId?: string;
   /** Username of the human who sent the message. */
   senderUsername?: string;
+  /** Agent ID of the agent that authored the message (agent-to-agent / group). */
+  senderAgentId?: string;
+  /**
+   * Display handle of the agent that authored the message. When set, the
+   * sender is an agent (not a human) and `buildContextPrefix` attributes the
+   * message to this handle — not `senderUsername`, which the backend may fill
+   * with the workspace owner for agent-authored messages.
+   */
+  senderAgentName?: string;
   /** Other agents in the conversation (group only). */
   members?: ConversationMember[];
   /** The message being replied to. */

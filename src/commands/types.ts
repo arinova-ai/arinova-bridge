@@ -42,6 +42,10 @@ export interface CommandContext {
   senderUserId?: string;
   /** Username of the human who sent the message. */
   senderUsername?: string;
+  /** Agent ID of the agent that authored the message (agent-to-agent / group). */
+  senderAgentId?: string;
+  /** Display handle of the agent that authored the message. */
+  senderAgentName?: string;
   /** Other agents in the conversation (group only). */
   members?: { agentId: string; agentName: string }[];
   /** Fetch full conversation history with pagination. */

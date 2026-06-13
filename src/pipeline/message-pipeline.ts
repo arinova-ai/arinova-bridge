@@ -69,6 +69,8 @@ export interface PipelineContext {
   conversationType?: string;
   senderUserId?: string;
   senderUsername?: string;
+  senderAgentId?: string;
+  senderAgentName?: string;
   members?: SendMessageOpts["members"];
   replyTo?: SendMessageOpts["replyTo"];
   fetchHistory?: SendMessageOpts["fetchHistory"];
@@ -176,6 +178,8 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     conversationType: ctx.conversationType,
     senderUserId: ctx.senderUserId,
     senderUsername: ctx.senderUsername,
+    senderAgentId: ctx.senderAgentId,
+    senderAgentName: ctx.senderAgentName,
     members: ctx.members,
     replyTo: ctx.replyTo,
     fetchHistory: ctx.fetchHistory,

@@ -18,8 +18,14 @@ export function buildContextPrefix(opts: SendMessageOpts): string {
     parts.push(`[Group conversation — other agents: ${names}]`);
   }
 
-  // Who is speaking
-  if (opts.senderUsername) {
+  // Who is speaking. Agent identity wins over senderUsername: for
+  // agent-authored messages the backend may populate senderUsername with the
+  // workspace owner, so an `[Message from user: <owner>]` line would
+  // mis-attribute the sender and corrupt mention/reply routing. When
+  // senderAgentName is present the message came from an agent.
+  if (opts.senderAgentName) {
+    parts.push(`[Message from agent: ${opts.senderAgentName}]`);
+  } else if (opts.senderUsername) {
     parts.push(`[Message from user: ${opts.senderUsername}]`);
   }
 
