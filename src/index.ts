@@ -210,6 +210,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         conversationType: ctx.conversationType,
         senderUserId: ctx.senderUserId,
         senderUsername: ctx.senderUsername,
+        senderAgentId: ctx.senderAgentId,
+        senderAgentName: ctx.senderAgentName,
         members: ctx.members,
         fetchHistory: ctx.fetchHistory,
         // Arinova API calls use original conversationId (not session-scoped);
@@ -251,12 +253,21 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           conversationType: ctx.conversationType,
           senderUserId: ctx.senderUserId,
           senderUsername: ctx.senderUsername,
+          senderAgentId: ctx.senderAgentId,
+          senderAgentName: ctx.senderAgentName,
           members: ctx.members,
           replyTo: ctx.replyTo,
           fetchHistory: ctx.fetchHistory,
           history: ctx.history,
-          senderName: ctx.senderUsername,
-          userMessageMeta: { userId: ctx.senderUserId, username: ctx.senderUsername },
+          // Prefer the real agent handle: for agent-authored messages the
+          // backend may set senderUsername to the workspace owner.
+          senderName: ctx.senderAgentName ?? ctx.senderUsername,
+          userMessageMeta: {
+            userId: ctx.senderUserId,
+            username: ctx.senderUsername,
+            agentId: ctx.senderAgentId,
+            agentName: ctx.senderAgentName,
+          },
           reportToolCall: (report) => agent.reportToolCall(report),
           messageId: ctx.userMessageId,
         }),

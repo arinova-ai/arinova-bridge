@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildContextPrefix } from "../context.js";
+import { buildContextPrefix, stripInjectedContext } from "../context.js";
 import type { SendMessageOpts } from "../../providers/types.js";
 
 /** Minimal opts that satisfy the required fields of SendMessageOpts. */
@@ -62,6 +62,31 @@ describe("buildContextPrefix", () => {
   it("does not include sender line when senderUsername is undefined", () => {
     const result = buildContextPrefix(baseOpts());
     expect(result).not.toContain("Message from user");
+  });
+
+  // --- sender agent (agent-authored messages) -----------------------------
+
+  it("tags agent-authored messages with [Message from agent: <handle>]", () => {
+    const result = buildContextPrefix(baseOpts({ senderAgentName: "Linda" }));
+    expect(result).toContain("[Message from agent: Linda]");
+    expect(result).not.toContain("Message from user");
+  });
+
+  it("prefers the agent handle over senderUsername (which may be the workspace owner)", () => {
+    // Backend mislabels agent-authored messages with the owner's username;
+    // the agent identity must win so the sender is attributed correctly.
+    const result = buildContextPrefix(
+      baseOpts({ senderAgentName: "Linda", senderUsername: "ripple0129" }),
+    );
+    expect(result).toContain("[Message from agent: Linda]");
+    expect(result).not.toContain("ripple0129");
+    expect(result).not.toContain("Message from user");
+  });
+
+  it("falls back to the user line when only senderUsername is present", () => {
+    const result = buildContextPrefix(baseOpts({ senderUsername: "jan" }));
+    expect(result).toContain("[Message from user: jan]");
+    expect(result).not.toContain("Message from agent");
   });
 
   // --- bridgeSessionContext (primary history path) -------------------------
@@ -171,5 +196,35 @@ describe("buildContextPrefix", () => {
     // conversationType is not 'group', no sender, no history, no replyTo
     const result = buildContextPrefix(baseOpts({ conversationType: "direct" }));
     expect(result).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripInjectedContext
+// ---------------------------------------------------------------------------
+describe("stripInjectedContext", () => {
+  it("scrubs a leaked [Message from user: X] tag", () => {
+    const result = stripInjectedContext("[Message from user: jan]\nactual reply");
+    expect(result).not.toContain("Message from user");
+    expect(result).toBe("actual reply");
+  });
+
+  it("scrubs a leaked [Message from agent: X] tag", () => {
+    const result = stripInjectedContext("[Message from agent: Linda]\nactual reply");
+    expect(result).not.toContain("Message from agent");
+    expect(result).toBe("actual reply");
+  });
+
+  it("scrubs both user and agent sender tags in the same text", () => {
+    const result = stripInjectedContext(
+      "[Group conversation — other agents: Alice]\n[Message from agent: Linda]\nactual reply",
+    );
+    expect(result).not.toContain("Message from agent");
+    expect(result).not.toContain("Group conversation");
+    expect(result).toBe("actual reply");
+  });
+
+  it("leaves text without injected tags untouched", () => {
+    expect(stripInjectedContext("just a normal reply")).toBe("just a normal reply");
   });
 });
