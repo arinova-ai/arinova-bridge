@@ -32,7 +32,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.92",
     "@arinova-ai/agent-sdk": "0.0.19-staging.6",
     "@arinova-ai/cli": "0.0.24-staging.0",
-    "@arinova-ai/mcp-server": "staging",
+    "@arinova-ai/mcp-server": "0.0.19-staging.4",
     "@arinova-ai/theme-sdk": "0.0.4-staging.0",
     "@inquirer/prompts": "^8.2.1",
     "@xterm/addon-unicode11": "^0.9.0",
