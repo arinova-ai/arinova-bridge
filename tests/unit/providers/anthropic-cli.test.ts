@@ -18,6 +18,7 @@ function makeMockProcess() {
     isAlive: vi.fn(() => true),
     isBusy: vi.fn(() => false),
     abortTurn: vi.fn(),
+    restart: vi.fn(async () => {}),
     waitForIdle: vi.fn(async () => true),
     getSessionId: vi.fn(() => "sid-1"),
     getTotalCost: vi.fn(() => 0.05),
@@ -318,6 +319,91 @@ describe("AnthropicCliProvider", () => {
 
       const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
       expect(result.text).toBe("reply");
+    });
+
+    // ── Error recovery: restart-in-place on a wedged (NOT_READY) process ──
+    it("restarts the live process in place and retries once on NOT_READY", async () => {
+      const store = (provider as any).store;
+      provider.warmup("conv-1");
+      const entry = store.getSession("conv-1");
+      const createCountBefore = store.createSession.mock.calls.length;
+
+      // First send fails because the PTY is wedged; the process stays alive.
+      entry.process.sendMessage.mockRejectedValueOnce(
+        new Error("Cannot send: Claude is in state TOOL_USE, expected IDLE"),
+      );
+
+      const result = await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
+
+      // Recovered via in-place restart (preserving the session) — NOT a fresh
+      // createSession, which would orphan the still-running PTY.
+      expect(entry.process.restart).toHaveBeenCalledTimes(1);
+      expect(store.createSession.mock.calls.length).toBe(createCountBefore);
+      // The retry on the same (restarted) process returns the default reply.
+      expect(result.text).toBe("reply");
+    });
+
+    it("surfaces the error if the restarted process fails the retry too", async () => {
+      const store = (provider as any).store;
+      provider.warmup("conv-1");
+      const entry = store.getSession("conv-1");
+
+      // Both the initial send and the post-restart retry fail.
+      entry.process.sendMessage
+        .mockRejectedValueOnce(new Error("Cannot send: Claude is in state TOOL_USE, expected IDLE"))
+        .mockRejectedValueOnce(new Error("Cannot send: Claude is in state TOOL_USE, expected IDLE"));
+
+      await expect(provider.sendMessage(makeOpts({ conversationId: "conv-1" }))).rejects.toThrow(
+        "Cannot send: Claude is in state TOOL_USE, expected IDLE",
+      );
+      // Recovered exactly once — no infinite restart loop.
+      expect(entry.process.restart).toHaveBeenCalledTimes(1);
+    });
+
+    // ── lastActivity refresh: keep the idle sweep from reaping a long /
+    //    just-recovered turn (stamped only at send-start otherwise) ─────────
+    it("refreshes lastActivity at turn-end, not just at send-start", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      try {
+        const store = (provider as any).store;
+        provider.warmup("conv-1");
+        const entry = store.getSession("conv-1");
+
+        // The turn takes time: advance the clock during the send so the
+        // send-start stamp (1000) is older than turn-end (6000).
+        entry.process.sendMessage.mockImplementationOnce(async () => {
+          vi.setSystemTime(6000);
+          return { text: "reply", sessionId: "sid-1", durationMs: 5000, numTurns: 1 };
+        });
+
+        await provider.sendMessage(makeOpts({ conversationId: "conv-1" }));
+        expect(entry.lastActivity).toBe(6000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("refreshes lastActivity even when the turn throws", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      try {
+        const store = (provider as any).store;
+        provider.warmup("conv-1");
+        const entry = store.getSession("conv-1");
+
+        entry.process.sendMessage.mockImplementationOnce(async () => {
+          vi.setSystemTime(6000);
+          throw new Error("Rate limit exceeded");
+        });
+
+        await expect(provider.sendMessage(makeOpts({ conversationId: "conv-1" }))).rejects.toThrow(
+          "Rate limit exceeded",
+        );
+        expect(entry.lastActivity).toBe(6000);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does NOT retry when signal is already aborted", async () => {

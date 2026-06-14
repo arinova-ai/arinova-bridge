@@ -38,6 +38,17 @@ function isProcessDeadError(err: unknown): boolean {
 }
 
 /**
+ * NOT_READY: the CLI is alive but pinned in RESPONDING/TOOL_USE — a hung turn
+ * the response-timeout restart couldn't clear. The send never started, so
+ * restarting the process and retrying once is safe (second line of defence to
+ * the PtyProcess self-restart). RESPONSE_TIMEOUT is intentionally excluded:
+ * that turn ran for 10 minutes, so it's surfaced rather than silently re-run.
+ */
+function isWedgedError(err: unknown): boolean {
+  return getErrorMessage(err).includes("Cannot send: Claude is in state");
+}
+
+/**
  * anthropic-cli provider: spawns a persistent `claude` CLI process.
  * Works for Anthropic OAuth, Anthropic-compatible providers (MiniMax, etc.)
  */
@@ -118,6 +129,17 @@ export class AnthropicCliProvider implements Provider {
   }
 
   /**
+   * Bump the session's lastActivity to "now". lastActivity is otherwise only
+   * stamped at send-start, so a turn longer than idleTimeoutMs — or one that
+   * triggered an in-place restart() — would leave a stale timestamp that the
+   * idle sweep reaps right after recovery. Called on every turn completion.
+   */
+  private touchSession(conversationId: string): void {
+    const entry = this.store.getSession(conversationId);
+    if (entry) entry.lastActivity = Date.now();
+  }
+
+  /**
    * Wait for the process to be idle, then send without aborting.
    */
   private async idleSend(opts: SendMessageOpts): Promise<SendResult> {
@@ -151,21 +173,25 @@ export class AnthropicCliProvider implements Provider {
     if (reportToolCall) entry.process.setReportToolCall(reportToolCall);
     entry.lastActivity = Date.now();
 
-    const result = await entry.process.sendMessage(
-      content,
-      (text) => {
-        onChunk(text);
-      },
-      signal,
-      messageId,
-    );
+    try {
+      const result = await entry.process.sendMessage(
+        content,
+        (text) => {
+          onChunk(text);
+        },
+        signal,
+        messageId,
+      );
 
-    return {
-      text: result.text,
-      sessionId: result.sessionId,
-      durationMs: result.durationMs,
-      numTurns: result.numTurns,
-    };
+      return {
+        text: result.text,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        numTurns: result.numTurns,
+      };
+    } finally {
+      this.touchSession(conversationId);
+    }
   }
 
   /**
@@ -221,24 +247,43 @@ export class AnthropicCliProvider implements Provider {
         numTurns: result.numTurns,
       };
     } catch (err) {
-      // Don't retry user-aborted turns or non-process-death errors.
+      // Don't retry user-aborted turns.
       if (signal?.aborted) throw err;
-      if (!isProcessDeadError(err)) throw err;
 
-      // Respawn once. If the fresh process also dies, surface the error.
-      const respawned = this.store.createSession(conversationId, {
-        cwd,
-        model,
-        systemPrompt: opts.systemPrompt,
-        reportToolCall,
-      });
-      const result = await attempt(respawned);
+      const dead = isProcessDeadError(err);
+      // A wedged-but-alive process (NOT_READY) recovers differently from a
+      // dead one: createSession would orphan (leak) the still-running PTY, so
+      // restart it in place — which stops the wedged CLI and resumes the same
+      // session, preserving context. Only a dead process is respawned fresh.
+      const wedged = !dead && isWedgedError(err);
+      if (!dead && !wedged) throw err;
+
+      let target = this.store.getSession(conversationId);
+      if (wedged && target?.process.isAlive()) {
+        await target.process.restart();
+      } else {
+        // Respawn fresh. If the fresh process also dies, surface the error.
+        target = this.store.createSession(conversationId, {
+          cwd,
+          model,
+          systemPrompt: opts.systemPrompt,
+          reportToolCall,
+        });
+      }
+
+      // Recover once. If the fresh/restarted process also fails, surface it.
+      const result = await attempt(target);
       return {
         text: result.text,
         sessionId: result.sessionId,
         durationMs: result.durationMs,
         numTurns: result.numTurns,
       };
+    } finally {
+      // Runs on success, on recovery, and on a re-thrown error (e.g. a
+      // ResponseTimeoutError after layer-1 already restarted the PTY) so the
+      // recovered-but-idle process isn't reaped by the next idle-sweep tick.
+      this.touchSession(conversationId);
     }
   }
 

@@ -117,6 +117,7 @@ export class PtyProcess {
   private lastContext: ContextUsage | undefined;
   private lastUsage: TurnUsage | undefined;
   private alive = false;
+  private restarting = false;
 
   private turnResolve: ((result: SendMessageResult) => void) | null = null;
   private turnReject: ((error: Error) => void) | null = null;
@@ -350,15 +351,26 @@ export class PtyProcess {
   }
 
   async restart(): Promise<void> {
-    const prevSessionId = this.sessionId;
-    await this.stop();
-    if (prevSessionId) {
-      this.opts.resumeSessionId = prevSessionId;
+    // `stop()` nulls the pty (so isBusy() would read false) and yields at an
+    // await — a window in which the session-store idle sweep / max-sessions
+    // eviction (both skip only BUSY entries) could delete this still-mapped
+    // entry and orphan the PTY we're about to bring back. Hold `restarting`
+    // across the whole stop→start so the entry stays non-evictable.
+    this.restarting = true;
+    try {
+      const prevSessionId = this.sessionId;
+      await this.stop();
+      if (prevSessionId) {
+        this.opts.resumeSessionId = prevSessionId;
+      }
+      this.start();
+    } finally {
+      this.restarting = false;
     }
-    this.start();
   }
 
   isBusy(): boolean {
+    if (this.restarting) return true;
     if (!this.pty) return false;
     const s = this.pty.state;
     return s === ClaudeState.RESPONDING || s === ClaudeState.TOOL_USE;

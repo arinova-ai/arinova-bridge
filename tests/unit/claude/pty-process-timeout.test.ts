@@ -105,6 +105,29 @@ describe("PtyProcess timeout recovery", () => {
     }
   });
 
+  // Regression: restart()'s `await stop()` nulls the pty (so a raw state check
+  // reads non-busy) and yields at an await — a window in which the session-store
+  // idle sweep / max-sessions eviction (both skip only BUSY entries) could
+  // delete the still-mapped entry and orphan the PTY being brought back.
+  it("reports busy while a restart is in flight so the idle sweep skips it", async () => {
+    const proc = new PtyProcess({ logger: makeLogger() });
+    proc.start();
+    expect(proc.isBusy()).toBe(false);
+
+    // Hang stop()'s close() so we can observe the mid-restart window.
+    let releaseClose!: () => void;
+    mockPty.close.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { releaseClose = () => resolve(); }),
+    );
+
+    const restarting = proc.restart();
+    expect(proc.isBusy()).toBe(true);
+
+    releaseClose();
+    await restarting;
+    expect(proc.isBusy()).toBe(false);
+  });
+
   it("does not interrupt on other errors", async () => {
     mockPty.send.mockRejectedValue(new Error("some other failure"));
 
