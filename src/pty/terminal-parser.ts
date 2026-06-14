@@ -47,6 +47,15 @@ const STREAMING_TOOL_INVOCATION_RE = new RegExp(
   `^[^\\w\\s(*+>\\-]\\s+(${TOOL_NAMES.join('|')})\\(`,
 );
 
+// Claude CLI's occasional session-feedback prompt, rendered mid/after a turn:
+//   ● How is Claude doing this session? (optional)
+//   1: Bad  2: Fine  3: Good  0: Dismiss
+// It's CLI chrome, never assistant text. Anchor on the question text and on
+// the full rating sequence (all four labels in order) so neither line is
+// mistaken for content. The rating regex is glyph/number-tolerant.
+const FEEDBACK_PROMPT_RE = /How is Claude doing this session/i;
+const FEEDBACK_RATING_RE = /\bBad\b.*\bFine\b.*\bGood\b.*\bDismiss\b/i;
+
 // Set BRIDGE_PTY_DEBUG=1 to dump streaming-delta input/output to a log
 // file for diagnostics. Otherwise the function below is a no-op.
 const DEBUG_ENABLED = process.env.BRIDGE_PTY_DEBUG === '1';
@@ -765,6 +774,7 @@ export class TerminalParser {
       return true;
     }
     if (/^⎿\s+SessionStart:/.test(trimmed)) return true;
+    if (FEEDBACK_PROMPT_RE.test(trimmed) || FEEDBACK_RATING_RE.test(trimmed)) return true;
 
     return false;
   }
@@ -807,6 +817,7 @@ export class TerminalParser {
     if (/^│.*│$/.test(trimmed)) return true;
     if (/^[╭╮╰╯┌┐└┘]/.test(trimmed) && /[╭╮╰╯┌┐└┘]$/.test(trimmed)) return true;
     if (/^⎿\s+SessionStart:/.test(trimmed)) return true;
+    if (FEEDBACK_PROMPT_RE.test(trimmed) || FEEDBACK_RATING_RE.test(trimmed)) return true;
 
     return false;
   }

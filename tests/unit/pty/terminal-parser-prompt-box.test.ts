@@ -91,6 +91,20 @@ describe("TerminalParser.extractStreamingDelta tool filtering", () => {
     expect(delta).not.toContain("total 0");
   });
 
+  it("drops the CLI session-feedback prompt from the stream", async () => {
+    const parser = makeParser();
+    await writeScreen(parser, [
+      "❯ hi",
+      "⏺ Here is the answer.",
+      "● How is Claude doing this session? (optional)",
+      "1: Bad  2: Fine  3: Good  0: Dismiss",
+    ]);
+    const delta = parser.extractStreamingDelta();
+    expect(delta).toContain("Here is the answer.");
+    expect(delta).not.toContain("How is Claude doing");
+    expect(delta).not.toContain("Dismiss");
+  });
+
   it("keeps prose/code that merely looks like a tool call (no bullet glyph)", async () => {
     const parser = makeParser();
     await writeScreen(parser, [
