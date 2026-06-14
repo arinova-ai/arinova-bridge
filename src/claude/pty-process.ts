@@ -7,6 +7,7 @@ import { ResponseTimeoutError } from "../pty/errors.js";
 import { ClaudeState } from "../pty/types.js";
 import type { TurnUsage, TurnToolCall } from "../pty/types.js";
 import type { Logger } from "../util/logger.js";
+import { getErrorMessage } from "../util/errors.js";
 
 const BRIDGE_CLAUDE_SETTINGS = path.join(homedir(), ".arinova-bridge", "claude-settings.json");
 export type ToolCallReport = {
@@ -290,9 +291,27 @@ export class PtyProcess {
           this.abortTurn();
           recovered = await this.waitForIdle(5000);
         }
-        this.opts.logger.warn(
-          `${this.logTag}: response timed out — interrupted turn, ${recovered ? "back to IDLE" : "still busy"}`,
-        );
+        if (recovered) {
+          this.opts.logger.warn(
+            `${this.logTag}: response timed out — interrupted turn, back to IDLE`,
+          );
+        } else {
+          // Ctrl+C didn't unstick the turn (e.g. a wedged tool call). The PTY
+          // is pinned in RESPONDING/TOOL_USE, so every later send would fail
+          // with NOT_READY and the agent would be dead until something else
+          // recreates the session. Hard-restart so the next task runs on a
+          // fresh, IDLE CLI (the session id is resumed, preserving context).
+          this.opts.logger.warn(
+            `${this.logTag}: response timed out — interrupt failed, restarting process`,
+          );
+          try {
+            await this.restart();
+          } catch (restartErr) {
+            this.opts.logger.error(
+              `${this.logTag}: restart after stuck turn failed: ${getErrorMessage(restartErr)}`,
+            );
+          }
+        }
       }
       throw err;
     } finally {

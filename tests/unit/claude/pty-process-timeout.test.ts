@@ -64,6 +64,47 @@ describe("PtyProcess timeout recovery", () => {
     expect(mockPty.state).toBe(ClaudeState.IDLE);
   });
 
+  // Regression: when Ctrl+C fails to unstick a wedged tool call, the PTY
+  // stayed pinned in TOOL_USE and every later send (retry, cron wake-up,
+  // trigger) died with NOT_READY — the agent was dead until a manual reset.
+  // A failed interrupt must now hard-restart the process.
+  it("hard-restarts the process when the interrupt fails to recover", async () => {
+    vi.useFakeTimers();
+    try {
+      // Turn times out and the CLI stays wedged in TOOL_USE...
+      mockPty.send.mockImplementation(async () => {
+        mockPty.state = ClaudeState.TOOL_USE;
+        throw new ResponseTimeoutError();
+      });
+      // ...and Ctrl+C never brings it back to the prompt.
+      mockPty.writeRaw.mockImplementation(() => {});
+
+      const proc = new PtyProcess({ logger: makeLogger() });
+      proc.start();
+
+      const pending = proc.sendMessage("hello");
+      // Attach the rejection assertion before advancing timers so the promise
+      // never settles unhandled.
+      const expectation = expect(pending).rejects.toThrow(
+        "Response did not complete within timeout",
+      );
+      // Drive both 5s waitForIdle attempts plus the restart.
+      await vi.advanceTimersByTimeAsync(11000);
+      await expectation;
+
+      // Two interrupt attempts (Ctrl+C), then a hard restart (stop →
+      // close + dispose), then a fresh PTY brought back up.
+      expect(mockPty.writeRaw).toHaveBeenCalledTimes(2);
+      expect(mockPty.writeRaw).toHaveBeenCalledWith("\x03");
+      expect(mockPty.close).toHaveBeenCalled();
+      expect(mockPty.dispose).toHaveBeenCalled();
+      // Process is alive again on a fresh PTY, ready for the next task.
+      expect(proc.isAlive()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not interrupt on other errors", async () => {
     mockPty.send.mockRejectedValue(new Error("some other failure"));
 
