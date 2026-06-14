@@ -98,7 +98,7 @@ CONFIG FILE
     "defaults": {
       "cwd": "~/projects",
       "maxSessions": 5,
-      "idleTimeoutMs": 600000,
+      "idleTimeoutMs": 3600000,
       "mcpConfigPath": null
     }
   }

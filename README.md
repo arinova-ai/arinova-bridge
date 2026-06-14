@@ -79,7 +79,7 @@ Config file location: `~/.arinova-bridge/config.json`
   "defaults": {
     "cwd": "~/projects",
     "maxSessions": 5,
-    "idleTimeoutMs": 600000
+    "idleTimeoutMs": 3600000
   }
 }
 ```
@@ -122,7 +122,7 @@ Add an `agents` array to run multiple agents, each with its own bot token, provi
   "defaults": {
     "cwd": "~/projects",
     "maxSessions": 5,
-    "idleTimeoutMs": 600000
+    "idleTimeoutMs": 3600000
   }
 }
 ```
