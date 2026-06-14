@@ -55,3 +55,52 @@ describe("TerminalParser.getPromptBoxInput", () => {
     expect(parser.getPromptBoxInput()).toBe("draft text");
   });
 });
+
+describe("TerminalParser.extractStreamingDelta tool filtering", () => {
+  // Regression: while a tool is still running the CLI paints the bullet as an
+  // in-progress spinner frame (here ✦, outside the known spinner set) instead
+  // of the settled ⏺, so the strict `^⏺ Bash(` filter missed it and the live
+  // stream leaked the `Bash(…)` line. It vanished at stream-end only because
+  // the final response is rebuilt from the transcript.
+  it("drops an in-progress tool line with a non-standard spinner bullet", async () => {
+    const parser = makeParser();
+    await writeScreen(parser, [
+      "❯ run ls",
+      "⏺ Let me list the files.",
+      "✦ Bash(ls -la)",
+      "  ⎿  Running…",
+    ]);
+    const delta = parser.extractStreamingDelta();
+    expect(delta).toContain("Let me list the files.");
+    expect(delta).not.toContain("Bash(");
+  });
+
+  it("drops the settled ⏺ tool frame and keeps the surrounding text", async () => {
+    const parser = makeParser();
+    await writeScreen(parser, [
+      "❯ run ls",
+      "⏺ Listing files now.",
+      "⏺ Bash(ls -la)",
+      "  ⎿  total 0",
+      "⏺ Done.",
+    ]);
+    const delta = parser.extractStreamingDelta();
+    expect(delta).toContain("Listing files now.");
+    expect(delta).toContain("Done.");
+    expect(delta).not.toContain("Bash(");
+    expect(delta).not.toContain("total 0");
+  });
+
+  it("keeps prose/code that merely looks like a tool call (no bullet glyph)", async () => {
+    const parser = makeParser();
+    await writeScreen(parser, [
+      "❯ explain",
+      "⏺ Use this pattern:",
+      "  Read(buffer) returns bytes",
+      "  - Grep(pattern) is also fine",
+    ]);
+    const delta = parser.extractStreamingDelta();
+    expect(delta).toContain("Read(buffer) returns bytes");
+    expect(delta).toContain("- Grep(pattern) is also fine");
+  });
+});

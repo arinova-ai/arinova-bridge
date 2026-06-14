@@ -35,6 +35,18 @@ const MCP_INVOCATION_RE = /^⏺\s+(Calling|Called)\b.*\(ctrl\+o to expand\)/;
 // tool chrome, never assistant text.
 const COLLAPSED_TOOL_RE = /\(ctrl\+o to expand\)\s*$/;
 
+// Same tool invocation as TOOL_INVOCATION_RE, but tolerant of the leading
+// bullet glyph. While a tool is still running the CLI paints the bullet as an
+// in-progress spinner frame (e.g. ✦/✳) rather than the settled ⏺, and that
+// spinner set drifts between CLI versions — so the live stream leaks the
+// `Bash(…)` line that the settled-⏺ frame (and the transcript) both drop.
+// Match any single leading decoration glyph — excluding word chars and the
+// markdown bullet/quote markers (*, +, >, -) so prose/code like "- Read(x)"
+// or "Read(buf)" is never mistaken for a tool call — followed by a ToolName(.
+const STREAMING_TOOL_INVOCATION_RE = new RegExp(
+  `^[^\\w\\s(*+>\\-]\\s+(${TOOL_NAMES.join('|')})\\(`,
+);
+
 // Set BRIDGE_PTY_DEBUG=1 to dump streaming-delta input/output to a log
 // file for diagnostics. Otherwise the function below is a no-op.
 const DEBUG_ENABLED = process.env.BRIDGE_PTY_DEBUG === '1';
@@ -623,8 +635,11 @@ export class TerminalParser {
       if (/^❯/.test(trimmed)) continue;
 
       // Tool-block triggers — never push, always set state to IN_TOOL.
+      // STREAMING_TOOL_INVOCATION_RE catches the in-progress frame (spinner
+      // bullet) so the live stream drops it too, not just the settled ⏺ frame.
       if (
         TOOL_INVOCATION_RE.test(trimmed) ||
+        STREAMING_TOOL_INVOCATION_RE.test(trimmed) ||
         MCP_INVOCATION_RE.test(trimmed) ||
         COLLAPSED_TOOL_RE.test(trimmed)
       ) {
