@@ -91,9 +91,7 @@ export async function createOnboardingConversation(
     const data = (await res.json()) as { conversationId?: string };
     return data.conversationId ?? null;
   } catch (err) {
-    logger.warn(
-      `Onboarding conversation API unreachable: ${err instanceof Error ? err.message : err}`,
-    );
+    logger.warn(`Onboarding conversation API unreachable: ${err instanceof Error ? err.message : err}`);
     return null;
   }
 }
@@ -131,11 +129,7 @@ export function hasSeedRun(seedId: string, dir: string = DEFAULT_SEED_DIR): bool
 }
 
 /** Record a `seedId` as consumed, persisting it for cross-restart dedup. */
-export function markSeedRun(
-  seedId: string,
-  logger: Logger,
-  dir: string = DEFAULT_SEED_DIR,
-): void {
+export function markSeedRun(seedId: string, logger: Logger, dir: string = DEFAULT_SEED_DIR): void {
   const seeds = readSeedIds(dir);
   if (seeds.has(seedId)) return;
   seeds.add(seedId);
@@ -147,9 +141,7 @@ export function markSeedRun(
       "utf8",
     );
   } catch (err) {
-    logger.warn(
-      `Failed to persist onboarding seed dedup for ${seedId}: ${err instanceof Error ? err.message : err}`,
-    );
+    logger.warn(`Failed to persist onboarding seed dedup for ${seedId}: ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -183,10 +175,7 @@ export interface OnboardingSeedTurnDeps {
  * server's first-connect gate (OB-10) and the persisted `seedId` dedup, the
  * opening turn fires exactly once per agent and never on a reconnect.
  */
-export async function runOnboardingSeedTurn(
-  seed: OnboardingSeed,
-  deps: OnboardingSeedTurnDeps,
-): Promise<void> {
+export async function runOnboardingSeedTurn(seed: OnboardingSeed, deps: OnboardingSeedTurnDeps): Promise<void> {
   const seedHasRun = deps.hasSeedRun ?? ((id) => hasSeedRun(id));
   const seedMarkRun = deps.markSeedRun ?? ((id) => markSeedRun(id, deps.logger));
 
@@ -213,7 +202,5 @@ export async function runOnboardingSeedTurn(
 
   await deps.sendMessage(conversationId, greeting);
   seedMarkRun(seed.seedId);
-  deps.logger.info(
-    `[onboarding] delivered seeded opening turn for ${seed.seedId} → conversation ${conversationId}`,
-  );
+  deps.logger.info(`[onboarding] delivered seeded opening turn for ${seed.seedId} → conversation ${conversationId}`);
 }

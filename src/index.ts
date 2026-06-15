@@ -19,11 +19,7 @@ import { ForkStore } from "./fork/store.js";
 import { ForkManager } from "./fork/manager.js";
 import { savePermanentToken } from "./onboarding/token-persistence.js";
 import { fetchOnboardingKnowledge } from "./onboarding/knowledge.js";
-import {
-  createOnboardingConversation,
-  readOnboardingSeed,
-  runOnboardingSeedTurn,
-} from "./onboarding/seed.js";
+import { createOnboardingConversation, readOnboardingSeed, runOnboardingSeedTurn } from "./onboarding/seed.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -194,9 +190,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     const taskLabel = conversationId ?? `${ctx.taskKind ?? "task"}:${ctx.taskId}`;
     const requireConversation = (api: string): string => {
       if (!conversationId) {
-        throw new Error(
-          `${api} unavailable: this task (${taskLabel}) is a platform wakeup with no conversation`,
-        );
+        throw new Error(`${api} unavailable: this task (${taskLabel}) is a platform wakeup with no conversation`);
       }
       return conversationId;
     };
@@ -378,15 +372,8 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
   if (isOnboardingToken && claimedToken) {
     const agentId = agent.getAgentId();
     if (agentId) {
-      const knowledge = await fetchOnboardingKnowledge(
-        config.arinova.serverUrl,
-        claimedToken,
-        agentId,
-        logger,
-      );
-      agentCfg.systemPrompt = agentCfg.systemPrompt
-        ? `${agentCfg.systemPrompt}\n\n${knowledge}`
-        : knowledge;
+      const knowledge = await fetchOnboardingKnowledge(config.arinova.serverUrl, claimedToken, agentId, logger);
+      agentCfg.systemPrompt = agentCfg.systemPrompt ? `${agentCfg.systemPrompt}\n\n${knowledge}` : knowledge;
       logger.info(`[${agentName}] Onboarding knowledge injected (${knowledge.length} chars)`);
     }
 
