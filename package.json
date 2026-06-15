@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/arinova-bridge",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Multi-provider bridge between Arinova Chat and AI coding assistants (Claude, Codex)",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
