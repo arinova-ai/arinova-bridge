@@ -19,6 +19,11 @@ import { ForkStore } from "./fork/store.js";
 import { ForkManager } from "./fork/manager.js";
 import { savePermanentToken } from "./onboarding/token-persistence.js";
 import { fetchOnboardingKnowledge } from "./onboarding/knowledge.js";
+import {
+  createOnboardingConversation,
+  readOnboardingSeed,
+  runOnboardingSeedTurn,
+} from "./onboarding/seed.js";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -392,6 +397,45 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           ARINOVA_BOT_TOKEN: claimedToken,
           ARINOVA_SERVER_URL: config.arinova.serverUrl,
         });
+      }
+    }
+
+    // OB-11 AC8.8/8.9: deterministic seeded opening turn (Break #2, bridge side).
+    // Runs *after* knowledge injection above, so the greeting is grounded in the
+    // onboarding knowledge. The server (OB-10) is authoritative — we consume the
+    // seed it puts on `auth_ok` and never invent one; it is null unless this is a
+    // genuine first touch (and on older agent-sdk builds, which simply no-op).
+    // Idempotent via a persisted seedId, so it fires once and never on reconnect.
+    const onboardingSeed = readOnboardingSeed(agent);
+    if (onboardingSeed) {
+      const seedToken = claimedToken ?? agentCfg.botToken;
+      const seedSessionId = `${agentName}:default`;
+      try {
+        await runOnboardingSeedTurn(onboardingSeed, {
+          logger,
+          createConversation: (seedAgentId) =>
+            createOnboardingConversation(config.arinova.serverUrl, seedToken, seedAgentId, logger),
+          runTurn: async (prompt) => {
+            const result = await runMessagePipeline({
+              provider,
+              bridgeSessionStore,
+              sessionId: seedSessionId,
+              content: prompt,
+              agentName,
+              cwd: agentCfg.cwd,
+              model: agentCfg.model,
+              systemPrompt: agentCfg.systemPrompt,
+              compactModel: agentCfg.compactModel,
+              onChunk: () => {},
+              reportToolCall: (report) => agent.reportToolCall(report),
+            });
+            return result.text;
+          },
+          sendMessage: (conversationId, content) => agent.sendMessage(conversationId, content),
+        });
+      } catch (err) {
+        // A seed-turn failure must never block agent startup — log and move on.
+        logger.warn(`[${agentName}] onboarding seed turn failed: ${getErrorMessage(err)}`);
       }
     }
   }
