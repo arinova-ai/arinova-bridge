@@ -391,7 +391,22 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 }
 
 // Graceful shutdown
-async function shutdown(signal: string) {
+let shuttingDown = false;
+async function shutdown(signal: string, exitCode = 0) {
+  // Re-entrancy guard: duplicate signals, or an uncaughtException firing while
+  // we're already tearing down, must not run the teardown twice.
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  // Safety net: if the graceful teardown below hangs — likely when triggered
+  // from an uncaughtException, where process state may be corrupt — force-exit
+  // so the supervisor can restart instead of letting the process silently rot.
+  const hardExit = setTimeout(() => {
+    logger.error(`Shutdown timed out after 10s — forcing exit(${exitCode})`);
+    process.exit(exitCode);
+  }, 10000);
+  hardExit.unref();
+
   let parentInfo = `ppid=${process.ppid}`;
   try {
     const { execSync } = await import("child_process");
@@ -429,7 +444,8 @@ async function shutdown(signal: string) {
 
   const shutdowns = Array.from(providers.values()).map((p) => p.shutdown());
   await Promise.allSettled(shutdowns);
-  process.exit(0);
+  clearTimeout(hardExit);
+  process.exit(exitCode);
 }
 
 process.on("SIGINT", () => shutdown("SIGINT"));
@@ -442,6 +458,13 @@ process.on("unhandledRejection", (reason) => {
 
 process.on("uncaughtException", (err) => {
   logger.error(`Uncaught exception: ${err.stack ?? err.message}`);
+  // A process that survives an uncaught exception is in an undefined state:
+  // the socket stays open and agents look connected while turns silently stop
+  // being processed, so the supervisor never detects the failure or restarts.
+  // Run a best-effort graceful teardown (which rejects in-flight turns so
+  // callers don't hang forever) and exit non-zero to trigger a clean
+  // supervisor restart instead of silent rot.
+  void shutdown("uncaughtException", 1);
 });
 
 process.on("beforeExit", (code) => {
