@@ -366,20 +366,35 @@ async function cmdAgents(args: string[]): Promise<void> {
   } else if (watch) {
     // --- Watch (streaming) ---
     console.log("Watching agent activity... (Ctrl+C to stop)\n");
-    streamWatch((line) => {
-      try {
-        const r = JSON.parse(line) as { agent: string; content: string; responsePreview: string; durationMs: number; costUsd?: number; model?: string; timestamp: number };
-        const time = new Date(r.timestamp).toLocaleTimeString();
-        const cost = r.costUsd !== undefined ? ` $${r.costUsd.toFixed(4)}` : "";
-        console.log(`[${time}] ${r.agent} (${r.durationMs}ms${cost}) ${r.model ?? ""}`);
-        console.log(`  → ${r.content}`);
-        console.log(`  ← ${r.responsePreview}\n`);
-      } catch {
-        // skip ack or malformed lines
-      }
+    // Stay alive until the socket closes/errors; resolve gracefully rather than
+    // letting the IPC layer hard-exit the CLI out from under us.
+    await new Promise<void>((resolve) => {
+      streamWatch(
+        (line) => {
+          try {
+            const r = JSON.parse(line) as { agent: string; content: string; responsePreview: string; durationMs: number; costUsd?: number; model?: string; timestamp: number };
+            const time = new Date(r.timestamp).toLocaleTimeString();
+            const cost = r.costUsd !== undefined ? ` $${r.costUsd.toFixed(4)}` : "";
+            console.log(`[${time}] ${r.agent} (${r.durationMs}ms${cost}) ${r.model ?? ""}`);
+            console.log(`  → ${r.content}`);
+            console.log(`  ← ${r.responsePreview}\n`);
+          } catch {
+            // skip ack or malformed lines
+          }
+        },
+        {
+          onError: (err) => {
+            console.error(`\nWatch connection error: ${err.message}`);
+            process.exitCode = 1;
+            resolve();
+          },
+          onClose: () => {
+            console.log("\nBridge connection closed.");
+            resolve();
+          },
+        },
+      );
     });
-    // Keep process alive
-    await new Promise(() => {});
   } else if (hasFlag(args, "--history")) {
     // --- History ---
     const target = history ?? undefined;

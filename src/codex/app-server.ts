@@ -161,6 +161,18 @@ export class CodexAppServer {
       log.error(`codex-app-server: spawn error: ${err.message}`);
       this.ready = false;
       this.child = null;
+      // Reject all in-flight turns so callers don't hang on a dead app-server
+      // (mirrors the "close" handler above and src/claude/process.ts).
+      for (const state of this.threads.values()) {
+        if (state.turnReject) {
+          state.turnReject(new Error(`App-server spawn error: ${err.message}`));
+          state.turnResolve = null;
+          state.turnReject = null;
+          state.turnOnChunk = null;
+        }
+      }
+      this.rpc?.rejectAll(`App-server spawn error: ${err.message}`);
+      this.rpc = null;
     });
 
     // Wire up JSON-RPC client

@@ -26,14 +26,14 @@ importers:
         specifier: 0.0.19-staging.3
         version: 0.0.19-staging.3
       '@arinova-ai/cli':
-        specifier: 0.0.24-staging.0
-        version: 0.0.24-staging.0
+        specifier: 0.0.27
+        version: 0.0.27
       '@arinova-ai/mcp-server':
         specifier: staging
         version: 0.0.19-staging.4(zod@4.3.6)
       '@arinova-ai/theme-sdk':
-        specifier: 0.0.4-staging.0
-        version: 0.0.4-staging.0
+        specifier: 0.0.5-staging.0
+        version: 0.0.5-staging.0
       '@inquirer/prompts':
         specifier: ^8.2.1
         version: 8.3.0(@types/node@25.4.0)
@@ -83,16 +83,16 @@ packages:
   '@arinova-ai/agent-sdk@0.0.19-staging.3':
     resolution: {integrity: sha512-32NWnwxJ2J2T7OSgFofGTUSzLsuWK8VHuZqR9vSx61byyQTTmA56pBj7Z4e3TXlfBwOG9DDMXBzQ5CiMcRDvDQ==}
 
-  '@arinova-ai/cli@0.0.24-staging.0':
-    resolution: {integrity: sha512-M4AcLuNIceaC++PrWHaKZzdUR2Q8A6PAvXmA5Uu7yQC5mXb4EK2P4Q020CtHp+e0v8GqlTCTtWmS5rsI2h+gJg==}
+  '@arinova-ai/cli@0.0.27':
+    resolution: {integrity: sha512-X4cx+vTKEBzu2ARjv+pPWBklX6Os0RqxO5Pa1LZlZgsAnFuANXHkh21LjoAUYuftzksi0aMG9O3/V/cFuSTnHA==}
     hasBin: true
 
   '@arinova-ai/mcp-server@0.0.19-staging.4':
     resolution: {integrity: sha512-59TU4ISfd2z747fVtyHLkVoK0ZqhpKE3A/EkEjXyyma7fC5I/FQNNOjyt9UzWqGDU3dWYdMVES+qo6Ys3ZVFHg==}
     hasBin: true
 
-  '@arinova-ai/theme-sdk@0.0.4-staging.0':
-    resolution: {integrity: sha512-bHT7s426XJbcMZQg2LxDi0u+IC4aYKrvW3ck4kPUubtfB32JUIxD/aFN7vB0Ak8bVJb96cM30f3XalmTMfRjKg==}
+  '@arinova-ai/theme-sdk@0.0.5-staging.0':
+    resolution: {integrity: sha512-yk186vYNP1Cly7Aq86AOH1OCEYP0NSKokDPbcronZD+mxScs9VzCgBAqgllu4ai9qpUpOZRw7yQk16bkdMr6Xg==}
 
   '@babel/runtime@7.29.2':
     resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
@@ -1441,7 +1441,7 @@ snapshots:
 
   '@arinova-ai/agent-sdk@0.0.19-staging.3': {}
 
-  '@arinova-ai/cli@0.0.24-staging.0':
+  '@arinova-ai/cli@0.0.27':
     dependencies:
       commander: 12.1.0
 
@@ -1453,7 +1453,7 @@ snapshots:
       - supports-color
       - zod
 
-  '@arinova-ai/theme-sdk@0.0.4-staging.0': {}
+  '@arinova-ai/theme-sdk@0.0.5-staging.0': {}
 
   '@babel/runtime@7.29.2': {}
 

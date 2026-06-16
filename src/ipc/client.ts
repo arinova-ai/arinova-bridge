@@ -69,12 +69,26 @@ export function sendIpcRequest(req: IpcRequest): Promise<IpcResponse> {
   });
 }
 
+/** Optional lifecycle callbacks for {@link streamWatch}. */
+export interface StreamWatchHandlers {
+  /** Invoked when the underlying socket errors. */
+  onError?: (err: Error) => void;
+  /** Invoked when the underlying socket closes. */
+  onClose?: () => void;
+}
+
 /**
  * Connect to bridge IPC and stream watch events.
  * Calls onEvent for each newline-delimited JSON event.
+ * Socket error/close are surfaced via `handlers` so the caller decides what to
+ * do — the library never calls `process.exit` itself (a reusable consumer must
+ * not have the whole CLI killed out from under it).
  * Returns a cleanup function to disconnect.
  */
-export function streamWatch(onEvent: (line: string) => void): () => void {
+export function streamWatch(
+  onEvent: (line: string) => void,
+  handlers: StreamWatchHandlers = {},
+): () => void {
   ensureSocket();
 
   const conn = net.createConnection(SOCKET_PATH);
@@ -95,12 +109,12 @@ export function streamWatch(onEvent: (line: string) => void): () => void {
     }
   });
 
-  conn.on("error", () => {
-    process.exit(1);
+  conn.on("error", (err) => {
+    handlers.onError?.(err);
   });
 
   conn.on("close", () => {
-    process.exit(0);
+    handlers.onClose?.();
   });
 
   return () => conn.destroy();
