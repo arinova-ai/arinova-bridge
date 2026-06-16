@@ -83,5 +83,12 @@ export function writeConfigFile(config: ConfigFile): void {
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n", {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  // `mode` above only applies when the file is created. Explicitly chmod so
+  // already-persisted plaintext config files (containing bot tokens) get their
+  // permissions tightened too. Aligns with src/oauth/token-store.ts.
+  fs.chmodSync(CONFIG_FILE, 0o600);
 }
