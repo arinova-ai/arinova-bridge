@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.92",
-    "@arinova-ai/agent-sdk": "0.0.19-staging.7",
+    "@arinova-ai/agent-sdk": "0.0.19-staging.8",
     "@arinova-ai/cli": "0.0.27",
     "@arinova-ai/mcp-server": "staging",
     "@arinova-ai/theme-sdk": "0.0.5-staging.0",
