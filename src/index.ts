@@ -1,4 +1,5 @@
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
+import { rejectTaskWithoutConversation } from "./agent-task-guard.js";
 import { loadConfig, type ResolvedAgent } from "./config.js";
 import { createProviders } from "./providers/registry.js";
 import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
@@ -222,12 +223,16 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
-    // agent-sdk 0.0.19-staging.7 made TaskContext.conversationId optional. A
-    // task always arrives in a conversation at runtime, but without one there
-    // is nothing to reply to or scope Note calls against — bail explicitly so
-    // the type narrows to string for the handler below.
+    // agent-sdk 0.0.19-staging.7 made TaskContext.conversationId optional. The
+    // bridge's single-session-per-agent model has nothing to reply to or scope
+    // Note calls against without one, so we cannot process such a task. Send a
+    // terminal error (NOT a bare return): only sendComplete/sendError call the
+    // SDK's markFinished(), which stops the heartbeat, deletes the active task
+    // and releases the agent-wide lock. A bare return would leak the task and
+    // deadlock every subsequent task on this agent. This also narrows the type
+    // to string for the handler below.
     if (!conversationId) {
-      logger.error(`[${agentName}] task received without conversationId — skipping`);
+      rejectTaskWithoutConversation(ctx, agentName, logger);
       return;
     }
     // Single session per agent — Chat and A2A share the same context
