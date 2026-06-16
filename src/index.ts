@@ -222,6 +222,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
+    // agent-sdk 0.0.19-staging.7 made TaskContext.conversationId optional. A
+    // task always arrives in a conversation at runtime, but without one there
+    // is nothing to reply to or scope Note calls against — bail explicitly so
+    // the type narrows to string for the handler below.
+    if (!conversationId) {
+      logger.error(`[${agentName}] task received without conversationId — skipping`);
+      return;
+    }
     // Single session per agent — Chat and A2A share the same context
     const sessionId = `${agentName}:default`;
 
