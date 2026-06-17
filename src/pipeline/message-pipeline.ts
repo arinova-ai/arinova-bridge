@@ -53,6 +53,8 @@ export interface PipelineContext {
   cwd: string;
   /** Model override. */
   model?: string;
+  /** Reasoning effort (number 1-5 or level name); resolved per-provider downstream. */
+  effort?: string | number;
   /** Agent system prompt. */
   systemPrompt?: string;
   /** Compact model override (falls back to model). */
@@ -170,6 +172,7 @@ export async function runMessagePipeline(ctx: PipelineContext): Promise<Pipeline
     content,
     cwd,
     model,
+    effort: ctx.effort,
     systemPrompt: ctx.systemPrompt,
     onChunk: ctx.onChunk,
     signal: ctx.signal,

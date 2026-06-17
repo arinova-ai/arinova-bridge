@@ -12,6 +12,8 @@ export interface SessionEntry {
 export interface CreateSessionOpts {
   cwd?: string;
   model?: string;
+  /** Reasoning effort, already resolved to a `claude --effort` level by the provider. */
+  effort?: string;
   systemPrompt?: string;
   resumeSessionId?: string;
   compact?: boolean;
@@ -72,6 +74,7 @@ export class SessionStore {
       systemPrompt: opts?.systemPrompt,
       cwd,
       model,
+      effort: opts?.effort,
       resumeSessionId: opts?.resumeSessionId,
       compact: opts?.compact,
       env: this.config.env,
@@ -125,7 +128,7 @@ export class SessionStore {
     return this.deadSessionIds.get(sessionId);
   }
 
-  async resumeSession(conversationId: string, sessionId?: string): Promise<SessionEntry | null> {
+  async resumeSession(conversationId: string, sessionId?: string, effort?: string): Promise<SessionEntry | null> {
     const sid = sessionId ?? this.getLastSessionId(conversationId);
     if (!sid) return null;
 
@@ -141,6 +144,9 @@ export class SessionStore {
     return this.createSession(conversationId, {
       cwd,
       model,
+      // --effort is spawn-only; thread it so a resumed (or /compact-rebuilt)
+      // process keeps the agent's configured reasoning effort.
+      effort,
       resumeSessionId: sid,
     });
   }

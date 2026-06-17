@@ -351,7 +351,7 @@ export class CodexAppServer {
     conversationId: string,
     text: string,
     onChunk?: (text: string) => void,
-    opts?: { cwd?: string; model?: string; agentName?: string; env?: Record<string, string> },
+    opts?: { cwd?: string; model?: string; effort?: string; agentName?: string; env?: Record<string, string> },
   ): Promise<{ text: string; threadId: string }> {
     const threadId = await this.startThread(conversationId, {
       cwd: opts?.cwd,
@@ -375,6 +375,8 @@ export class CodexAppServer {
       threadId,
       input: [{ type: "text", text, text_elements: [] }],
     };
+    // "Override the reasoning effort for this turn and subsequent turns."
+    if (opts?.effort) turnParams.effort = opts.effort;
 
     return new Promise<{ text: string; threadId: string }>((resolve, reject) => {
       state.turnResolve = (responseText) => resolve({ text: responseText, threadId });

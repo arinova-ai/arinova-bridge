@@ -96,7 +96,7 @@ export interface DeliverResult {
 export async function deliverToAgent(
   target: ActiveAgent,
   content: string,
-  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void },
+  opts?: { source?: string; sourceConversationId?: string; timeoutMs?: number; cwd?: string; model?: string; effort?: string | number; bridgeSessionStore?: BridgeSessionStore; onLog?: (text: string) => void },
 ): Promise<DeliverResult> {
   const currentDepth = opts?.sourceConversationId
     ? parseA2aDepth(opts.sourceConversationId)
@@ -129,6 +129,9 @@ export async function deliverToAgent(
   if (!handled) {
     const cwd = opts?.cwd ?? target.agentConfig.cwd;
     const model = opts?.model ?? target.agentConfig.model;
+    // Same effort the agent's Chat path uses — otherwise codex A2A/spawn/fork
+    // turns (which have no sticky effort map) silently run at the default level.
+    const effort = opts?.effort ?? target.agentConfig.effort;
 
     const controller = new AbortController();
     const timeout = opts?.timeoutMs ?? 600_000;
@@ -154,6 +157,7 @@ export async function deliverToAgent(
             agentName: target.name,
             cwd,
             model,
+            effort,
             systemPrompt: target.agentConfig.systemPrompt,
             compactModel: target.agentConfig.compactModel,
             onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
@@ -176,6 +180,7 @@ export async function deliverToAgent(
             content,
             cwd,
             model,
+            effort,
             systemPrompt: target.agentConfig.systemPrompt,
             onChunk: (text) => { responseText += text; opts?.onLog?.(text); },
             signal: controller.signal,

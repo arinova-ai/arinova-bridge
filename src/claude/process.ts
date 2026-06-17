@@ -28,6 +28,8 @@ export type ClaudeProcessOptions = {
   systemPrompt?: string;
   cwd?: string;
   model?: string;
+  /** Reasoning effort, already resolved to a `claude --effort` level (low/medium/high/xhigh/max). */
+  effort?: string;
   resumeSessionId?: string;
   compact?: boolean;
   env?: Record<string, string>;
@@ -234,6 +236,10 @@ export class ClaudeProcess {
 
     if (this.opts.model) {
       argv.push("--model", this.opts.model);
+    }
+
+    if (this.opts.effort) {
+      argv.push("--effort", this.opts.effort);
     }
 
     if (this.opts.mcpConfigPath) {

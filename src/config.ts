@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { readConfigFile, type ProviderEntry, type AgentEntry, type McpServerEntry } from "./config-file.js";
 import { loadAgentPrompts, buildAgentSystemPrompt } from "./agents/loader.js";
+import { validateEffort } from "./util/effort.js";
 
 export interface ResolvedAgent {
   name: string;
@@ -12,6 +13,8 @@ export interface ResolvedAgent {
   /** Model used for compact summarisation (cheaper/faster). */
   compactModel?: string;
   systemPrompt?: string;
+  /** Canonical reasoning-effort level (resolved per-provider at send time). */
+  effort?: string;
 }
 
 export interface BridgeConfig {
@@ -28,6 +31,7 @@ export interface BridgeConfig {
     idleTimeoutMs: number;
     dbPath: string;
     mcpConfigPath?: string;
+    effort?: string;
   };
   mcpServers: Record<string, McpServerEntry>;
   agents: ResolvedAgent[];
@@ -100,6 +104,8 @@ export function loadConfig(): BridgeConfig {
     file?.defaults?.mcpConfigPath ??
     undefined;
 
+  const defaultEffort = validateEffort(file?.defaults?.effort, "defaults.effort");
+
   // Read providers from config file array
   const providers: ProviderEntry[] = file?.providers ?? [];
 
@@ -120,6 +126,7 @@ export function loadConfig(): BridgeConfig {
       model: a.model,
       compactModel: a.compactModel ?? defaultCompactModel(a.provider),
       systemPrompt: buildAgentSystemPrompt(a.name, agentPrompts) || undefined,
+      effort: validateEffort(a.effort, `agents[${a.name}].effort`) ?? defaultEffort,
     }));
   } else {
     // Backward compatible: single agent from arinova.botToken
@@ -130,6 +137,7 @@ export function loadConfig(): BridgeConfig {
       cwd: defaultCwd,
       compactModel: defaultCompactModel(defaultProvider),
       systemPrompt: buildAgentSystemPrompt(agentName, agentPrompts) || undefined,
+      effort: defaultEffort,
     }];
   }
 
@@ -143,6 +151,7 @@ export function loadConfig(): BridgeConfig {
       idleTimeoutMs,
       dbPath,
       mcpConfigPath,
+      effort: defaultEffort,
     },
     mcpServers,
     agents,

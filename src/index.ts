@@ -119,6 +119,7 @@ for (const { name, provider, agentConfig, agent } of activeAgents) {
   provider.warmup(warmupId, {
     cwd: agentConfig.cwd,
     model: agentConfig.model,
+    effort: agentConfig.effort,
     systemPrompt: agentConfig.systemPrompt,
     // Wire the tool-call reporter at warmup so the pre-spawned process
     // reports tool calls from the very first turn — without this, warmup
@@ -273,6 +274,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
           agentName,
           cwd,
           model,
+          effort: agentCfg.effort,
           systemPrompt: agentCfg.systemPrompt,
           compactModel: agentCfg.compactModel,
           onChunk: (text) => ctx.sendChunk(text),
@@ -441,6 +443,7 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
               agentName,
               cwd: agentCfg.cwd,
               model: agentCfg.model,
+              effort: agentCfg.effort,
               systemPrompt: agentCfg.systemPrompt,
               compactModel: agentCfg.compactModel,
               onChunk: () => {},

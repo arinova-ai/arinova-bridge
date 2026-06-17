@@ -46,6 +46,11 @@ export interface SendMessageOpts {
   content: string;
   cwd?: string;
   model?: string;
+  /**
+   * Reasoning-effort level for this agent (config value: number 1-5 or a level
+   * name). Each provider resolves/clamps it to what it supports.
+   */
+  effort?: string | number;
   /** Agent system prompt loaded from agents/*.md files. */
   systemPrompt?: string;
   onChunk: (text: string) => void;
@@ -188,6 +193,7 @@ export interface SessionListEntry {
 export interface WarmupOpts {
   cwd?: string;
   model?: string;
+  effort?: string | number;
   systemPrompt?: string;
   /**
    * Wire the tool-call reporter at warmup so the pre-spawned ClaudeProcess

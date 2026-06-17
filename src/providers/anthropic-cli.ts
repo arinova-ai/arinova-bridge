@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import { SessionStore } from "../claude/session-store.js";
 import { buildContextPrefix } from "../util/context.js";
+import { resolveEffortForProvider } from "../util/effort.js";
 import type { Logger } from "../util/logger.js";
 
 export interface AnthropicCliConfig {
@@ -51,6 +52,20 @@ export class AnthropicCliProvider implements Provider {
   private providerEnv: Record<string, string>;
   /** Per-conversation promise chain for queued (non-aborting) sends. */
   private sendChains = new Map<string, Promise<unknown>>();
+  /**
+   * Per-conversation resolved `--effort` level. `--effort` is a spawn-time CLI
+   * flag, so it's applied when a session's process is (re)created. Recording it
+   * here keeps it sticky across respawns and `/model` resets, which build a
+   * fresh process without seeing the original SendMessageOpts.
+   */
+  private effortByConv = new Map<string, string>();
+
+  /** Resolve + remember the effort for a conversation; returns the level to spawn with. */
+  private recordEffort(conversationId: string, raw: unknown): string | undefined {
+    const level = resolveEffortForProvider(raw, this.type);
+    if (level) this.effortByConv.set(conversationId, level);
+    return this.effortByConv.get(conversationId);
+  }
 
   constructor(config: AnthropicCliConfig, logger: Logger) {
     this.id = config.providerId;
@@ -76,6 +91,7 @@ export class AnthropicCliProvider implements Provider {
   }
 
   warmup(conversationId: string, opts?: WarmupOpts): void {
+    const effort = this.recordEffort(conversationId, opts?.effort);
     const existing = this.store.getSession(conversationId);
     if (existing && existing.process.isAlive()) {
       if (opts?.reportToolCall) existing.process.setReportToolCall(opts.reportToolCall);
@@ -84,12 +100,14 @@ export class AnthropicCliProvider implements Provider {
     this.store.createSession(conversationId, {
       cwd: opts?.cwd,
       model: opts?.model,
+      effort,
       systemPrompt: opts?.systemPrompt,
       reportToolCall: opts?.reportToolCall,
     });
   }
 
   async sendMessage(opts: SendMessageOpts): Promise<SendResult> {
+    this.recordEffort(opts.conversationId, opts.effort);
     if (opts.queue) {
       return this.queuedSend(opts);
     }
@@ -123,7 +141,7 @@ export class AnthropicCliProvider implements Provider {
     let entry = this.store.getSession(conversationId);
 
     if (!entry || !entry.process.isAlive()) {
-      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
+      entry = this.store.createSession(conversationId, { cwd, model, effort: this.effortByConv.get(conversationId), systemPrompt: opts.systemPrompt, reportToolCall });
     }
 
     // Wait for the process to finish any in-flight turn (Chat or previous A2A)
@@ -132,7 +150,7 @@ export class AnthropicCliProvider implements Provider {
       // Re-check: session may have been destroyed while waiting
       const refreshed = this.store.getSession(conversationId);
       if (!refreshed || !refreshed.process.isAlive()) {
-        entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
+        entry = this.store.createSession(conversationId, { cwd, model, effort: this.effortByConv.get(conversationId), systemPrompt: opts.systemPrompt, reportToolCall });
         break;
       }
       entry = refreshed;
@@ -184,7 +202,7 @@ export class AnthropicCliProvider implements Provider {
       }
       entry.lastActivity = Date.now();
     } else {
-      entry = this.store.createSession(conversationId, { cwd, model, systemPrompt: opts.systemPrompt, reportToolCall });
+      entry = this.store.createSession(conversationId, { cwd, model, effort: this.effortByConv.get(conversationId), systemPrompt: opts.systemPrompt, reportToolCall });
     }
 
     // Keep the reporter fresh — covers reused-alive sessions and resume paths
@@ -207,6 +225,7 @@ export class AnthropicCliProvider implements Provider {
       const respawned = this.store.createSession(conversationId, {
         cwd,
         model,
+        effort: this.effortByConv.get(conversationId),
         systemPrompt: opts.systemPrompt,
         reportToolCall,
       });
@@ -233,6 +252,8 @@ export class AnthropicCliProvider implements Provider {
       this.store.createSession(conversationId, {
         cwd: opts.cwd,
         model: opts.model,
+        // Keep the agent's effort across a /model or cwd reset (spawn-time flag).
+        effort: this.effortByConv.get(conversationId),
       });
     }
   }
@@ -242,7 +263,11 @@ export class AnthropicCliProvider implements Provider {
     sessionId: string,
     opts?: SessionOpts,
   ): Promise<boolean> {
-    const entry = await this.store.resumeSession(conversationId, sessionId);
+    const entry = await this.store.resumeSession(
+      conversationId,
+      sessionId,
+      this.effortByConv.get(conversationId),
+    );
     return entry !== null;
   }
 

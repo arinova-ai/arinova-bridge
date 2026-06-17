@@ -12,6 +12,7 @@ import type {
 import { initDb, type BridgeDb } from "../codex/db.js";
 import { CodexAppServer } from "../codex/app-server.js";
 import { buildContextPrefix } from "../util/context.js";
+import { resolveEffortForProvider } from "../util/effort.js";
 import { ensureAgentCodexHome, type McpStdioServer } from "../mcp/preinstalled.js";
 import type { Logger } from "../util/logger.js";
 import { homedir } from "node:os";
@@ -122,6 +123,8 @@ export class OpenAICliProvider implements Provider {
     const content = systemPromptPrefix + buildContextPrefix(opts) + opts.content;
     const effectiveCwd = cwd ?? this.getConvCwd(conversationId) ?? this.defaultCwd;
     const effectiveModel = model ?? this.getConvModel(conversationId) ?? undefined;
+    // Clamp the unified effort to what codex accepts (minimal/low/medium/high).
+    const effort = resolveEffortForProvider(opts.effort, this.type);
     // Per-thread agent name — CodexAppServer is a long-running process, so
     // set the agent name via thread config rather than process env.
     const agentName = conversationId.split(":")[0] || undefined;
@@ -140,7 +143,7 @@ export class OpenAICliProvider implements Provider {
         conversationId,
         content,
         onChunk,
-        { cwd: effectiveCwd, model: effectiveModel, agentName, env: agentEnv },
+        { cwd: effectiveCwd, model: effectiveModel, effort, agentName, env: agentEnv },
       );
 
       // Persist thread ID

@@ -27,6 +27,8 @@ export interface AgentEntry {
   model?: string;
   /** Model used for compact summarisation (cheaper/faster model). */
   compactModel?: string;
+  /** Reasoning effort: number 1-5 or a level name (minimal/low/medium/high/xhigh/max). Overrides defaults.effort. */
+  effort?: string | number;
 }
 
 export interface McpServerEntry {
@@ -50,6 +52,8 @@ export interface ConfigFile {
     idleTimeoutMs?: number;
     dbPath?: string;
     mcpConfigPath?: string;
+    /** Default reasoning effort for all agents (1-5 or a level name); per-agent `effort` overrides it. */
+    effort?: string | number;
   };
   mcpServers?: Record<string, McpServerEntry>;
   agents?: AgentEntry[];

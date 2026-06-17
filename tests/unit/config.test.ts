@@ -166,4 +166,62 @@ describe("loadConfig", () => {
 
     expect(config.agents[0].compactModel).toBe("gpt-5.4-mini");
   });
+
+  it("resolves and merges effort (per-agent overrides defaults; numeric → level)", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "anthropic-oauth",
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "A", enabled: true },
+      ],
+      defaults: { cwd: "/home/test", effort: 3 },
+      agents: [
+        { name: "hi", botToken: "t1", provider: "anthropic-oauth", effort: 5 },
+        { name: "inherit", botToken: "t2", provider: "anthropic-oauth" },
+        { name: "named", botToken: "t3", provider: "anthropic-oauth", effort: "minimal" },
+      ],
+    });
+
+    const config = loadConfig();
+
+    expect(config.defaults.effort).toBe("high"); // 3 → high
+    const byName = Object.fromEntries(config.agents.map((a) => [a.name, a.effort]));
+    expect(byName.hi).toBe("max"); //        per-agent 5 → max
+    expect(byName.inherit).toBe("high"); //  falls back to defaults (3 → high)
+    expect(byName.named).toBe("minimal"); // string level kept verbatim
+  });
+
+  it("leaves effort undefined when unset", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "anthropic-oauth",
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "A", enabled: true },
+      ],
+      defaults: { cwd: "/home/test" },
+      agents: [{ name: "x", botToken: "t", provider: "anthropic-oauth" }],
+    });
+
+    const config = loadConfig();
+
+    expect(config.defaults.effort).toBeUndefined();
+    expect(config.agents[0].effort).toBeUndefined();
+  });
+
+  it("rejects an invalid effort value", () => {
+    mockReadConfigFile.mockReturnValue({
+      version: 2,
+      arinova: { serverUrl: "ws://file:3501", botToken: "file-token" },
+      defaultProvider: "anthropic-oauth",
+      providers: [
+        { id: "anthropic-oauth", type: "anthropic-cli", displayName: "A", enabled: true },
+      ],
+      defaults: { cwd: "/home/test" },
+      agents: [{ name: "x", botToken: "t", provider: "anthropic-oauth", effort: 9 }],
+    });
+
+    expect(() => loadConfig()).toThrow(/effort/);
+  });
 });

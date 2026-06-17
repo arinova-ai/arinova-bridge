@@ -109,6 +109,8 @@ export interface TurnStartParams {
   cwd?: string | null;
   approvalPolicy?: string | null;
   model?: string | null;
+  /** Reasoning effort for this turn and subsequent turns (minimal/low/medium/high). */
+  effort?: string | null;
 }
 
 export interface TurnInfo {
