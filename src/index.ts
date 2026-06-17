@@ -1,5 +1,4 @@
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
-import { rejectTaskWithoutConversation } from "./agent-task-guard.js";
 import { loadConfig, type ResolvedAgent } from "./config.js";
 import { createProviders } from "./providers/registry.js";
 import { ensureAgentCliMcpConfig, type ArinovaMcpEnv } from "./mcp/preinstalled.js";
@@ -21,6 +20,9 @@ import { ForkManager } from "./fork/manager.js";
 import { resolveProviderConfigDir } from "./config-file.js";
 import { homedir } from "node:os";
 import path from "node:path";
+import { savePermanentToken } from "./onboarding/token-persistence.js";
+import { fetchOnboardingKnowledge } from "./onboarding/knowledge.js";
+import { createOnboardingConversation, readOnboardingSeed, runOnboardingSeedTurn } from "./onboarding/seed.js";
 
 function formatResetIn(epoch: number): string {
   const epochMs = epoch < 1e12 ? epoch * 1000 : epoch;
@@ -223,19 +225,9 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
 
   agent.onTask(async (ctx) => {
     const { conversationId, content } = ctx;
-    // agent-sdk 0.0.19-staging.7 made TaskContext.conversationId optional. The
-    // bridge's single-session-per-agent model has nothing to reply to or scope
-    // Note calls against without one, so we cannot process such a task. Send a
-    // terminal error (NOT a bare return): only sendComplete/sendError call the
-    // SDK's markFinished(), which stops the heartbeat, deletes the active task
-    // and releases the agent-wide lock. A bare return would leak the task and
-    // deadlock every subsequent task on this agent. This also narrows the type
-    // to string for the handler below.
-    if (!conversationId) {
-      rejectTaskWithoutConversation(ctx, agentName, logger);
-      return;
-    }
-    // Single session per agent — Chat and A2A share the same context
+    // Single session per agent — Chat and A2A share the same context.
+    // Platform wakeups (trigger/cron) carry no conversationId; the bridge
+    // routes everything through the same session so they work fine.
     const sessionId = `${agentName}:default`;
 
     try {
@@ -254,11 +246,10 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
         senderAgentName: ctx.senderAgentName,
         members: ctx.members,
         fetchHistory: ctx.fetchHistory,
-        // Arinova API calls use original conversationId (not session-scoped)
-        listNotes: (options) => agent.listNotes(conversationId, options),
-        createNote: (body) => agent.createNote(conversationId, body),
-        updateNote: (noteId, body) => agent.updateNote(conversationId, noteId, body),
-        deleteNote: (noteId) => agent.deleteNote(conversationId, noteId),
+        listNotes: (options) => agent.listNotes(conversationId ?? "", options),
+        createNote: (body) => agent.createNote(conversationId ?? "", body),
+        updateNote: (noteId, body) => agent.updateNote(conversationId ?? "", noteId, body),
+        deleteNote: (noteId) => agent.deleteNote(conversationId ?? "", noteId),
       });
       if (result.handled) return;
 
@@ -374,14 +365,14 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
       const msg = err instanceof Error ? err.message : String(err);
       if (ctx.signal.aborted || msg === "Turn aborted by user") {
         const reason = ctx.signal.aborted ? "signal aborted (client/SDK)" : `process: ${msg}`;
-        logger.info(`[${agentName}] task cancelled for ${conversationId} — ${reason}`);
+        logger.info(`[${agentName}] task cancelled for ${conversationId ?? "(platform-wakeup)"} — ${reason}`);
         // Ensure the client receives a terminal signal so it doesn't hang.
         // The SDK's abort listener may have already sent agent_error; sendError
         // is guarded against duplicates so this is safe to call unconditionally.
         ctx.sendError("cancelled");
         return;
       }
-      logger.error(`[${agentName}] task error for ${conversationId}: ${msg}`);
+      logger.error(`[${agentName}] task error for ${conversationId ?? "(platform-wakeup)"}: ${msg}`);
       ctx.sendError(msg);
     }
   });
@@ -398,7 +389,73 @@ async function startAgent(agentCfg: ResolvedAgent): Promise<void> {
     logger.error(`[${agentName}] Agent error: ${err.message}`);
   });
 
+  // Onboarding claim flow: obt_* token → permanent ari_* token exchange
+  const isOnboardingToken = agentCfg.botToken.startsWith("obt_");
+  let claimedToken: string | null = null;
+
+  if (isOnboardingToken) {
+    agent.on("token_claimed", (data) => {
+      claimedToken = data.permanentToken;
+      logger.info(`[${agentName}] Onboarding token claimed — saving permanent token`);
+      savePermanentToken(data.permanentToken, logger, agentName);
+    });
+  }
+
   await agent.connect();
+
+  // Post-auth: fetch onboarding knowledge and inject into system prompt
+  if (isOnboardingToken && claimedToken) {
+    const agentId = agent.getAgentId();
+    if (agentId) {
+      const knowledge = await fetchOnboardingKnowledge(config.arinova.serverUrl, claimedToken, agentId, logger);
+      agentCfg.systemPrompt = agentCfg.systemPrompt ? `${agentCfg.systemPrompt}\n\n${knowledge}` : knowledge;
+      logger.info(`[${agentName}] Onboarding knowledge injected (${knowledge.length} chars)`);
+    }
+
+    // Update MCP env with permanent token for sub-processes
+    for (const candidateProvider of providers.values()) {
+      if (candidateProvider.setAgentMcpEnv) {
+        candidateProvider.setAgentMcpEnv(agentName, {
+          ARINOVA_BOT_TOKEN: claimedToken,
+          ARINOVA_SERVER_URL: config.arinova.serverUrl,
+        });
+      }
+    }
+
+    // OB-11 AC8.8/8.9: deterministic seeded opening turn (Break #2, bridge side).
+    const onboardingSeed = readOnboardingSeed(agent);
+    if (onboardingSeed) {
+      const seedToken = claimedToken ?? agentCfg.botToken;
+      const seedSessionId = `${agentName}:default`;
+      try {
+        await runOnboardingSeedTurn(onboardingSeed, {
+          logger,
+          createConversation: (seedAgentId) =>
+            createOnboardingConversation(config.arinova.serverUrl, seedToken, seedAgentId, logger),
+          runTurn: async (prompt) => {
+            const result = await runMessagePipeline({
+              provider,
+              bridgeSessionStore,
+              sessionId: seedSessionId,
+              content: prompt,
+              agentName,
+              cwd: agentCfg.cwd,
+              model: agentCfg.model,
+              systemPrompt: agentCfg.systemPrompt,
+              compactModel: agentCfg.compactModel,
+              onChunk: () => {},
+              reportToolCall: (report) => agent.reportToolCall(report),
+            });
+            return result.text;
+          },
+          sendMessage: (conversationId, content) => agent.sendMessage(conversationId, content),
+        });
+      } catch (err) {
+        logger.warn(`[${agentName}] onboarding seed turn failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   activeAgents.push({ agent, name: agentName, commandHandler, provider, agentConfig: agentCfg });
   logger.info(`[${agentName}] started — provider=${agentCfg.provider} cwd=${agentCfg.cwd} systemPrompt=${agentCfg.systemPrompt ? `${agentCfg.systemPrompt.length} chars` : "none"}`);
 }
