@@ -21,9 +21,15 @@ describe("onboarding/command config writers", () => {
     const dir = path.dirname(filePath);
     let config: Record<string, unknown> = {};
     if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8");
       try {
-        config = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-      } catch { /* start fresh */ }
+        config = JSON.parse(raw);
+      } catch (err) {
+        throw new Error(
+          `Cannot parse ${filePath} — fix the JSON manually or remove the file.\n` +
+          `Parse error: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
     const existing = (config[key] ?? {}) as Record<string, unknown>;
     config[key] = { ...existing, ...value };
@@ -82,6 +88,18 @@ describe("onboarding/command config writers", () => {
     const target = path.join(tmpDir, "deep", "nested", "mcp.json");
     mergeJsonConfig(target, "mcpServers", { arinova: { command: "test" } });
     expect(fs.existsSync(target)).toBe(true);
+  });
+
+  it("throws on malformed existing JSON instead of silently overwriting", () => {
+    const target = path.join(tmpDir, "broken.json");
+    fs.writeFileSync(target, "{ not valid json !!!");
+
+    expect(() =>
+      mergeJsonConfig(target, "mcpServers", { arinova: { command: "test" } }),
+    ).toThrow(/Cannot parse.*broken\.json/);
+
+    // Original file must be untouched
+    expect(fs.readFileSync(target, "utf-8")).toBe("{ not valid json !!!");
   });
 });
 

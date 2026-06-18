@@ -4,9 +4,20 @@ import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { select, confirm } from "@inquirer/prompts";
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
-import { readConfigFile, writeConfigFile, type ConfigFile } from "../config-file.js";
+import { readConfigFile } from "../config-file.js";
 import { savePermanentToken } from "./token-persistence.js";
 import type { Logger } from "../util/logger.js";
+
+const PID_FILE = path.join(homedir(), ".arinova-bridge", "bridge.pid");
+
+/** Start the bridge with PID file lifecycle (mirrors cmdStart in cli.ts). */
+async function startBridge(): Promise<void> {
+  const dir = path.dirname(PID_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(PID_FILE, String(process.pid), "utf-8");
+  process.on("exit", () => { try { fs.unlinkSync(PID_FILE); } catch { /* already gone */ } });
+  await import("../index.js");
+}
 
 const DEFAULT_SERVER_URL = "wss://api.chat.arinova.ai";
 
@@ -68,16 +79,22 @@ function arinovaMcpEntry(botToken: string, serverUrl: string) {
 
 /**
  * Read a JSON file, merge a key, and write it back. Creates parent dirs if needed.
- * Returns the resolved file path.
+ * Throws on malformed existing JSON to avoid silent data loss.
  */
 function mergeJsonConfig(filePath: string, key: string, value: Record<string, unknown>): string {
   const dir = path.dirname(filePath);
   let config: Record<string, unknown> = {};
 
   if (fs.existsSync(filePath)) {
+    const raw = fs.readFileSync(filePath, "utf-8");
     try {
-      config = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    } catch { /* start fresh */ }
+      config = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(
+        `Cannot parse ${filePath} — fix the JSON manually or remove the file.\n` +
+        `Parse error: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   const existing = (config[key] ?? {}) as Record<string, unknown>;
@@ -89,8 +106,8 @@ function mergeJsonConfig(filePath: string, key: string, value: Record<string, un
 }
 
 function writeClaudeCodeConfig(botToken: string, serverUrl: string): string {
-  const settingsPath = path.join(homedir(), ".claude", "settings.json");
-  return mergeJsonConfig(settingsPath, "mcpServers", {
+  const configPath = path.join(homedir(), ".claude.json");
+  return mergeJsonConfig(configPath, "mcpServers", {
     arinova: arinovaMcpEntry(botToken, serverUrl),
   });
 }
@@ -148,7 +165,7 @@ export async function runOnboarding(args: string[]): Promise<void> {
     if (action === "cancel") return;
     if (action === "start") {
       console.log("\nStarting bridge...\n");
-      await import("../index.js");
+      await startBridge();
       return;
     }
   }
@@ -218,7 +235,7 @@ export async function runOnboarding(args: string[]): Promise<void> {
 
   if (startNow) {
     console.log("\nStarting bridge...\n");
-    await import("../index.js");
+    await startBridge();
   } else {
     console.log("\nRun later with:\n  arinova-bridge start\n");
   }
