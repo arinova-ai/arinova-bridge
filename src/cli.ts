@@ -21,15 +21,19 @@ QUICK START
   arinova-bridge start          # Start the bridge server
 
 COMMANDS
-  start    Start the bridge server (writes PID to ~/.arinova-bridge/bridge.pid)
-  stop     Stop the running bridge server (sends SIGTERM via PID file)
-  agents   A2A agent management (list, deliver, broadcast, status)
-  spawn    Session spawn management (add, list, cancel)
-  fork     Fork agent to execute task in sub-session (add, list, cancel)
-  config   Show current configuration (secrets masked)
-  setup    Interactive setup wizard (providers, bot token, statusLine)
-  login    OAuth login for a specific provider (without re-running full setup)
-  help     Show this help message
+  start       Start the bridge server (writes PID to ~/.arinova-bridge/bridge.pid)
+  stop        Stop the running bridge server (sends SIGTERM via PID file)
+  onboarding  One-line setup: claim token, select client, write MCP config, start
+  agents      A2A agent management (list, deliver, broadcast, status)
+  spawn       Session spawn management (add, list, cancel)
+  fork        Fork agent to execute task in sub-session (add, list, cancel)
+  config      Show current configuration (secrets masked)
+  setup       Interactive setup wizard (providers, bot token, statusLine)
+  login       OAuth login for a specific provider (without re-running full setup)
+  help        Show this help message
+
+ONBOARDING SUBCOMMAND
+  onboarding --token=obt_xxx   Claim token, select AI client, write MCP config, start bridge
 
 LOGIN SUBCOMMAND
   login                     Interactive provider selection
@@ -677,6 +681,11 @@ async function main(): Promise<void> {
     case "config":
       cmdConfig();
       break;
+    case "onboarding": {
+      const { runOnboarding } = await import("./onboarding/command.js");
+      await runOnboarding(args.slice(1));
+      break;
+    }
     case "setup":
       await cmdSetup();
       break;
