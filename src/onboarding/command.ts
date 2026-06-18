@@ -21,7 +21,7 @@ async function startBridge(): Promise<void> {
 
 const DEFAULT_SERVER_URL = "wss://api.chat.arinova.ai";
 
-type ClientId = "claude-code" | "codex" | "cursor";
+type ClientId = "claude-code" | "codex" | "cursor" | "other";
 
 function parseTokenFlag(args: string[]): string | undefined {
   for (const arg of args) {
@@ -198,10 +198,12 @@ export async function runOnboarding(args: string[]): Promise<void> {
       { name: "Claude Code", value: "claude-code" as const },
       { name: "Codex CLI", value: "codex" as const },
       { name: "Cursor", value: "cursor" as const },
+      { name: "Other", value: "other" as const },
     ],
   });
 
   // AC14.4: Auto-write client MCP config
+  const mcpEntry = arinovaMcpEntry(permanentToken, serverUrl);
   switch (client) {
     case "claude-code": {
       const p = writeClaudeCodeConfig(permanentToken, serverUrl);
@@ -221,6 +223,12 @@ export async function runOnboarding(args: string[]): Promise<void> {
         console.warn("\n  Could not find codex CLI. Add the MCP server manually:");
         console.warn("    codex mcp add arinova --env ARINOVA_BOT_TOKEN=" + permanentToken.slice(0, 8) + "... -- npx -y @arinova-ai/mcp-server@latest");
       }
+      break;
+    }
+    case "other": {
+      console.log("\n  Add this MCP server entry to your client's config:\n");
+      console.log(JSON.stringify({ mcpServers: { arinova: mcpEntry } }, null, 2));
+      console.log();
       break;
     }
   }
