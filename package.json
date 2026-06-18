@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/arinova-bridge",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "Multi-provider bridge between Arinova Chat and AI coding assistants (Claude, Codex)",
   "type": "module",
   "main": "dist/index.js",
